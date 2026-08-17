@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "proofttl",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-17",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "kv_namespaces": [
+    {
+      "binding": "LEASES",
+      "id": "REPLACE_WITH_KV_NAMESPACE_ID",
+      "preview_id": "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "PROOFTTL_MAX_TTL_SECONDS": "604800",
+    "PROOFTTL_MAX_SOURCE_CHARS": "30000"
+  }
+}
