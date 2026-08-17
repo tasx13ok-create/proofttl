@@ -4,35 +4,89 @@ import { privateKeyToAccount } from "viem/accounts";
 
 const privateKey = process.env.PROOFTTL_TEST_PRIVATE_KEY;
 const endpoint = "https://proofttl.tasx13ok.workers.dev/verify";
+const expectedNetwork = "eip155:84532";
+const expectedPayTo = "0x29949a066902bd329F74479c9AEBC448100955d8".toLowerCase();
+const maxAtomicUsdc = 10000n; // $0.01 with 6-decimal USDC
 
 if (!privateKey || !/^0x[0-9a-fA-F]{64}$/.test(privateKey)) {
   console.error("Missing PROOFTTL_TEST_PRIVATE_KEY. Use a burner Base Sepolia wallet only.");
   process.exit(1);
 }
 
-const signer = privateKeyToAccount(privateKey);
-const client = new x402Client();
-client.setSpendControls({ maxAmountPerPayment: "$0.01" });
-client.register("eip155:84532", new ExactEvmScheme(signer));
+const requestBody = JSON.stringify({
+  claim: "Example Domain",
+  source_url: "https://example.com",
+  ttl_seconds: 300
+});
 
-const fetchWithPayment = wrapFetchWithPayment(fetch, client);
-
-console.log(`Payer: ${signer.address}`);
-console.log("Max payment allowed by test client: $0.01");
-console.log(`Calling: ${endpoint}`);
-
-const response = await fetchWithPayment(endpoint, {
+const requestInit = {
   method: "POST",
   headers: {
     "content-type": "application/json"
   },
-  body: JSON.stringify({
-    claim: "Example Domain",
-    source_url: "https://example.com",
-    ttl_seconds: 300
-  })
-});
+  body: requestBody
+};
 
+const signer = privateKeyToAccount(privateKey);
+
+console.log(`Payer: ${signer.address}`);
+console.log(`Calling: ${endpoint}`);
+console.log("Running unpaid payment preflight...");
+
+const preflight = await fetch(endpoint, requestInit);
+if (preflight.status !== 402) {
+  console.error(`Safety stop: expected HTTP 402 during preflight, got HTTP ${preflight.status}.`);
+  process.exit(1);
+}
+
+const paymentRequiredHeader = preflight.headers.get("payment-required");
+if (!paymentRequiredHeader) {
+  console.error("Safety stop: PAYMENT-REQUIRED header missing.");
+  process.exit(1);
+}
+
+let paymentRequired;
+try {
+  paymentRequired = JSON.parse(Buffer.from(paymentRequiredHeader, "base64").toString("utf8"));
+} catch (error) {
+  console.error("Safety stop: could not decode PAYMENT-REQUIRED header.");
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
+
+const acceptable = Array.isArray(paymentRequired?.accepts)
+  ? paymentRequired.accepts.find(option => {
+      if (option?.scheme !== "exact") return false;
+      if (option?.network !== expectedNetwork) return false;
+      if (String(option?.payTo ?? "").toLowerCase() !== expectedPayTo) return false;
+      try {
+        return BigInt(option?.amount ?? "-1") >= 0n && BigInt(option.amount) <= maxAtomicUsdc;
+      } catch {
+        return false;
+      }
+    })
+  : null;
+
+if (!acceptable) {
+  console.error("Safety stop: ProofTTL payment terms did not match the expected testnet limits.");
+  console.dir(paymentRequired, { depth: null });
+  process.exit(1);
+}
+
+console.log("Preflight OK:");
+console.log(`  network: ${acceptable.network}`);
+console.log(`  scheme: ${acceptable.scheme}`);
+console.log(`  payTo: ${acceptable.payTo}`);
+console.log(`  amount atomic USDC: ${acceptable.amount}`);
+console.log("  hard client ceiling: 10000 atomic USDC ($0.01)");
+
+const client = new x402Client();
+client.register(expectedNetwork, new ExactEvmScheme(signer));
+const fetchWithPayment = wrapFetchWithPayment(fetch, client);
+
+console.log("Authorizing x402 test payment...");
+
+const response = await fetchWithPayment(endpoint, requestInit);
 const text = await response.text();
 
 console.log(`HTTP ${response.status}`);
