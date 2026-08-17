@@ -2,6 +2,7 @@ const MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 const DEFAULT_TTL = 3600;
 const MAX_TTL = 604800;
 const MAX_SOURCE_CHARS = 30000;
+const MAX_HISTORY = 20;
 
 export default {
   async fetch(request, env) {
@@ -12,26 +13,41 @@ export default {
     if (request.method === "GET" && url.pathname === "/") {
       return json({
         name: "ProofTTL",
-        version: "0.1.0",
+        version: "0.2.0",
+        protocol: "ProofTTL/0.2",
         description: "Expiring, source-backed fact leases for machines.",
         endpoints: {
           health: "GET /health",
           verify: "POST /verify",
-          lease: "GET /lease/:id"
+          lease: "GET /lease/:id",
+          reverify: "POST /lease/:id/reverify"
         }
       });
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "proofttl", time: new Date().toISOString(), storage: Boolean(env.LEASES), ai: Boolean(env.AI) });
+      return json({
+        ok: true,
+        service: "proofttl",
+        version: "0.2.0",
+        time: new Date().toISOString(),
+        storage: Boolean(env.LEASES),
+        ai: Boolean(env.AI)
+      });
     }
 
     if (request.method === "POST" && url.pathname === "/verify") {
       return handleVerify(request, env);
     }
 
-    if (request.method === "GET" && url.pathname.startsWith("/lease/")) {
-      return handleLeaseGet(url.pathname.slice("/lease/".length), env);
+    const reverifyMatch = url.pathname.match(/^\/lease\/([^/]+)\/reverify$/);
+    if (request.method === "POST" && reverifyMatch) {
+      return handleReverify(decodeURIComponent(reverifyMatch[1]), env);
+    }
+
+    const leaseMatch = url.pathname.match(/^\/lease\/([^/]+)$/);
+    if (request.method === "GET" && leaseMatch) {
+      return handleLeaseGet(decodeURIComponent(leaseMatch[1]), env);
     }
 
     return json({ error: "not_found" }, 404);
@@ -48,7 +64,11 @@ async function handleVerify(request, env) {
 
   const claim = typeof body.claim === "string" ? body.claim.trim() : "";
   const sourceUrl = typeof body.source_url === "string" ? body.source_url.trim() : "";
-  const ttlSeconds = clampInt(body.ttl_seconds ?? DEFAULT_TTL, 60, Number(env.PROOFTTL_MAX_TTL_SECONDS || MAX_TTL));
+  const ttlSeconds = clampInt(
+    body.ttl_seconds ?? DEFAULT_TTL,
+    60,
+    Number(env.PROOFTTL_MAX_TTL_SECONDS || MAX_TTL)
+  );
 
   if (!claim || claim.length > 1000) return json({ error: "claim_required_or_too_long" }, 400);
   if (!sourceUrl) return json({ error: "source_url_required" }, 400);
@@ -62,7 +82,11 @@ async function handleVerify(request, env) {
 
   if (!isSafePublicHttpUrl(parsed)) return json({ error: "source_url_not_allowed" }, 400);
 
-  const fetched = await fetchSource(parsed.toString(), Number(env.PROOFTTL_MAX_SOURCE_CHARS || MAX_SOURCE_CHARS));
+  const fetched = await fetchSource(
+    parsed.toString(),
+    Number(env.PROOFTTL_MAX_SOURCE_CHARS || MAX_SOURCE_CHARS)
+  );
+
   if (!fetched.ok) {
     return json({
       status: "UNKNOWN",
@@ -70,54 +94,203 @@ async function handleVerify(request, env) {
       source_url: parsed.toString(),
       reason: fetched.reason,
       observed_at: new Date().toISOString()
-    }, 200);
+    });
   }
 
   const observedAt = new Date();
-  const sourceFingerprint = await sha256(fetched.normalizedText);
-  const verdict = await verifyClaim({ claim, sourceUrl: parsed.toString(), sourceText: fetched.normalizedText, env });
+  const fingerprint = `sha256:${await sha256(fetched.normalizedText)}`;
+  const verdict = await verifyClaim({
+    claim,
+    sourceUrl: parsed.toString(),
+    sourceText: fetched.normalizedText,
+    env
+  });
 
   const leaseId = `ftl_${crypto.randomUUID().replaceAll("-", "")}`;
   const expiresAt = new Date(observedAt.getTime() + ttlSeconds * 1000);
 
+  const firstCheck = makeCheck({
+    kind: "ISSUED",
+    observedAt: observedAt.toISOString(),
+    fingerprint,
+    finalUrl: fetched.finalUrl,
+    verdict
+  });
+
   const lease = {
     lease_id: leaseId,
-    protocol: "ProofTTL/0.1",
+    protocol: "ProofTTL/0.2",
     claim,
     status: verdict.status,
     source_url: parsed.toString(),
     final_url: fetched.finalUrl,
     evidence: verdict.evidence,
     reason: verdict.reason,
+    issued_at: observedAt.toISOString(),
     observed_at: observedAt.toISOString(),
     expires_at: expiresAt.toISOString(),
     ttl_seconds: ttlSeconds,
-    source_fingerprint: `sha256:${sourceFingerprint}`,
+    source_fingerprint: fingerprint,
     confidence: verdict.confidence,
     verifier: verdict.verifier,
-    lease_state: "ACTIVE"
+    lease_state: "ACTIVE",
+    verification_count: 1,
+    last_checked_at: observedAt.toISOString(),
+    last_check: firstCheck,
+    history: [firstCheck]
   };
 
-  if (env.LEASES) {
-    await env.LEASES.put(`lease:${leaseId}`, JSON.stringify(lease), {
-      expirationTtl: Math.max(ttlSeconds + 86400, 86400)
-    });
-  }
-
-  return json(lease, 200);
+  await saveLease(env, lease);
+  return json(lease);
 }
 
 async function handleLeaseGet(id, env) {
   if (!id) return json({ error: "lease_id_required" }, 400);
   if (!env.LEASES) return json({ error: "persistent_storage_not_configured" }, 503);
 
-  const raw = await env.LEASES.get(`lease:${id}`);
-  if (!raw) return json({ error: "lease_not_found" }, 404);
+  const lease = await loadLease(env, id);
+  if (!lease) return json({ error: "lease_not_found" }, 404);
 
-  const lease = JSON.parse(raw);
-  const now = Date.now();
-  if (lease.lease_state === "ACTIVE" && Date.parse(lease.expires_at) <= now) lease.lease_state = "EXPIRED";
+  applyExpiryState(lease);
   return json(lease);
+}
+
+async function handleReverify(id, env) {
+  if (!id) return json({ error: "lease_id_required" }, 400);
+  if (!env.LEASES) return json({ error: "persistent_storage_not_configured" }, 503);
+
+  const lease = await loadLease(env, id);
+  if (!lease) return json({ error: "lease_not_found" }, 404);
+
+  applyExpiryState(lease);
+  const checkedAt = new Date();
+
+  const fetched = await fetchSource(
+    lease.source_url,
+    Number(env.PROOFTTL_MAX_SOURCE_CHARS || MAX_SOURCE_CHARS)
+  );
+
+  if (!fetched.ok) {
+    const check = {
+      kind: "REVERIFY",
+      checked_at: checkedAt.toISOString(),
+      result: "SOURCE_UNAVAILABLE",
+      status: "UNKNOWN",
+      reason: fetched.reason
+    };
+    recordCheck(lease, check);
+    await saveLease(env, lease);
+    return json({ lease, check });
+  }
+
+  const currentFingerprint = `sha256:${await sha256(fetched.normalizedText)}`;
+
+  if (currentFingerprint === lease.source_fingerprint) {
+    const check = {
+      kind: "REVERIFY",
+      checked_at: checkedAt.toISOString(),
+      result: "UNCHANGED_SOURCE",
+      status: lease.status,
+      source_fingerprint: currentFingerprint,
+      final_url: fetched.finalUrl
+    };
+    recordCheck(lease, check);
+    await saveLease(env, lease);
+    return json({ lease, check });
+  }
+
+  const currentVerdict = await verifyClaim({
+    claim: lease.claim,
+    sourceUrl: lease.source_url,
+    sourceText: fetched.normalizedText,
+    env
+  });
+
+  const changedStatus = currentVerdict.status !== lease.status;
+  const wasUnexpired = checkedAt.getTime() < Date.parse(lease.expires_at);
+
+  let result = "SOURCE_CHANGED_STILL_CONSISTENT";
+  if (changedStatus && wasUnexpired) {
+    lease.lease_state = "REVOKED";
+    lease.revoked_at = checkedAt.toISOString();
+    lease.revocation_reason = "source_changed_and_original_verdict_can_no_longer_be_maintained";
+    lease.revocation = {
+      previous_status: lease.status,
+      current_status: currentVerdict.status,
+      current_evidence: currentVerdict.evidence,
+      current_reason: currentVerdict.reason,
+      current_confidence: currentVerdict.confidence,
+      current_source_fingerprint: currentFingerprint
+    };
+    result = "REVOKED";
+  } else if (changedStatus) {
+    result = "EXPIRED_AND_VERDICT_CHANGED";
+  }
+
+  const check = {
+    kind: "REVERIFY",
+    checked_at: checkedAt.toISOString(),
+    result,
+    status: currentVerdict.status,
+    evidence: currentVerdict.evidence,
+    reason: currentVerdict.reason,
+    confidence: currentVerdict.confidence,
+    verifier: currentVerdict.verifier,
+    source_fingerprint: currentFingerprint,
+    final_url: fetched.finalUrl
+  };
+
+  recordCheck(lease, check);
+  await saveLease(env, lease);
+  return json({ lease, check });
+}
+
+function makeCheck({ kind, observedAt, fingerprint, finalUrl, verdict }) {
+  return {
+    kind,
+    checked_at: observedAt,
+    result: "VERIFIED",
+    status: verdict.status,
+    evidence: verdict.evidence,
+    reason: verdict.reason,
+    confidence: verdict.confidence,
+    verifier: verdict.verifier,
+    source_fingerprint: fingerprint,
+    final_url: finalUrl
+  };
+}
+
+function recordCheck(lease, check) {
+  lease.verification_count = Number(lease.verification_count || 0) + 1;
+  lease.last_checked_at = check.checked_at;
+  lease.last_check = check;
+  const history = Array.isArray(lease.history) ? lease.history : [];
+  history.push(check);
+  lease.history = history.slice(-MAX_HISTORY);
+  applyExpiryState(lease);
+}
+
+function applyExpiryState(lease) {
+  if (lease.lease_state !== "REVOKED" && Date.parse(lease.expires_at) <= Date.now()) {
+    lease.lease_state = "EXPIRED";
+  }
+  return lease;
+}
+
+async function loadLease(env, id) {
+  const raw = await env.LEASES.get(`lease:${id}`);
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function saveLease(env, lease) {
+  if (!env.LEASES) return;
+  const retentionSeconds = Math.max(
+    Math.ceil((Date.parse(lease.expires_at) - Date.now()) / 1000) + 86400,
+    86400
+  );
+  await env.LEASES.put(`lease:${lease.lease_id}`, JSON.stringify(lease), {
+    expirationTtl: retentionSeconds
+  });
 }
 
 async function fetchSource(sourceUrl, maxChars) {
@@ -129,7 +302,7 @@ async function fetchSource(sourceUrl, maxChars) {
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent": "ProofTTL/0.1 (+source-backed fact verification)",
+        "User-Agent": "ProofTTL/0.2 (+source-backed fact verification)",
         "Accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1"
       }
     });
@@ -147,7 +320,10 @@ async function fetchSource(sourceUrl, maxChars) {
 
     return { ok: true, finalUrl: response.url, normalizedText };
   } catch (error) {
-    return { ok: false, reason: error?.name === "AbortError" ? "source_timeout" : "source_fetch_failed" };
+    return {
+      ok: false,
+      reason: error?.name === "AbortError" ? "source_timeout" : "source_fetch_failed"
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -155,7 +331,11 @@ async function fetchSource(sourceUrl, maxChars) {
 
 function normalizeSource(raw, contentType) {
   if (/json/i.test(contentType)) {
-    try { return JSON.stringify(JSON.parse(raw)); } catch { return raw.replace(/\s+/g, " ").trim(); }
+    try {
+      return JSON.stringify(JSON.parse(raw));
+    } catch {
+      return raw.replace(/\s+/g, " ").trim();
+    }
   }
 
   return raw
@@ -222,7 +402,9 @@ async function verifyClaim({ claim, sourceUrl, sourceText, env }) {
     });
 
     const parsed = parseAiResult(result);
-    if (!parsed || !["SUPPORTED", "CONTRADICTED", "UNKNOWN"].includes(parsed.status)) throw new Error("bad_ai_output");
+    if (!parsed || !["SUPPORTED", "CONTRADICTED", "UNKNOWN"].includes(parsed.status)) {
+      throw new Error("bad_ai_output");
+    }
 
     let evidence = typeof parsed.evidence === "string" ? parsed.evidence.trim() : null;
     if (evidence && !sourceText.includes(evidence)) {
@@ -253,19 +435,20 @@ async function verifyClaim({ claim, sourceUrl, sourceText, env }) {
 }
 
 function deterministicCheck(claim, sourceText) {
-  const c = normalizeComparable(claim);
-  const s = normalizeComparable(sourceText);
-  if (c.length >= 12 && s.includes(c)) {
-    const at = s.indexOf(c);
-    const rawEvidence = sourceText.slice(Math.max(0, at - 20), Math.min(sourceText.length, at + claim.length + 20));
+  const lowerClaim = claim.toLowerCase();
+  const lowerSource = sourceText.toLowerCase();
+  const at = lowerSource.indexOf(lowerClaim);
+
+  if (claim.length >= 12 && at !== -1) {
     return {
       status: "SUPPORTED",
-      evidence: rawEvidence,
-      reason: "normalized_claim_text_found_in_source",
+      evidence: sourceText.slice(at, at + claim.length),
+      reason: "exact_claim_text_found_in_source",
       confidence: 0.99,
       verifier: "deterministic-exact-match"
     };
   }
+
   return null;
 }
 
@@ -275,10 +458,17 @@ function parseAiResult(result) {
   const candidate = result.response ?? result.result ?? result.output_text ?? result;
   if (typeof candidate === "object") return candidate;
   if (typeof candidate !== "string") return null;
-  try { return JSON.parse(candidate); } catch {
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
     const match = candidate.match(/\{[\s\S]*\}/);
     if (!match) return null;
-    try { return JSON.parse(match[0]); } catch { return null; }
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -293,14 +483,12 @@ function isSafePublicHttpUrl(url) {
   return true;
 }
 
-function normalizeComparable(value) {
-  return String(value).toLowerCase().replace(/[^a-z0-9$%.]+/g, " ").replace(/\s+/g, " ").trim();
-}
-
 async function sha256(value) {
   const bytes = new TextEncoder().encode(value);
   const hash = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(hash)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function clampInt(value, min, max) {
@@ -316,10 +504,15 @@ function clampNumber(value, min, max) {
 }
 
 function json(data, status = 200) {
-  return cors(new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
-  }));
+  return cors(
+    new Response(JSON.stringify(data, null, 2), {
+      status,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store"
+      }
+    })
+  );
 }
 
 function cors(response) {
@@ -327,5 +520,9 @@ function cors(response) {
   headers.set("access-control-allow-origin", "*");
   headers.set("access-control-allow-methods", "GET,POST,OPTIONS");
   headers.set("access-control-allow-headers", "content-type");
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
 }
