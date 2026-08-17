@@ -11,13 +11,14 @@ export const DISCOVERY = {
     "persistent_fact_leases",
     "automatic_reverification",
     "automatic_revocation",
-    "source_fingerprinting"
+    "source_fingerprinting",
+    "x402_payments"
   ],
   verdicts: ["SUPPORTED", "CONTRADICTED", "UNKNOWN"],
   lease_states: ["ACTIVE", "REVOKED", "EXPIRED"],
   endpoints: {
     health: { method: "GET", path: "/health" },
-    verify: { method: "POST", path: "/verify" },
+    verify: { method: "POST", path: "/verify", payment_required: true },
     lease: { method: "GET", path: "/lease/{lease_id}" },
     reverify: { method: "POST", path: "/lease/{lease_id}/reverify" },
     monitor: { method: "GET", path: "/monitor/status" },
@@ -26,27 +27,33 @@ export const DISCOVERY = {
   },
   payments: {
     protocol: "x402",
-    enabled: false,
-    mode: "free_beta",
-    target_network: "eip155:84532",
+    version: 2,
+    enabled: true,
+    mode: "testnet",
+    network: "eip155:84532",
+    network_name: "Base Sepolia",
     production_network: "eip155:8453",
     asset: "USDC",
-    price_per_verification: null,
-    status: "awaiting_recipient_wallet"
+    price_per_verification: "$0.001",
+    pay_to: "0x29949a066902bd329F74479c9AEBC448100955d8",
+    facilitator: "https://x402.org/facilitator",
+    status: "testnet_payment_gate_enabled"
   }
 };
 
 export const PRICING = {
   service: "ProofTTL",
-  mode: "free_beta",
+  mode: "testnet",
+  payment_protocol: "x402",
   verify: {
-    current_price_usd: 0,
-    payment_required: false
+    price: "$0.001",
+    payment_required: true,
+    network: "eip155:84532",
+    network_name: "Base Sepolia",
+    asset: "USDC"
   },
-  planned_payment_protocol: "x402",
-  test_network: "eip155:84532",
   production_network: "eip155:8453",
-  asset: "USDC"
+  production_enabled: false
 };
 
 export const OPENAPI = {
@@ -54,7 +61,7 @@ export const OPENAPI = {
   info: {
     title: "ProofTTL API",
     version: "0.3.1",
-    description: "Issue and monitor expiring, source-backed fact leases. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth."
+    description: "Issue and monitor expiring, source-backed fact leases. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is currently protected by an x402 v2 Base Sepolia test payment."
   },
   servers: [{ url: BASE_URL }],
   paths: {
@@ -67,6 +74,7 @@ export const OPENAPI = {
     "/verify": {
       post: {
         summary: "Issue a fact lease",
+        description: "Requires an x402 v2 payment on Base Sepolia during testnet validation.",
         requestBody: {
           required: true,
           content: {
@@ -84,9 +92,9 @@ export const OPENAPI = {
           }
         },
         responses: {
-          "200": { description: "Fact lease or UNKNOWN source result" },
+          "200": { description: "Fact lease or UNKNOWN source result after valid payment" },
           "400": { description: "Invalid request" },
-          "402": { description: "Payment required when x402 billing is enabled" }
+          "402": { description: "x402 payment required" }
         }
       }
     },
