@@ -1,6 +1,6 @@
-const MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
-const SERVICE_VERSION = "0.3.0";
-const PROTOCOL = "ProofTTL/0.3";
+const MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const SERVICE_VERSION = "0.3.1";
+const PROTOCOL = "ProofTTL/0.3.1";
 const DEFAULT_TTL = 3600;
 const MAX_TTL = 604800;
 const MAX_SOURCE_CHARS = 30000;
@@ -39,7 +39,8 @@ export default {
         time: new Date().toISOString(),
         storage: Boolean(env.LEASES),
         ai: Boolean(env.AI),
-        automatic_monitoring: Boolean(env.LEASES)
+        automatic_monitoring: Boolean(env.LEASES),
+        semantic_verifier: MODEL
       });
     }
 
@@ -150,6 +151,7 @@ async function handleVerify(request, env) {
     last_source_fingerprint: fingerprint,
     confidence: verdict.confidence,
     verifier: verdict.verifier,
+    proof_basis: verdict.verifier === "deterministic-exact-match" ? "EXACT_TEXT" : "SEMANTIC",
     lease_state: "ACTIVE",
     verification_count: 1,
     last_checked_at: observedAt.toISOString(),
@@ -282,13 +284,12 @@ async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true,
   const checkedAt = new Date(nowMs);
 
   if (!allowExpired && lease.lease_state !== "ACTIVE") {
-    const check = {
+    return {
       kind,
       checked_at: checkedAt.toISOString(),
       result: `SKIPPED_${lease.lease_state}`,
       status: lease.status
     };
-    return check;
   }
 
   const fetched = await fetchSource(
@@ -328,12 +329,25 @@ async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true,
     return check;
   }
 
-  const currentVerdict = await verifyClaim({
+  let currentVerdict = await verifyClaim({
     claim: lease.claim,
     sourceUrl: lease.source_url,
     sourceText: fetched.normalizedText,
     env
   });
+
+  const exactBasis = lease.proof_basis === "EXACT_TEXT" || lease.verifier === "deterministic-exact-match";
+  const exactClaimStillPresent = Boolean(deterministicCheck(lease.claim, fetched.normalizedText));
+
+  if (exactBasis && !exactClaimStillPresent && currentVerdict.status === "SUPPORTED") {
+    currentVerdict = {
+      status: "UNKNOWN",
+      evidence: currentVerdict.evidence,
+      reason: "original_exact_evidence_disappeared_after_source_change",
+      confidence: Math.min(currentVerdict.confidence, 0.49),
+      verifier: `proof-basis-guard+${currentVerdict.verifier}`
+    };
+  }
 
   const changedStatus = currentVerdict.status !== lease.status;
   const wasUnexpired = checkedAt.getTime() < Date.parse(lease.expires_at);
@@ -441,6 +455,9 @@ async function loadLease(env, id) {
   const lease = JSON.parse(raw);
   if (!lease.issued_at) lease.issued_at = lease.observed_at || null;
   if (!lease.last_source_fingerprint) lease.last_source_fingerprint = lease.source_fingerprint || null;
+  if (!lease.proof_basis) {
+    lease.proof_basis = lease.verifier === "deterministic-exact-match" ? "EXACT_TEXT" : "SEMANTIC";
+  }
   if (!Number.isFinite(Number(lease.monitor_interval_seconds))) {
     lease.monitor_interval_seconds = chooseMonitorInterval(Number(lease.ttl_seconds || DEFAULT_TTL));
   }
@@ -483,7 +500,7 @@ async function fetchSource(sourceUrl, maxChars) {
         redirect: "manual",
         signal: controller.signal,
         headers: {
-          "User-Agent": "ProofTTL/0.3 (+source-backed fact verification)",
+          "User-Agent": `ProofTTL/${SERVICE_VERSION} (+source-backed fact verification)`,
           "Accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1"
         }
       });
@@ -578,7 +595,16 @@ async function verifyClaim({ claim, sourceUrl, sourceText, env }) {
       messages: [
         {
           role: "system",
-          content: "You are ProofTTL's conservative source verifier. Decide ONLY whether the supplied SOURCE TEXT supports the exact CLAIM. Never use outside knowledge. SUPPORTED means the source text clearly entails the claim. CONTRADICTED means the source text clearly states an incompatible fact. UNKNOWN means ambiguous, missing, stale-looking, conditional, or insufficient. Evidence must be a short exact substring copied from SOURCE TEXT, or null. Prefer UNKNOWN over guessing."
+          content: [
+            "You are ProofTTL's conservative textual-entailment verifier.",
+            "Use ONLY SOURCE TEXT; never use outside knowledge.",
+            "Compare the exact factual proposition in CLAIM against SOURCE TEXT.",
+            "SUPPORTED only if every material attribute in CLAIM matches the source: entity, value, number, unit, date/time, polarity, qualifier, direction, and scope.",
+            "If the source states the same subject with a different value (for example BLUE versus RED, 30 versus 14, enabled versus disabled), return CONTRADICTED.",
+            "UNKNOWN means missing, ambiguous, conditional, stale-looking, or insufficient.",
+            "Evidence must be a short exact substring copied verbatim from SOURCE TEXT.",
+            "Never label a claim SUPPORTED merely because the source discusses the same subject. Prefer UNKNOWN over guessing."
+          ].join(" ")
         },
         {
           role: "user",
@@ -608,6 +634,21 @@ async function verifyClaim({ claim, sourceUrl, sourceText, env }) {
       if (parsed.status !== "UNKNOWN") {
         parsed.status = "UNKNOWN";
         parsed.reason = "model_evidence_was_not_verbatim_in_source";
+        parsed.confidence = Math.min(Number(parsed.confidence) || 0, 0.25);
+      }
+    }
+
+    if (parsed.status === "SUPPORTED" && !evidence) {
+      parsed.status = "UNKNOWN";
+      parsed.reason = "supported_verdict_without_verbatim_evidence";
+      parsed.confidence = Math.min(Number(parsed.confidence) || 0, 0.25);
+    }
+
+    if (parsed.status === "SUPPORTED" && evidence) {
+      const literalMismatch = findCriticalLiteralMismatch(claim, evidence);
+      if (literalMismatch) {
+        parsed.status = "UNKNOWN";
+        parsed.reason = `critical_claim_literal_missing_from_evidence:${literalMismatch}`;
         parsed.confidence = Math.min(Number(parsed.confidence) || 0, 0.25);
       }
     }
@@ -646,6 +687,37 @@ function deterministicCheck(claim, sourceText) {
   }
 
   return null;
+}
+
+function findCriticalLiteralMismatch(claim, evidence) {
+  const claimLiterals = extractCriticalLiterals(claim);
+  if (claimLiterals.length === 0) return null;
+
+  const lowerEvidence = evidence.toLowerCase();
+  for (const literal of claimLiterals) {
+    if (!lowerEvidence.includes(literal.toLowerCase())) return literal;
+  }
+  return null;
+}
+
+function extractCriticalLiterals(value) {
+  const text = String(value);
+  const literals = new Set();
+
+  for (const match of text.matchAll(/(?:[$€£]\s*)?\d+(?:[.,]\d+)*(?:\s*%|\s*(?:ms|sec(?:ond)?s?|min(?:ute)?s?|hours?|days?|weeks?|months?|years?|kb|mb|gb|tb))?/gi)) {
+    literals.add(match[0].replace(/\s+/g, " ").trim());
+  }
+
+  for (const match of text.matchAll(/\b[A-Z][A-Z0-9_-]{1,}\b/g)) {
+    const token = match[0];
+    if (!["HTTP", "HTTPS", "URL", "API"].includes(token)) literals.add(token);
+  }
+
+  for (const match of text.matchAll(/["“”']([^"“”']{2,80})["“”']/g)) {
+    literals.add(match[1]);
+  }
+
+  return [...literals];
 }
 
 function parseAiResult(result) {
