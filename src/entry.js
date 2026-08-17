@@ -14,27 +14,65 @@ const facilitatorClient = new HTTPFacilitatorClient({ url: X402_FACILITATOR });
 const resourceServer = new x402ResourceServer(facilitatorClient)
   .register(X402_NETWORK, new ExactEvmScheme());
 
+const x402Routes = {
+  "POST /verify": {
+    accepts: [
+      {
+        scheme: "exact",
+        price: X402_PRICE,
+        network: X402_NETWORK,
+        payTo: PAY_TO
+      }
+    ],
+    description: "Issue a source-backed ProofTTL fact lease",
+    mimeType: "application/json"
+  }
+};
+
+// Cloudflare Workers should not perform the facilitator sync during module
+// initialization. Disable x402's eager sync and initialize once, lazily, from
+// the first protected request instead.
+const x402Middleware = paymentMiddleware(
+  x402Routes,
+  resourceServer,
+  undefined,
+  undefined,
+  false
+);
+
+let x402Initialized = false;
+let x402InitPromise = null;
+
 const app = new Hono();
 
-app.use(
-  paymentMiddleware(
-    {
-      "POST /verify": {
-        accepts: [
-          {
-            scheme: "exact",
-            price: X402_PRICE,
-            network: X402_NETWORK,
-            payTo: PAY_TO
-          }
-        ],
-        description: "Issue a source-backed ProofTTL fact lease",
-        mimeType: "application/json"
-      }
-    },
-    resourceServer
-  )
-);
+app.use("/verify", async (c, next) => {
+  if (c.req.method !== "POST") {
+    return next();
+  }
+
+  if (!x402Initialized) {
+    if (!x402InitPromise) {
+      x402InitPromise = resourceServer.initialize();
+    }
+
+    try {
+      await x402InitPromise;
+      x402Initialized = true;
+    } catch (error) {
+      x402InitPromise = null;
+      console.error("x402 lazy initialization failed", error);
+      return c.json(
+        {
+          error: "x402_facilitator_initialization_failed",
+          message: error instanceof Error ? error.message : String(error)
+        },
+        502
+      );
+    }
+  }
+
+  return x402Middleware(c, next);
+});
 
 app.get("/.well-known/proofttl.json", (c) => machineJson(c, DISCOVERY));
 app.get("/openapi.json", (c) => machineJson(c, OPENAPI));
@@ -44,6 +82,7 @@ app.get("/x402/diagnostic", async (c) => {
   const result = {
     facilitator: X402_FACILITATOR,
     target_network: X402_NETWORK,
+    lazy_initialized: x402Initialized,
     raw_fetch: null,
     sdk_get_supported: null
   };
