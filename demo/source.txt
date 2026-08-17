@@ -1,3 +1,3 @@
 ProofTTL demo source.
-The demo signal is RED.
+The demo signal is BLUE.
 This file exists only to test automatic lease revocation when a public source changes.
