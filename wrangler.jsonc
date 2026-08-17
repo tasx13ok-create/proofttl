@@ -7,6 +7,12 @@
   "observability": {
     "enabled": true
   },
+  "kv_namespaces": [
+    {
+      "binding": "LEASES",
+      "id": "41d241a2cd454097a2ab3ab9d8ffeb10"
+    }
+  ],
   "ai": {
     "binding": "AI"
   },
