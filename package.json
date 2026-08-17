@@ -1,0 +1,15 @@
+{
+  "name": "proofttl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Source-backed, expiring fact leases for machines.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
