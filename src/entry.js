@@ -40,6 +40,48 @@ app.get("/.well-known/proofttl.json", (c) => machineJson(c, DISCOVERY));
 app.get("/openapi.json", (c) => machineJson(c, OPENAPI));
 app.get("/pricing", (c) => machineJson(c, PRICING));
 
+app.get("/x402/diagnostic", async (c) => {
+  const result = {
+    facilitator: X402_FACILITATOR,
+    target_network: X402_NETWORK,
+    raw_fetch: null,
+    sdk_get_supported: null
+  };
+
+  try {
+    const response = await fetch(`${X402_FACILITATOR}/supported`, {
+      headers: { accept: "application/json" }
+    });
+    const text = await response.text();
+    result.raw_fetch = {
+      ok: response.ok,
+      status: response.status,
+      content_type: response.headers.get("content-type"),
+      body: text.slice(0, 12000)
+    };
+  } catch (error) {
+    result.raw_fetch = {
+      ok: false,
+      error: serializeError(error)
+    };
+  }
+
+  try {
+    const supported = await facilitatorClient.getSupported();
+    result.sdk_get_supported = {
+      ok: true,
+      supported
+    };
+  } catch (error) {
+    result.sdk_get_supported = {
+      ok: false,
+      error: serializeError(error)
+    };
+  }
+
+  return c.json(result);
+});
+
 app.all("*", async (c) => core.fetch(c.req.raw, c.env));
 
 export default {
@@ -58,4 +100,23 @@ function machineJson(c, value) {
   c.header("cache-control", "public, max-age=60");
   c.header("access-control-allow-origin", "*");
   return c.json(value);
+}
+
+function serializeError(error) {
+  if (!(error instanceof Error)) {
+    return { message: String(error) };
+  }
+
+  return {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    cause: error.cause instanceof Error
+      ? {
+          name: error.cause.name,
+          message: error.cause.message,
+          stack: error.cause.stack
+        }
+      : error.cause ?? null
+  };
 }
