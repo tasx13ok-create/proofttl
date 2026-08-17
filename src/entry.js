@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { paymentMiddleware } from "@x402/hono";
-import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
-import { registerExactEvmScheme } from "@x402/evm/exact/server";
+import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
+import { HTTPFacilitatorClient } from "@x402/core/server";
+import { ExactEvmScheme } from "@x402/evm/exact/server";
 import core from "./index.js";
 import { DISCOVERY, OPENAPI, PRICING } from "./discovery.js";
 
@@ -11,13 +11,12 @@ const X402_PRICE = "$0.001";
 const X402_FACILITATOR = "https://x402.org/facilitator";
 
 const facilitatorClient = new HTTPFacilitatorClient({ url: X402_FACILITATOR });
-const resourceServer = new x402ResourceServer(facilitatorClient);
-registerExactEvmScheme(resourceServer);
+const resourceServer = new x402ResourceServer(facilitatorClient)
+  .register(X402_NETWORK, new ExactEvmScheme());
 
 const app = new Hono();
 
 app.use(
-  "/verify",
   paymentMiddleware(
     {
       "POST /verify": {
