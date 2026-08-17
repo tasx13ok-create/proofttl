@@ -2,17 +2,23 @@
 
 ProofTTL issues **expiring, source-backed fact leases** for machines.
 
-Instead of treating a web fact as permanent, a client sends a claim, a source URL, and a desired TTL. ProofTTL fetches the source, verifies whether the source currently supports the claim, fingerprints the source text, and returns a machine-readable lease.
+Instead of treating a web fact as permanent, a client sends a claim, a source URL, and a desired TTL. ProofTTL fetches the source, verifies whether the source currently supports the claim, fingerprints the source text, stores the lease, and can later reverify it. If the source changes and the original verdict can no longer be maintained before the lease expires, the lease is revoked.
 
-## Status
+Live API: `https://proofttl.tasx13ok.workers.dev`
 
-MVP in active development.
+## Core principle
+
+ProofTTL does **not** claim to determine universal truth. It answers the narrower question:
+
+> Does this specified source currently support this exact claim?
+
+The source, evidence, observation time, expiry, source fingerprint, and verification history travel with the result.
 
 ## API
 
 ### `GET /health`
 
-Returns service status.
+Returns service status, version, and whether storage/AI bindings are live.
 
 ### `POST /verify`
 
@@ -20,8 +26,8 @@ Request:
 
 ```json
 {
-  "claim": "Workers KV is available on Free and Paid plans",
-  "source_url": "https://developers.cloudflare.com/kv/",
+  "claim": "Example Domain",
+  "source_url": "https://example.com",
   "ttl_seconds": 3600
 }
 ```
@@ -31,97 +37,79 @@ Response shape:
 ```json
 {
   "lease_id": "ftl_...",
-  "protocol": "ProofTTL/0.1",
-  "claim": "Workers KV is available on Free and Paid plans",
+  "protocol": "ProofTTL/0.2",
+  "claim": "Example Domain",
   "status": "SUPPORTED",
-  "source_url": "https://developers.cloudflare.com/kv/",
-  "final_url": "https://developers.cloudflare.com/kv/",
-  "evidence": "Available on Free and Paid plans",
-  "reason": "...",
-  "observed_at": "2026-08-17T20:00:00.000Z",
-  "expires_at": "2026-08-17T21:00:00.000Z",
-  "ttl_seconds": 3600,
+  "source_url": "https://example.com",
+  "evidence": "Example Domain",
+  "issued_at": "2026-08-17T21:00:00.000Z",
+  "expires_at": "2026-08-17T22:00:00.000Z",
   "source_fingerprint": "sha256:...",
   "confidence": 0.99,
-  "verifier": "...",
-  "lease_state": "ACTIVE"
+  "lease_state": "ACTIVE",
+  "verification_count": 1
 }
 ```
 
-Statuses are intentionally limited to:
+Verification statuses are intentionally limited to:
 
 - `SUPPORTED`
 - `CONTRADICTED`
 - `UNKNOWN`
 
-`UNKNOWN` is not an error. ProofTTL is designed to refuse unsupported certainty.
+`UNKNOWN` is a valid result. ProofTTL is designed to refuse unsupported certainty.
 
 ### `GET /lease/:id`
 
-Returns a stored lease when persistent storage is configured. If Workers KV is not yet bound, this endpoint returns `503 persistent_storage_not_configured` while `/verify` still works.
+Returns a persisted Fact Lease. An active lease becomes `EXPIRED` after its TTL elapses. Revoked leases remain `REVOKED`.
 
-## Core principle
+### `POST /lease/:id/reverify`
 
-ProofTTL does **not** claim to determine universal truth. It answers the narrower question:
+Fetches the source again and checks whether the original lease can still be maintained.
 
-> Does this specified source currently support this exact claim?
+Possible `check.result` values include:
 
-The source, evidence, observation time, expiry, and source fingerprint travel with the result.
+- `UNCHANGED_SOURCE` — the source fingerprint is identical.
+- `SOURCE_CHANGED_STILL_CONSISTENT` — the page changed, but the original verdict is still supported.
+- `REVOKED` — the source changed and the original verdict can no longer be maintained before expiry.
+- `EXPIRED_AND_VERDICT_CHANGED` — the lease had already expired when a changed verdict was observed.
+- `SOURCE_UNAVAILABLE` — ProofTTL could not fetch the source during the check.
 
-## Local setup
+Each check is appended to the lease history, capped to the latest 20 checks.
 
-Requirements: Node.js 20+ and a Cloudflare account.
+## Quick test in PowerShell
 
-```bash
-npm install
-npx wrangler login
-npm run dev
+Create a lease:
+
+```powershell
+$body = @{
+  claim = "Example Domain"
+  source_url = "https://example.com"
+  ttl_seconds = 300
+} | ConvertTo-Json
+
+$result = Invoke-RestMethod `
+  -Uri "https://proofttl.tasx13ok.workers.dev/verify" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $body
+
+$result | ConvertTo-Json -Depth 10
 ```
 
-Test locally:
+Fetch it:
 
-```bash
-curl -X POST http://localhost:8787/verify \
-  -H "content-type: application/json" \
-  -d '{"claim":"Workers KV is available on Free and Paid plans","source_url":"https://developers.cloudflare.com/kv/","ttl_seconds":3600}'
+```powershell
+Invoke-RestMethod "https://proofttl.tasx13ok.workers.dev/lease/$($result.lease_id)" | ConvertTo-Json -Depth 10
 ```
 
-## Deploy
+Reverify it:
 
-```bash
-npm install
-npx wrangler login
-npm run deploy
+```powershell
+Invoke-RestMethod `
+  -Uri "https://proofttl.tasx13ok.workers.dev/lease/$($result.lease_id)/reverify" `
+  -Method POST | ConvertTo-Json -Depth 10
 ```
-
-Wrangler will publish the Worker to a `workers.dev` URL.
-
-## Add persistent fact leases
-
-The first deployment does not require storage. After the public API is working, create a KV namespace:
-
-```bash
-npx wrangler kv namespace create LEASES
-```
-
-Wrangler prints an ID. Add this block to `wrangler.jsonc`:
-
-```json
-"kv_namespaces": [
-  {
-    "binding": "LEASES",
-    "id": "YOUR_NAMESPACE_ID"
-  }
-]
-```
-
-Then deploy again:
-
-```bash
-npm run deploy
-```
-
-ProofTTL will automatically persist new leases and enable `GET /lease/:id`.
 
 ## Architecture
 
@@ -142,13 +130,13 @@ SHA-256 source fingerprint
 SUPPORTED / CONTRADICTED / UNKNOWN
         |
         v
-Fact Lease + expiry
+persistent Fact Lease in Workers KV
         |
         v
-optional Workers KV persistence
+reverification -> unchanged / still consistent / revoked
 ```
 
-## Safety choices in v0.1
+## Safety choices in v0.2
 
 - Only caller-supplied HTTP/HTTPS sources are fetched.
 - Obvious localhost/private-network URLs are rejected.
@@ -156,16 +144,23 @@ optional Workers KV persistence
 - AI-provided evidence must occur verbatim in the normalized source or the verdict is downgraded to `UNKNOWN`.
 - Source fetching has a timeout and content-size limit.
 - ProofTTL prefers `UNKNOWN` to invented certainty.
+- Original lease verdicts remain preserved; reverification adds state/history instead of silently rewriting the past.
+
+## Current stack
+
+- Cloudflare Workers
+- Cloudflare Workers AI
+- Cloudflare Workers KV
+- SHA-256 source fingerprints
 
 ## Next milestones
 
-1. Public Worker deployment.
-2. Persistent lease storage.
-3. Lease revalidation and revocation when supporting evidence changes.
-4. Better HTML extraction and structured-data support.
-5. Signed fact leases.
-6. Machine-payment endpoint and discovery metadata.
-7. Fact half-life estimation from historical change rates.
+1. Automated monitoring for leases that opt into it.
+2. Better HTML extraction and structured-data support.
+3. Cryptographically signed Fact Leases.
+4. Public machine-readable protocol/schema.
+5. Machine-payment endpoint and discovery metadata.
+6. Fact half-life estimation from historical change rates.
 
 ## License
 
