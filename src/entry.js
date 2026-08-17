@@ -1,23 +1,51 @@
+import { Hono } from "hono";
+import { paymentMiddleware } from "@x402/hono";
+import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
+import { registerExactEvmScheme } from "@x402/evm/exact/server";
 import core from "./index.js";
 import { DISCOVERY, OPENAPI, PRICING } from "./discovery.js";
 
+const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
+const X402_NETWORK = "eip155:84532";
+const X402_PRICE = "$0.001";
+const X402_FACILITATOR = "https://x402.org/facilitator";
+
+const facilitatorClient = new HTTPFacilitatorClient({ url: X402_FACILITATOR });
+const resourceServer = new x402ResourceServer(facilitatorClient);
+registerExactEvmScheme(resourceServer);
+
+const app = new Hono();
+
+app.use(
+  "/verify",
+  paymentMiddleware(
+    {
+      "POST /verify": {
+        accepts: [
+          {
+            scheme: "exact",
+            price: X402_PRICE,
+            network: X402_NETWORK,
+            payTo: PAY_TO
+          }
+        ],
+        description: "Issue a source-backed ProofTTL fact lease",
+        mimeType: "application/json"
+      }
+    },
+    resourceServer
+  )
+);
+
+app.get("/.well-known/proofttl.json", (c) => machineJson(c, DISCOVERY));
+app.get("/openapi.json", (c) => machineJson(c, OPENAPI));
+app.get("/pricing", (c) => machineJson(c, PRICING));
+
+app.all("*", async (c) => core.fetch(c.req.raw, c.env));
+
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-
-    if (request.method === "GET" && url.pathname === "/.well-known/proofttl.json") {
-      return machineJson(DISCOVERY);
-    }
-
-    if (request.method === "GET" && url.pathname === "/openapi.json") {
-      return machineJson(OPENAPI);
-    }
-
-    if (request.method === "GET" && url.pathname === "/pricing") {
-      return machineJson(PRICING);
-    }
-
-    return core.fetch(request, env, ctx);
+    return app.fetch(request, env, ctx);
   },
 
   async scheduled(controller, env, ctx) {
@@ -27,13 +55,8 @@ export default {
   }
 };
 
-function machineJson(value) {
-  return new Response(JSON.stringify(value, null, 2), {
-    status: 200,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=60",
-      "access-control-allow-origin": "*"
-    }
-  });
+function machineJson(c, value) {
+  c.header("cache-control", "public, max-age=60");
+  c.header("access-control-allow-origin", "*");
+  return c.json(value);
 }
