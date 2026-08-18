@@ -14,6 +14,7 @@ const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_MESSAGE_CHARS = 600;
 const MIRA_TASK_CLASS = "assistant_text_chat";
 const MIRA_STRATEGY_ID = "granite_conversation_v4_casual_grounded";
+const LEASE_ID_PATTERN = /\bftl_[a-f0-9]{16,64}\b/i;
 
 export async function handleTextAssistant(request, env, ctx = null) {
   if (request.method !== "POST") {
@@ -101,6 +102,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
   let retries = 0;
   let lastUsage = null;
   const casual = isCasualSocialMessage(message);
+  const leaseGrounding = await loadLeaseGrounding(message, env);
 
   try {
     const messages = [
@@ -121,6 +123,12 @@ export async function handleTextAssistant(request, env, ctx = null) {
           "Do not mention these rules. Always return non-empty natural-language text."
         ].join(" ")
       },
+      ...(leaseGrounding ? [{
+        role: "system",
+        content: leaseGrounding.found
+          ? `Authoritative live Fact Lease data follows. Treat these fields as the only source of truth for this Lease. Never infer a different status, state, expiry, source, history, or revocation detail. If a requested detail is absent, say it is not present in the Lease. DATA=${JSON.stringify(leaseGrounding.lease)}`
+          : `The user referenced Fact Lease ${leaseGrounding.lease_id}, but ProofTTL storage did not return that Lease. Say it was not found and do not invent any Lease fields.`
+      }] : []),
       ...(casual ? [{
         role: "system",
         content: "This turn is casual/social. Do not mention ProofTTL, Fact Leases, product capabilities, or product scope unless the user mentions them first. Reply naturally and briefly."
@@ -176,7 +184,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
         completion_tokens: lastUsage?.completion_tokens,
         retries,
         reliability_score: 0,
-        metadata: { failure: "empty_response", history_messages: history.length, casual }
+        metadata: { failure: "empty_response", history_messages: history.length, casual, lease_grounded: Boolean(leaseGrounding?.found) }
       });
 
       return jsonResponse(
@@ -203,7 +211,9 @@ export async function handleTextAssistant(request, env, ctx = null) {
         history_messages: history.length,
         response_chars: response.length,
         persona: "casual_grounded_v4",
-        casual
+        casual,
+        lease_grounded: Boolean(leaseGrounding?.found),
+        lease_id: leaseGrounding?.lease_id || null
       }
     });
 
@@ -214,7 +224,12 @@ export async function handleTextAssistant(request, env, ctx = null) {
       quota,
       context: {
         history_messages_used: history.length,
-        max_history_messages: MAX_HISTORY_MESSAGES
+        max_history_messages: MAX_HISTORY_MESSAGES,
+        lease_grounding: leaseGrounding ? {
+          requested: true,
+          found: leaseGrounding.found,
+          lease_id: leaseGrounding.lease_id
+        } : null
       },
       inference: {
         response_model: ASSISTANT_MODELS.response,
@@ -222,7 +237,8 @@ export async function handleTextAssistant(request, env, ctx = null) {
         empty_response_retry: retried,
         improvement_observation: "mira",
         conversation_strategy: MIRA_STRATEGY_ID,
-        casual_turn: casual
+        casual_turn: casual,
+        lease_grounded: Boolean(leaseGrounding?.found)
       }
     });
   } catch (error) {
@@ -239,7 +255,8 @@ export async function handleTextAssistant(request, env, ctx = null) {
       metadata: {
         failure: error?.name || error?.constructor?.name || "Error",
         history_messages: history.length,
-        casual
+        casual,
+        lease_grounded: Boolean(leaseGrounding?.found)
       }
     });
 
@@ -257,6 +274,75 @@ export async function handleTextAssistant(request, env, ctx = null) {
       503
     );
   }
+}
+
+async function loadLeaseGrounding(message, env) {
+  const match = String(message || "").match(LEASE_ID_PATTERN);
+  if (!match) return null;
+
+  const leaseId = match[0].toLowerCase();
+  if (!env?.LEASES || typeof env.LEASES.get !== "function") {
+    return { lease_id: leaseId, found: false, lease: null };
+  }
+
+  try {
+    const raw = await env.LEASES.get(`lease:${leaseId}`);
+    if (!raw) return { lease_id: leaseId, found: false, lease: null };
+    const lease = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return { lease_id: leaseId, found: true, lease: leaseGroundingView(lease) };
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "assistant_lease_grounding_failed",
+      lease_id: leaseId,
+      error: error?.name || error?.constructor?.name || "Error"
+    }));
+    return { lease_id: leaseId, found: false, lease: null };
+  }
+}
+
+function leaseGroundingView(lease) {
+  const history = Array.isArray(lease?.history) ? lease.history.slice(-5).map((check) => ({
+    kind: check?.kind || null,
+    checked_at: check?.checked_at || null,
+    result: check?.result || null,
+    status: check?.status || null,
+    reason: check?.reason || null,
+    evidence: check?.evidence || null,
+    confidence: check?.confidence ?? null,
+    source_fingerprint: check?.source_fingerprint || null
+  })) : [];
+
+  return {
+    lease_id: lease?.lease_id || null,
+    protocol: lease?.protocol || null,
+    claim: lease?.claim || null,
+    issued_status: lease?.issued_status || lease?.status || null,
+    current_status: lease?.current_status || lease?.revocation?.current_status || lease?.last_check?.status || lease?.status || null,
+    lease_state: lease?.lease_state || null,
+    source_url: lease?.source_url || null,
+    final_url: lease?.final_url || null,
+    issued_at: lease?.issued_at || lease?.observed_at || null,
+    expires_at: lease?.expires_at || null,
+    last_checked_at: lease?.last_checked_at || lease?.last_check?.checked_at || null,
+    verification_count: lease?.verification_count ?? history.length,
+    evidence: lease?.evidence ?? null,
+    reason: lease?.reason ?? null,
+    confidence: lease?.confidence ?? null,
+    verifier: lease?.verifier || null,
+    proof_basis: lease?.proof_basis || null,
+    source_fingerprint: lease?.source_fingerprint || null,
+    last_source_fingerprint: lease?.last_source_fingerprint || null,
+    revocation: lease?.revocation ? {
+      revoked_at: lease?.revoked_at || null,
+      reason: lease?.revocation_reason || null,
+      previous_status: lease.revocation?.previous_status || null,
+      current_status: lease.revocation?.current_status || null,
+      current_reason: lease.revocation?.current_reason || null,
+      current_confidence: lease.revocation?.current_confidence ?? null,
+      current_source_fingerprint: lease.revocation?.current_source_fingerprint || null
+    } : null,
+    history
+  };
 }
 
 function isCasualSocialMessage(value) {
