@@ -6,6 +6,7 @@ const LOVE_TTS_MODEL = "@cf/deepgram/aura-2-en";
 const DEFAULT_LOVE_SPEAKER = "atlas";
 const DEFAULT_MAX_AUDIO_BYTES = 512 * 1024;
 const MAX_TRANSCRIPT_CHARS = 700;
+const LEASE_ID_PATTERN = /\bftl_[a-f0-9]{16,64}\b/i;
 
 const NAVIGATION_RULES = [
   { section: "payments", route: "/console/", label: "Payments", patterns: [/\bpayments?\b/i, /\btransactions?\b/i, /\bbilling\b/i] },
@@ -119,19 +120,48 @@ export async function handleVoiceAssistant(request, env) {
       quota,
       love: loveCapability(quota, env),
       speech: await synthesizeLoveSpeech(responseText, quota, env),
+      context: { lease_grounding: { requested: false, found: false, lease_id: null } },
       inference: { transcription_model: WHISPER_MODEL, response_model: null, speech_model: LOVE_TTS_MODEL, deterministic_route: true }
+    });
+  }
+
+  const leaseGrounding = await resolveLeaseGrounding(transcript, env);
+  if (leaseGrounding.requested && !leaseGrounding.found) {
+    const responseText = `I could not find Fact Lease ${leaseGrounding.lease_id}. I will not guess its status.`;
+    return jsonResponse({
+      transcript,
+      response: responseText,
+      action: null,
+      quota,
+      love: loveCapability(quota, env),
+      speech: await synthesizeLoveSpeech(responseText, quota, env),
+      context: { lease_grounding: publicLeaseGrounding(leaseGrounding) },
+      inference: { transcription_model: WHISPER_MODEL, response_model: null, speech_model: LOVE_TTS_MODEL, deterministic_route: true, lease_grounded: false }
     });
   }
 
   let responseText;
   try {
+    const messages = [
+      { role: "system", content: assistantSystemPrompt() }
+    ];
+    if (leaseGrounding.found) {
+      messages.push({
+        role: "system",
+        content: [
+          "A Fact Lease referenced in this voice request was loaded directly from ProofTTL storage.",
+          "Treat the following JSON as the authoritative Lease context for this turn.",
+          "Do not infer fields that are absent, and do not contradict this object.",
+          JSON.stringify(leaseGrounding.lease)
+        ].join(" ")
+      });
+    }
+    messages.push({ role: "user", content: transcript });
+
     const completion = await env.AI.run(ASSISTANT_MODEL, {
-      messages: [
-        { role: "system", content: assistantSystemPrompt() },
-        { role: "user", content: transcript }
-      ],
-      max_tokens: 120,
-      temperature: 0.2
+      messages,
+      max_tokens: 150,
+      temperature: leaseGrounding.found ? 0.1 : 0.2
     });
     responseText = cleanAssistantResponse(completion?.response);
   } catch (error) {
@@ -148,7 +178,14 @@ export async function handleVoiceAssistant(request, env) {
     quota,
     love: loveCapability(quota, env),
     speech: await synthesizeLoveSpeech(finalText, quota, env),
-    inference: { transcription_model: WHISPER_MODEL, response_model: ASSISTANT_MODEL, speech_model: LOVE_TTS_MODEL, deterministic_route: false }
+    context: { lease_grounding: publicLeaseGrounding(leaseGrounding) },
+    inference: {
+      transcription_model: WHISPER_MODEL,
+      response_model: ASSISTANT_MODEL,
+      speech_model: LOVE_TTS_MODEL,
+      deterministic_route: false,
+      lease_grounded: leaseGrounding.found
+    }
   });
 }
 
@@ -157,7 +194,6 @@ export function loveCapability(quota, env) {
   const member = quota?.plan === "member" && quota?.membership_status === "active";
   return {
     persona: "L.O.V.E.",
-    expansion: "Lease Offering Value Interpreter",
     voice_mode: member || preview,
     member_only: true,
     preview_enabled: preview,
@@ -192,6 +228,72 @@ async function synthesizeLoveSpeech(text, quota, env) {
     console.warn(JSON.stringify({ event: "love_tts_failed", error: safeErrorName(error) }));
     return { available: false, reason: "tts_unavailable", model: LOVE_TTS_MODEL };
   }
+}
+
+async function resolveLeaseGrounding(message, env) {
+  const match = String(message || "").match(LEASE_ID_PATTERN);
+  if (!match) return { requested: false, found: false, lease_id: null, lease: null };
+
+  const leaseId = match[0].toLowerCase();
+  if (!env?.LEASES || typeof env.LEASES.get !== "function") {
+    return { requested: true, found: false, lease_id: leaseId, lease: null };
+  }
+
+  try {
+    const raw = await env.LEASES.get(`lease:${leaseId}`);
+    if (!raw) return { requested: true, found: false, lease_id: leaseId, lease: null };
+    const lease = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return {
+      requested: true,
+      found: true,
+      lease_id: leaseId,
+      lease: compactLeaseContext(lease)
+    };
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "assistant_voice_lease_grounding_failed", lease_id: leaseId, error: safeErrorName(error) }));
+    return { requested: true, found: false, lease_id: leaseId, lease: null };
+  }
+}
+
+function compactLeaseContext(lease) {
+  const history = Array.isArray(lease?.history) ? lease.history.slice(-5) : [];
+  return {
+    lease_id: lease?.lease_id || null,
+    claim: lease?.claim || null,
+    issued_status: lease?.issued_status || lease?.status || null,
+    current_status: lease?.current_status || lease?.revocation?.current_status || lease?.last_check?.status || lease?.status || null,
+    lease_state: lease?.lease_state || null,
+    source_url: lease?.source_url || null,
+    final_url: lease?.final_url || null,
+    issued_at: lease?.issued_at || null,
+    expires_at: lease?.expires_at || null,
+    evidence: lease?.evidence ?? null,
+    reason: lease?.reason ?? null,
+    confidence: lease?.confidence ?? null,
+    verifier: lease?.verifier || null,
+    proof_basis: lease?.proof_basis || null,
+    source_fingerprint: lease?.source_fingerprint || null,
+    last_source_fingerprint: lease?.last_source_fingerprint || null,
+    last_checked_at: lease?.last_checked_at || null,
+    last_check: lease?.last_check || null,
+    revocation: lease?.revocation || null,
+    history
+  };
+}
+
+function publicLeaseGrounding(grounding) {
+  return {
+    requested: Boolean(grounding?.requested),
+    found: Boolean(grounding?.found),
+    lease_id: grounding?.lease_id || null,
+    ...(grounding?.found && grounding?.lease ? {
+      lease_state: grounding.lease.lease_state,
+      issued_status: grounding.lease.issued_status,
+      current_status: grounding.lease.current_status,
+      expires_at: grounding.lease.expires_at,
+      last_checked_at: grounding.lease.last_checked_at
+    } : {})
+  };
 }
 
 async function streamOrBufferToBytes(value) {
@@ -230,15 +332,16 @@ export function matchAssistantNavigation(transcript) {
 
 export function assistantSystemPrompt() {
   return [
-    "You are L.O.V.E., the ProofTTL product intelligence: Lease Offering Value Interpreter.",
+    "You are L.O.V.E., ProofTTL product intelligence.",
     "Your voice persona is calm, deep, precise, composed, cinematic, and slightly ominous without being theatrical.",
     "Answer only questions about ProofTTL and its documented product behavior.",
     "ProofTTL issues source-backed, expiring Fact Leases for precise claims.",
     "A lease records claim, source, evidence, verdict, fingerprint, TTL, issued status, and current state.",
     "Verdicts are SUPPORTED, CONTRADICTED, or UNKNOWN. Lease states are ACTIVE, REVOKED, or EXPIRED.",
-    "POST /verify uses x402 and currently costs $0.001 USDC on Base Sepolia testnet per Fact Lease issuance.",
+    "POST /verify uses x402 and currently costs $0.001 test USDC on Base Sepolia per Fact Lease issuance.",
     "GET /lease/:id reads a lease. Automatic monitoring can revoke an active lease when evidence no longer maintains its verdict.",
     "Never invent account data, payment history, lease state, customer data, uptime, or actions you did not perform.",
+    "When authoritative Lease context is supplied, use only that context for Lease-specific facts and say when a requested field is unavailable.",
     "If asked about something outside ProofTTL, say you only handle ProofTTL product questions.",
     "Keep responses concise and useful."
   ].join(" ");
