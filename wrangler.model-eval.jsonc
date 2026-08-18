@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "proofttl-model-eval-local-only",
+  "main": "benchmark/worker.js",
+  "compatibility_date": "2026-08-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": {
+    "enabled": false
+  },
+  "ai": {
+    "binding": "AI"
+  }
+}
