@@ -53,7 +53,8 @@ export const DISCOVERY = {
     asset: "USDC",
     price_per_verification: "$0.001",
     pay_to: "0x29949a066902bd329F74479c9AEBC448100955d8",
-    facilitator: "https://x402.org/facilitator",
+    facilitator: "https://api.cdp.coinbase.com/platform/v2/x402",
+    facilitator_provider: "Coinbase Developer Platform",
     status: "testnet_paid_flow_proven"
   }
 };
