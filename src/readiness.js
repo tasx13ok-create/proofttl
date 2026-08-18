@@ -12,6 +12,7 @@ export async function getDeploymentReadiness(env, request) {
     monitor_schema: await tableExists(env?.MONITOR_DB, "monitor_schedule"),
     auth_schema: await tableExists(env?.MONITOR_DB, "session"),
     assistant_usage_schema: await tableExists(env?.MONITOR_DB, "assistant_usage_daily"),
+    account_entitlement_schema: await tableExists(env?.MONITOR_DB, "account_entitlement"),
     payment_facilitator_credentials: Boolean(env?.CDP_API_KEY_ID && env?.CDP_API_KEY_SECRET),
     issuance_signing: Boolean(env?.PROOFTTL_SIGNING_PRIVATE_JWK),
     auth_runtime: auth.configured
@@ -27,6 +28,7 @@ export async function getDeploymentReadiness(env, request) {
   productionBlockers.push("mainnet_payment_validation");
   productionBlockers.push("production_pricing_validation");
   productionBlockers.push("paid_membership_billing");
+  productionBlockers.push("payer_account_linking");
 
   return {
     service: "ProofTTL",
@@ -45,11 +47,17 @@ export async function getDeploymentReadiness(env, request) {
       providers: auth.socialProviders,
       passkeys: auth.passkeys
     },
+    entitlements: {
+      schema_ready: checks.account_entitlement_schema,
+      free_assistant_limit: Number(env?.PROOFTTL_ASSISTANT_FREE_DAILY_MESSAGES) || 20,
+      member_assistant_limit_default: Number(env?.PROOFTTL_MEMBER_ASSISTANT_DAILY_MESSAGES) || 200,
+      billing_enabled: false
+    },
     production: {
       ready: false,
       blockers: productionBlockers
     },
-    note: "The production section remains false by design until mainnet, pricing, billing, and a customer sign-in path are deliberately enabled."
+    note: "The production section remains false by design until mainnet, pricing, billing, payer ownership, and a customer sign-in path are deliberately enabled."
   };
 }
 
