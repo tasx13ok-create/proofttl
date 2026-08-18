@@ -42,6 +42,9 @@ jobs:
       - name: Validate D1 monitor scheduler adapter
         run: npm run test:lease-store
 
+      - name: Validate Ed25519 Fact Lease signing
+        run: npm run test:lease-signing
+
       - name: Validate semantic benchmark fixtures
         run: npm run test:model-fixtures
 
