@@ -10,7 +10,7 @@ export function assistantQuotaLimit(env) {
 export async function getAssistantQuota(request, env) {
   const limit = assistantQuotaLimit(env);
   const timing = quotaTiming();
-  const subjectHash = await quotaSubjectHash(request);
+  const subjectHash = await quotaSubjectHash(request, env);
 
   if (env?.MONITOR_DB && typeof env.MONITOR_DB.prepare === "function") {
     try {
@@ -36,7 +36,7 @@ export async function getAssistantQuota(request, env) {
 export async function consumeAssistantQuota(request, env) {
   const limit = assistantQuotaLimit(env);
   const timing = quotaTiming();
-  const subjectHash = await quotaSubjectHash(request);
+  const subjectHash = await quotaSubjectHash(request, env);
 
   if (env?.MONITOR_DB && typeof env.MONITOR_DB.prepare === "function") {
     try {
@@ -102,13 +102,27 @@ function quotaTiming() {
   };
 }
 
-async function quotaSubjectHash(request) {
+async function quotaSubjectHash(request, env) {
   const ip = (request.headers.get("cf-connecting-ip") || "anonymous")
     .trim()
     .slice(0, 120);
-  const material = `anonymous:${ip}`;
-  const bytes = new TextEncoder().encode(material);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const secret = String(
+    env?.PROOFTTL_USAGE_HASH_SECRET ||
+    env?.BETTER_AUTH_SECRET ||
+    "proofttl-anonymous-quota-v1"
+  );
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const digest = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`anonymous:${ip}`)
+  );
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
