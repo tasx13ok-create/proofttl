@@ -71,7 +71,7 @@ if (-not $hasMonitorBinding) {
   Write-Host "MONITOR_DB binding already exists; not creating another database."
 }
 
-Write-Host "[4/9] Applying D1 monitor/auth migrations..." -ForegroundColor Cyan
+Write-Host "[4/9] Applying D1 monitor/auth/usage migrations..." -ForegroundColor Cyan
 Run-Npm @("run", "monitor:d1:migrate") "D1 migrations"
 
 Write-Host "[5/9] Ensuring the Better Auth session secret exists..." -ForegroundColor Cyan
@@ -112,12 +112,9 @@ Write-Host "[7/9] Validating the Worker bundle with a dry run..." -ForegroundCol
 Run-Npx @("wrangler", "deploy", "--dry-run") "Wrangler deployment dry run"
 
 Write-Host "[8/9] Deploying ProofTTL..." -ForegroundColor Cyan
-# npm's deploy lifecycle runs local tests before deployment and the live smoke
-# test after deployment. That makes this command fail loudly if the new Worker
-# is deployed but the public contract is not actually healthy.
 Run-Npm @("run", "deploy") "ProofTTL deploy + postdeploy smoke"
 
-Write-Host "[9/9] Verifying live signing, monitoring and auth surfaces..." -ForegroundColor Cyan
+Write-Host "[9/9] Verifying live signing, monitoring, auth, usage and readiness..." -ForegroundColor Cyan
 $keys = Invoke-RestMethod -Method Get -Uri "$BaseUrl/.well-known/proofttl-keys.json"
 if (-not $keys.signing_enabled) {
   throw "The deployed Worker is reachable, but Ed25519 issuance signing is not enabled."
@@ -139,11 +136,30 @@ if (-not $auth.database) {
   throw "ProofTTL auth is missing its D1 database binding."
 }
 
+$usage = Invoke-RestMethod -Method Get -Uri "$BaseUrl/assistant/usage"
+if (-not $usage.quota) {
+  throw "ProofTTL assistant usage endpoint did not return quota state."
+}
+if ($usage.quota.accounting_backend -ne "d1") {
+  throw "ProofTTL assistant quota is not using the required D1 accounting backend."
+}
+
+$readiness = Invoke-RestMethod -Method Get -Uri "$BaseUrl/readiness"
+if (-not $readiness.testnet.ready) {
+  $failedChecks = @($readiness.testnet.checks.PSObject.Properties | Where-Object { -not $_.Value } | ForEach-Object { $_.Name }) -join ", "
+  throw "ProofTTL testnet readiness is not complete. Failed checks: $failedChecks"
+}
+if ([int]$readiness.testnet.score -ne 100) {
+  throw "ProofTTL testnet readiness score is $($readiness.testnet.score), expected 100."
+}
+
 Write-Host "`nSUCCESS: ProofTTL testnet launch checks passed." -ForegroundColor Green
-Write-Host "D1 binding: configured locally and migrated remotely"
+Write-Host "D1 binding: configured and all migrations applied"
 Write-Host "Fact Lease signing: enabled and publicly discoverable"
 Write-Host "Better Auth runtime: database + session secret configured"
-Write-Host "Voice assistant/CORS/x402: verified by postdeploy smoke"
+Write-Host "AI assistant: text + voice, product-only scope, D1 daily quota"
+Write-Host "x402: verified by postdeploy no-payment smoke"
 Write-Host "Automatic monitor surface: enabled"
-Write-Host "Mainnet: unchanged / not enabled"
+Write-Host "Readiness: 100% for required testnet subsystems"
+Write-Host "Mainnet + paid membership: intentionally unchanged / not enabled"
 Write-Host "`nImportant: wrangler d1 create may have modified wrangler.jsonc. Commit that binding so future deploys use the same D1 database."
