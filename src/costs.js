@@ -1,8 +1,11 @@
 export const LLAMA_70B_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 export const QWEN3_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
+export const HYBRID_SEMANTIC_VERIFIER =
+  "proofttl-hybrid:qwen3-primary+llama70b-fallback";
 
-// Production remains on 70B until the hybrid verifier is wired and regression-tested.
-export const SEMANTIC_MODEL = LLAMA_70B_MODEL;
+// Production semantic verification is a ProofTTL routing pipeline. Qwen3 is
+// the primary priced model; 70B is retained as a selective fallback.
+export const SEMANTIC_MODEL = HYBRID_SEMANTIC_VERIFIER;
 
 // Cloudflare Workers AI public unit pricing checked 2026-08-17.
 // Keep this explicit and versioned so pricing decisions are reproducible.
@@ -21,7 +24,9 @@ export const MODEL_PRICING = Object.freeze({
   })
 });
 
-export const SEMANTIC_MODEL_PRICING = MODEL_PRICING[SEMANTIC_MODEL];
+// Default economics use the primary model price. Hybrid attempt logs carry
+// their own model IDs so fallback cost is accounted for separately.
+export const SEMANTIC_MODEL_PRICING = MODEL_PRICING[QWEN3_MODEL];
 
 export function getModelPricing(model) {
   return MODEL_PRICING[String(model || "")] || null;
@@ -30,14 +35,9 @@ export function getModelPricing(model) {
 export function normalizeAiUsage(usage) {
   if (!usage || typeof usage !== "object") return null;
 
-  const promptTokens = finiteNonNegative(usage.prompt_tokens);
-  const completionTokens = finiteNonNegative(usage.completion_tokens);
-  const totalTokens = finiteNonNegative(usage.total_tokens);
-
-  const normalized = {};
-  if (promptTokens !== null) normalized.prompt_tokens = promptTokens;
-  if (completionTokens !== null) normalized.completion_tokens = completionTokens;
-  if (totalTokens !== null) normalized.total_tokens = totalTokens;
+  const normalized = normalizeTokenUsage(usage) || {};
+  const attempts = normalizeEmbeddedAttempts(usage.ai_attempts);
+  if (attempts.length > 0) normalized.ai_attempts = attempts;
 
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
@@ -76,7 +76,12 @@ export function buildVerificationCostSample({
 }) {
   const verifierName = String(verifier || "unknown");
   const normalizedUsage = normalizeAiUsage(usage);
-  const attempts = normalizeAttempts(aiAttempts, verifierName, normalizedUsage);
+  const embeddedAttempts = normalizedUsage?.ai_attempts || null;
+  const attempts = normalizeAttempts(
+    aiAttempts ?? embeddedAttempts,
+    verifierName,
+    normalizedUsage
+  );
   const aiInvoked = attempts.length > 0;
 
   let estimatedAiCostUsd = 0;
@@ -136,7 +141,7 @@ function normalizeAttempts(aiAttempts, verifierName, fallbackUsage) {
         return {
           model,
           outcome: attempt?.outcome ? String(attempt.outcome) : null,
-          usage: normalizeAiUsage(attempt?.usage)
+          usage: normalizeTokenUsage(attempt?.usage)
         };
       })
       .filter(Boolean);
@@ -144,7 +149,37 @@ function normalizeAttempts(aiAttempts, verifierName, fallbackUsage) {
 
   const model = knownModelFromVerifier(verifierName);
   if (!model) return [];
-  return [{ model, outcome: null, usage: fallbackUsage }];
+  return [{ model, outcome: null, usage: normalizeTokenUsage(fallbackUsage) }];
+}
+
+function normalizeEmbeddedAttempts(attempts) {
+  if (!Array.isArray(attempts)) return [];
+  return attempts
+    .map((attempt) => {
+      const model = String(attempt?.model || "");
+      if (!getModelPricing(model)) return null;
+      return {
+        model,
+        outcome: attempt?.outcome ? String(attempt.outcome) : null,
+        usage: normalizeTokenUsage(attempt?.usage)
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeTokenUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+
+  const promptTokens = finiteNonNegative(usage.prompt_tokens);
+  const completionTokens = finiteNonNegative(usage.completion_tokens);
+  const totalTokens = finiteNonNegative(usage.total_tokens);
+
+  const normalized = {};
+  if (promptTokens !== null) normalized.prompt_tokens = promptTokens;
+  if (completionTokens !== null) normalized.completion_tokens = completionTokens;
+  if (totalTokens !== null) normalized.total_tokens = totalTokens;
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
 function knownModelFromVerifier(verifierName) {
