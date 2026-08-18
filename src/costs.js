@@ -55,17 +55,24 @@ export function buildVerificationCostSample({
   result,
   status
 }) {
+  const verifierName = String(verifier || "unknown");
   const normalizedUsage = normalizeAiUsage(usage);
-  const estimatedAiCostUsd = estimateAiCostUsd(normalizedUsage);
+  const aiInvoked = verifierName.includes(SEMANTIC_MODEL);
+  const estimatedAiCostUsd = normalizedUsage
+    ? estimateAiCostUsd(normalizedUsage)
+    : aiInvoked
+      ? null
+      : 0;
 
   return {
     event: "proofttl_verification_cost_sample",
     phase: String(phase || "UNKNOWN"),
-    verifier: String(verifier || "unknown"),
+    verifier: verifierName,
     result: result ? String(result) : null,
     status: status ? String(status) : null,
     source_chars: finiteNonNegative(sourceChars),
     raw_source_chars: finiteNonNegative(rawSourceChars),
+    ai_invoked: aiInvoked,
     ai_usage: normalizedUsage,
     estimated_ai_cost_usd: estimatedAiCostUsd,
     pricing_model: SEMANTIC_MODEL_PRICING.model,
