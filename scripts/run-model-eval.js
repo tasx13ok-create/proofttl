@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { buildWranglerDevLaunch } from "../benchmark/launcher.js";
 
 const MIN_ACCURACY = 0.85;
 const model = process.argv[2] || "qwen3";
@@ -6,29 +7,18 @@ const limitArg = Number.parseInt(process.argv[3] || "14", 10);
 const limit = Number.isFinite(limitArg) ? Math.max(1, Math.min(14, limitArg)) : 14;
 const port = 8790;
 const baseUrl = `http://127.0.0.1:${port}`;
-const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+const launch = buildWranglerDevLaunch({ port });
 
 console.log(`ProofTTL semantic model benchmark: ${model} (${limit} fixtures)`);
 console.log("Workers AI runs remotely even though the benchmark Worker is local.");
 console.log(`Safety gate: >= ${(MIN_ACCURACY * 100).toFixed(0)}% accuracy and ZERO false-SUPPORTED results on non-supported fixtures.\n`);
 
-const child = spawn(
-  npx,
-  [
-    "wrangler",
-    "dev",
-    "--config",
-    "wrangler.model-eval.jsonc",
-    "--port",
-    String(port),
-    "--local"
-  ],
-  {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"]
-  }
-);
+const child = spawn(launch.command, launch.args, {
+  cwd: process.cwd(),
+  env: process.env,
+  stdio: ["ignore", "pipe", "pipe"],
+  windowsHide: true
+});
 
 let startupOutput = "";
 child.stdout.on("data", (chunk) => {
@@ -135,7 +125,7 @@ function stopChild() {
   child.kill(process.platform === "win32" ? undefined : "SIGTERM");
 
   // Windows sometimes leaves the Wrangler child process behind when only the
-  // npm/npx wrapper receives a signal. Best-effort cleanup of the process tree.
+  // command-shell wrapper receives a signal. Best-effort cleanup of the tree.
   if (process.platform === "win32" && child.pid) {
     const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
       stdio: "ignore",
