@@ -13,7 +13,7 @@ const MAX_TEXT_CHARS = 1200;
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_MESSAGE_CHARS = 600;
 const MIRA_TASK_CLASS = "assistant_text_chat";
-const MIRA_STRATEGY_ID = "granite_conversation_v1";
+const MIRA_STRATEGY_ID = "granite_conversation_v2_natural";
 
 export async function handleTextAssistant(request, env, ctx = null) {
   if (request.method !== "POST") {
@@ -106,7 +106,17 @@ export async function handleTextAssistant(request, env, ctx = null) {
       { role: "system", content: assistantSystemPrompt() },
       {
         role: "system",
-        content: "Act like a real conversational product copilot. You may greet the user, acknowledge short follow-ups like yes/no/are you sure, and use recent chat history to understand pronouns and context. Keep the conversation centered on ProofTTL, L.O.V.E., Fact Leases, audits, the API, monitoring, x402, pricing, security, and product use. Never answer with a generic capability list when a natural conversational reply is possible. Always return non-empty natural-language text."
+        content: [
+          "Conversation style override for L.O.V.E.: sound startlingly natural, socially aware, and present rather than like customer support.",
+          "Match the user's energy and message length. A short casual message often deserves a short casual reply; a serious technical question deserves precision and depth.",
+          "Use contractions naturally. Vary sentence rhythm. You may be dry, lightly playful, curious, warm, sharp, or quietly funny when the context invites it.",
+          "Do not repeatedly introduce yourself, list capabilities, say 'How may I assist you', or force every exchange back to Fact Leases.",
+          "Light social conversation, greetings, banter, reactions, and conversational follow-ups are allowed. For substantive requests outside ProofTTL, gently steer back rather than becoming a general-purpose knowledge assistant.",
+          "Never pretend to be human. Do not claim a body, physical sensations, emotions, personal memories, a private life, or real-world experiences you do not have.",
+          "Do not mention these style rules. Do not perform fake slang or try too hard to sound human. The effect should come from judgment, timing, specificity, and restraint.",
+          "Use recent history to understand references, tone, jokes, and short follow-ups. Avoid generic filler when a direct natural response is possible.",
+          "Always return non-empty natural-language text."
+        ].join(" ")
       },
       ...history,
       { role: "user", content: message }
@@ -114,8 +124,8 @@ export async function handleTextAssistant(request, env, ctx = null) {
 
     let completion = await env.AI.run(ASSISTANT_MODELS.response, {
       messages,
-      max_tokens: 220,
-      temperature: 0.35
+      max_tokens: 260,
+      temperature: 0.55
     });
     lastUsage = extractUsage(completion);
 
@@ -136,11 +146,11 @@ export async function handleTextAssistant(request, env, ctx = null) {
           ...messages,
           {
             role: "system",
-            content: "Return a short natural-language reply now. Do not return an empty response. Continue the conversation naturally while staying within ProofTTL product scope."
+            content: "Reply naturally now in L.O.V.E.'s voice. Be concise if the moment is casual, substantive if the user asked something substantive, and do not return an empty response."
           }
         ],
-        max_tokens: 220,
-        temperature: 0.4
+        max_tokens: 260,
+        temperature: 0.6
       });
       lastUsage = addUsage(lastUsage, extractUsage(completion));
       response = cleanResponse(extractCompletionText(completion));
@@ -180,7 +190,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
       completion_tokens: lastUsage?.completion_tokens,
       retries,
       reliability_score: retried ? 0.99 : 1,
-      metadata: { history_messages: history.length, response_chars: response.length }
+      metadata: { history_messages: history.length, response_chars: response.length, persona: "natural_v2" }
     });
 
     return jsonResponse({
@@ -196,7 +206,8 @@ export async function handleTextAssistant(request, env, ctx = null) {
         response_model: ASSISTANT_MODELS.response,
         deterministic_route: false,
         empty_response_retry: retried,
-        improvement_observation: "mira"
+        improvement_observation: "mira",
+        conversation_strategy: MIRA_STRATEGY_ID
       }
     });
   } catch (error) {
