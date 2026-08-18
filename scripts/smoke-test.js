@@ -45,11 +45,15 @@ async function run() {
   assert(discovery.body?.payments?.network === EXPECTED_NETWORK, "discovery advertises Base Sepolia");
   assert(discovery.body?.payments?.pay_to?.toLowerCase() === EXPECTED_RECEIVER.toLowerCase(), "discovery advertises the expected receiver");
   assert(discovery.body?.endpoints?.reverify?.public_enabled === false, "discovery marks manual reverify disabled");
+  assert(Boolean(discovery.body?.lease_status_semantics?.issued_status), "discovery documents issued_status semantics");
+  assert(Boolean(discovery.body?.lease_status_semantics?.current_status), "discovery documents current_status semantics");
 
   const openapi = await json(`${BASE_URL}/openapi.json`);
   assert(openapi.response.status === 200, "OpenAPI returns HTTP 200");
   const reverifyResponses = openapi.body?.paths?.["/lease/{lease_id}/reverify"]?.post?.responses;
   assert(Boolean(reverifyResponses?.["403"]), "OpenAPI documents manual reverify as HTTP 403");
+  const leaseDescription = openapi.body?.paths?.["/lease/{lease_id}"]?.get?.description || "";
+  assert(leaseDescription.includes("issued_status") && leaseDescription.includes("current_status"), "OpenAPI documents issued_status and current_status");
 
   const unpaid = await json(`${BASE_URL}/verify`, {
     method: "POST",
