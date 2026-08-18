@@ -1,0 +1,117 @@
+{
+  "schema_version": "proofttl.sample-audit-candidates.v1",
+  "report_target": {
+    "organization": "Perplexity AI",
+    "purpose": "Public demonstration of time-bound source-backed verification and evidence drift. This is not an endorsement, accusation, compliance opinion, or claim of exhaustive product accuracy.",
+    "sample_only": true
+  },
+  "research_rules": [
+    "Prefer official Perplexity primary sources for product, pricing, model, and feature claims.",
+    "Preserve publication/access-time context. Do not treat an old announcement as a claim about the current product unless the wording explicitly says it remains current.",
+    "Use CONTRADICTED only when evidence directly negates the precise claim.",
+    "A source supporting its own company's statement means the source supports the claim; it does not by itself independently validate real-world performance.",
+    "Record source access time, source type, exact evidence span, and conflicting evidence before finalizing a verdict.",
+    "Do not use search snippets, LLM summaries, or secondary paraphrases as decisive evidence when a primary source exists."
+  ],
+  "candidates": [
+    {
+      "id": "PX-001",
+      "claim": "Perplexity Max costs $200 per month or $2,000 per year on the web app.",
+      "source_url": "https://www.perplexity.ai/help-center/en/articles/11680686-perplexity-max",
+      "source_type": "primary_help_center",
+      "expected_role": "supported_calibration",
+      "monitoring_priority": "medium",
+      "notes": "Current official billing claim; useful clean baseline."
+    },
+    {
+      "id": "PX-002",
+      "claim": "Perplexity Enterprise Pro costs $40 per active seat per month or $400 per year.",
+      "source_url": "https://www.perplexity.ai/help-center/en/articles/10352986-enterprise-pricing-and-billing-frequently-asked-questions",
+      "source_type": "primary_help_center",
+      "expected_role": "supported_calibration",
+      "monitoring_priority": "high",
+      "notes": "Pricing is an inherently drift-prone claim and a strong commercial monitoring example."
+    },
+    {
+      "id": "PX-003",
+      "claim": "Perplexity Enterprise Max costs $325 per active seat per month or $3,250 per year.",
+      "source_url": "https://www.perplexity.ai/help-center/en/articles/10352986-enterprise-pricing-and-billing-frequently-asked-questions",
+      "source_type": "primary_help_center",
+      "expected_role": "supported_calibration",
+      "monitoring_priority": "high",
+      "notes": "Pair with PX-002 to show price claims that should carry explicit validity windows."
+    },
+    {
+      "id": "PX-004",
+      "claim": "As of Perplexity's Max launch announcement, Max included access to OpenAI o3-pro and Claude Opus 4.",
+      "source_url": "https://www.perplexity.ai/hub/blog/introducing-perplexity-max",
+      "source_type": "primary_historical_announcement",
+      "expected_role": "historically_supported",
+      "monitoring_priority": "critical",
+      "notes": "Do not call this contradicted. The correct demonstration is historical validity followed by product/model drift."
+    },
+    {
+      "id": "PX-005",
+      "claim": "Perplexity's current Max search-model roster includes GPT-5.6 Sol and Claude Opus 5.",
+      "source_url": "https://www.perplexity.ai/help-center/en/articles/10354919-what-advanced-ai-models-are-included-in-my-subscription",
+      "source_type": "primary_help_center",
+      "expected_role": "current_supported",
+      "monitoring_priority": "critical",
+      "notes": "Current counterpart to PX-004. Together they demonstrate why model-access claims need time-bound verification."
+    },
+    {
+      "id": "PX-006",
+      "claim": "Perplexity's current Pro and Max search-model roster includes Gemini 3.1 Pro.",
+      "source_url": "https://www.perplexity.ai/help-center/en/articles/10354919-what-advanced-ai-models-are-included-in-my-subscription",
+      "source_type": "primary_help_center",
+      "expected_role": "current_supported",
+      "monitoring_priority": "high",
+      "notes": "Model availability changes frequently; strong recurring-monitoring candidate."
+    },
+    {
+      "id": "PX-007",
+      "claim": "Perplexity says every answer in its Sales product is backed by inline citations.",
+      "source_url": "https://www.perplexity.ai/enterprise/use-cases/sales",
+      "source_type": "primary_marketing",
+      "expected_role": "source_supported_company_assertion",
+      "monitoring_priority": "medium",
+      "notes": "Treat strictly as a company assertion supported by its own page; do not infer citation correctness from citation presence."
+    },
+    {
+      "id": "PX-008",
+      "claim": "Perplexity for Sales advertises integrations through more than 400 connectors.",
+      "source_url": "https://www.perplexity.ai/enterprise/use-cases/sales",
+      "source_type": "primary_marketing",
+      "expected_role": "source_supported_company_assertion",
+      "monitoring_priority": "high",
+      "notes": "Connector counts are highly drift-prone and commercially meaningful."
+    },
+    {
+      "id": "PX-009",
+      "claim": "Perplexity describes itself as the world's first answer engine.",
+      "source_url": "https://hub-prod.perplexity.ai/hub/helpcenter",
+      "source_type": "primary_marketing",
+      "expected_role": "unknown_external_truth",
+      "monitoring_priority": "low",
+      "notes": "The source clearly shows Perplexity makes the claim, but 'world's first' is not settled merely by self-description. Candidate UNKNOWN for external-truth evaluation."
+    },
+    {
+      "id": "PX-010",
+      "claim": "Perplexity says its answer engine searches the web, identifies trusted sources, and synthesizes information into up-to-date responses.",
+      "source_url": "https://www.perplexity.ai/help-center/en/articles/10354917-what-is-an-answer-engine-and-how-does-perplexity-work-as-one",
+      "source_type": "primary_help_center",
+      "expected_role": "source_supported_company_assertion",
+      "monitoring_priority": "medium",
+      "notes": "Useful methodology example because Perplexity itself advises users to double-check sources for added confidence."
+    }
+  ],
+  "planned_report_sections": [
+    "Executive summary",
+    "Risk and drift dashboard",
+    "Claim-by-claim evidence records",
+    "Historical-to-current drift case study",
+    "Monitoring log",
+    "Methodology and limitations",
+    "Source index"
+  ]
+}
