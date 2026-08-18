@@ -1,8 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "proofttl",
-  "main": "src/entry.js",
-  "compatibility_date": "2026-08-17",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-08-18",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "secrets": {
