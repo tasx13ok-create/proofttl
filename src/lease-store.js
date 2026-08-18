@@ -4,6 +4,7 @@ import {
   reconcileMonitorScheduleBatch,
   upsertMonitorSchedule
 } from "./monitor-schedule.js";
+import { attachLeaseIssuanceSignature } from "./lease-signing.js";
 
 const LEASE_PREFIX = "lease:";
 const FALLBACK_LIST_EVERY_MINUTES = 2;
@@ -13,6 +14,8 @@ const HEX_SHARDS = "0123456789abcdef";
 export function createLeaseStoreBinding(kv, db, options = {}) {
   if (!kv) return kv;
   const monitorNow = Number.isFinite(options.monitorNow) ? options.monitorNow : null;
+  const signingPrivateJwk = options.signingPrivateJwk || null;
+  const signingKeyId = options.signingKeyId || undefined;
 
   return {
     async get(key, ...args) {
@@ -32,13 +35,45 @@ export function createLeaseStoreBinding(kv, db, options = {}) {
       return value;
     },
 
-    async put(key, value, options = {}) {
-      await kv.put(key, value, options);
-      if (!db || typeof key !== "string" || !key.startsWith(LEASE_PREFIX)) return;
+    async put(key, value, putOptions = {}) {
+      const isLease = typeof key === "string" && key.startsWith(LEASE_PREFIX);
+      if (!isLease) {
+        return kv.put(key, value, putOptions);
+      }
 
+      let lease = null;
+      let storedValue = value;
       try {
-        const lease = typeof value === "string" ? JSON.parse(value) : value;
-        if (!lease || typeof lease !== "object") return;
+        lease = typeof value === "string" ? JSON.parse(value) : value;
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: "lease_store_parse_failed",
+          lease_key: key,
+          error: error?.message || String(error)
+        }));
+      }
+
+      if (lease && typeof lease === "object" && !lease.signature && signingPrivateJwk) {
+        try {
+          await attachLeaseIssuanceSignature(lease, signingPrivateJwk, signingKeyId);
+          storedValue = JSON.stringify(lease);
+        } catch (error) {
+          // Signing is additive during rollout. A crypto/configuration problem
+          // must not turn a correctly settled verification into a charged 500.
+          // Telemetry exposes the failure and discovery only advertises signing
+          // when a valid key is configured.
+          console.error(JSON.stringify({
+            event: "lease_signing_failed",
+            lease_id: lease?.lease_id || null,
+            error: error?.message || String(error)
+          }));
+        }
+      }
+
+      await kv.put(key, storedValue, putOptions);
+
+      if (!db || !lease || typeof lease !== "object") return;
+      try {
         await upsertMonitorSchedule(db, lease, Date.now());
       } catch (error) {
         // KV is the source of truth. A scheduler-index failure must not turn a
