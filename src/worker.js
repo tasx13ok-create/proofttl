@@ -26,6 +26,8 @@ import { resolveAssistantEntitlement } from "./entitlements.js";
 import { getDeploymentReadiness } from "./readiness.js";
 import { renderLandingPage } from "./site.js";
 
+const PRODUCT_VERSION = "1.0.0";
+const COMPATIBLE_PROTOCOL = "ProofTTL/0.3.1";
 const ASSISTANT_VOICE_PATH = "/assistant/voice";
 const ASSISTANT_TEXT_PATH = "/assistant/text";
 const ASSISTANT_USAGE_PATH = "/assistant/usage";
@@ -53,6 +55,29 @@ export default {
 
     if (request.method === "GET" && pathname === "/") {
       return renderLandingPage();
+    }
+
+    if (request.method === "GET" && pathname === "/health") {
+      const response = await entry.fetch(request, env, ctx);
+      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+        return applyApiCors(response);
+      }
+      try {
+        const body = await response.json();
+        return applyApiCors(
+          Response.json(
+            {
+              ...body,
+              version: PRODUCT_VERSION,
+              protocol: body?.protocol || COMPATIBLE_PROTOCOL,
+              core_version: body?.version || null
+            },
+            { status: response.status, headers: { "cache-control": "no-store" } }
+          )
+        );
+      } catch {
+        return applyApiCors(response);
+      }
     }
 
     if (request.method === "OPTIONS" && (isAuthPath(pathname) || isCredentialedProductPath(pathname))) {
@@ -150,7 +175,7 @@ export default {
         Response.json(
           {
             service: "ProofTTL Assistant",
-            version: "1.0.0",
+            version: PRODUCT_VERSION,
             quota,
             love: loveCapability(quota, env),
             membership: {
@@ -184,7 +209,7 @@ export default {
         Response.json(
           {
             service: "ProofTTL Assistant",
-            version: "1.0.0",
+            version: PRODUCT_VERSION,
             persona: {
               name: "L.O.V.E.",
               role: "ProofTTL product intelligence"
