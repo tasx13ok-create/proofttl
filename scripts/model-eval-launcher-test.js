@@ -2,7 +2,6 @@ import fs from "node:fs";
 import { buildWranglerDevLaunch } from "../benchmark/launcher.js";
 
 let passed = 0;
-const token = "benchmarktoken_1234567890abcdef";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -16,8 +15,7 @@ function run() {
   const windows = buildWranglerDevLaunch({
     platform: "win32",
     env: { ComSpec: "C:\\Windows\\System32\\cmd.exe" },
-    port: 8790,
-    benchmarkToken: token
+    port: 8790
   });
 
   assert(
@@ -42,24 +40,20 @@ function run() {
     "Windows command preserves the local proxy port"
   );
   assert(
-    windows.args.at(-1).includes(`BENCHMARK_TOKEN:${token}`),
-    "Windows remote preview receives the one-run benchmark token"
+    !windows.args.at(-1).includes("BENCHMARK_TOKEN"),
+    "Windows launcher does not inject a redundant preview token"
   );
   assert(
     !windows.args.at(-1).includes("--local"),
     "Windows benchmark never disables remote resources with --local"
   );
 
-  const posix = buildWranglerDevLaunch({
-    platform: "linux",
-    port: 8791,
-    benchmarkToken: token
-  });
+  const posix = buildWranglerDevLaunch({ platform: "linux", port: 8791 });
   assert(posix.command === "npx", "POSIX launcher continues to invoke npx directly");
   assert(posix.args[0] === "wrangler" && posix.args[1] === "dev", "POSIX launcher invokes wrangler dev");
   assert(posix.args.includes("--remote"), "POSIX benchmark uses Cloudflare remote preview mode");
   assert(posix.args.includes("8791"), "POSIX launcher preserves the requested port");
-  assert(posix.args.includes(`BENCHMARK_TOKEN:${token}`), "POSIX remote preview receives the one-run benchmark token");
+  assert(!posix.args.some((arg) => arg.includes("BENCHMARK_TOKEN")), "POSIX launcher does not inject a redundant preview token");
 
   const configText = fs.readFileSync("wrangler.model-eval.jsonc", "utf8");
   const config = JSON.parse(configText);
@@ -69,19 +63,11 @@ function run() {
 
   let invalidPortRejected = false;
   try {
-    buildWranglerDevLaunch({ platform: "linux", port: 70000, benchmarkToken: token });
+    buildWranglerDevLaunch({ platform: "linux", port: 70000 });
   } catch {
     invalidPortRejected = true;
   }
   assert(invalidPortRejected, "launcher rejects invalid TCP ports");
-
-  let missingTokenRejected = false;
-  try {
-    buildWranglerDevLaunch({ platform: "linux", port: 8790 });
-  } catch {
-    missingTokenRejected = true;
-  }
-  assert(missingTokenRejected, "launcher rejects a missing benchmark authentication token");
 
   console.log(`\nSUCCESS: ${passed} ProofTTL benchmark launcher checks passed.`);
 }
