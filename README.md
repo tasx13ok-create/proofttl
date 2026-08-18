@@ -114,17 +114,18 @@ Returns a persisted Fact Lease. An active lease becomes `EXPIRED` after its TTL 
 
 ### `POST /lease/:id/reverify`
 
-Fetches the source again and checks whether the original lease can still be maintained.
+Public manual reverification is currently **disabled** and returns `403 manual_reverify_disabled`.
 
-Possible `check.result` values include:
+Active leases are reverified automatically by the scheduled monitor. The public manual endpoint is intentionally blocked so callers cannot force unmetered source fetches or AI work.
+
+Automatic checks can record results including:
 
 - `UNCHANGED_SOURCE` — the source fingerprint is identical.
 - `SOURCE_CHANGED_STILL_CONSISTENT` — the page changed, but the original verdict is still supported.
 - `REVOKED` — the source changed and the original verdict can no longer be maintained before expiry.
-- `EXPIRED_AND_VERDICT_CHANGED` — the lease had already expired when a changed verdict was observed.
 - `SOURCE_UNAVAILABLE` — ProofTTL could not fetch the source during the check.
 
-Each check is appended to the lease history, capped to the latest 20 checks.
+Each automatic check is appended to the lease history, capped to the latest 20 checks.
 
 ### `GET /monitor/status`
 
@@ -195,6 +196,7 @@ scheduled monitoring
 - Unchanged source fingerprints bypass repeated semantic verification.
 - ProofTTL prefers `UNKNOWN` to invented certainty.
 - Lease history is preserved instead of silently overwriting prior observations.
+- Public manual reverification is disabled; active leases are monitored automatically.
 - x402 is currently testnet-only.
 - Test payer secrets are never committed to the repository.
 
@@ -202,7 +204,6 @@ scheduled monitoring
 
 - URL filtering is not yet full DNS-resolution SSRF protection.
 - HTML extraction is still lightweight.
-- Public manual reverification needs abuse/rate controls before broad promotion.
 - Monitoring currently processes a bounded number of due leases per run.
 - Revoked leases preserve the originally issued top-level status; the current changed verdict is recorded in revocation/check state. This should be made less ambiguous in a future schema revision.
 - Fact Leases are not yet cryptographically signed.
@@ -230,7 +231,7 @@ Never commit or share `.env.test-payer`.
 
 1. Add automated regression tests for verification, revocation, and payment-gate behavior.
 2. Clarify issued status vs current status in the lease schema.
-3. Add rate limiting and abuse controls, especially around reverification.
+3. Add broader rate limiting and abuse controls before public promotion.
 4. Improve SSRF defenses with DNS resolution checks.
 5. Measure real per-lease compute + monitoring cost and set production pricing.
 6. Add cryptographically signed Fact Leases.
