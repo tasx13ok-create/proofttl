@@ -1,4 +1,5 @@
 const DEFAULT_DUE_LIMIT = 10;
+const MAX_RECONCILE_BATCH = 100;
 
 export function monitorScheduleRow(lease, updatedAtMs = Date.now()) {
   const leaseId = typeof lease?.lease_id === "string" ? lease.lease_id.trim() : "";
@@ -21,35 +22,46 @@ export function monitorScheduleRow(lease, updatedAtMs = Date.now()) {
   };
 }
 
+export function monitorScheduleRowFromKvKey(key, updatedAtMs = Date.now()) {
+  const name = typeof key?.name === "string" ? key.name : "";
+  if (!name.startsWith("lease:")) return null;
+  const metadata = key?.metadata || {};
+  const expiresAt = metadata.expires_at;
+  if (!expiresAt) return null;
+
+  try {
+    return monitorScheduleRow(
+      {
+        lease_id: name.slice("lease:".length),
+        lease_state: metadata.lease_state || "ACTIVE",
+        expires_at: expiresAt,
+        next_check_at: metadata.next_check_at || null
+      },
+      updatedAtMs
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function upsertMonitorSchedule(db, lease, updatedAtMs = Date.now()) {
   if (!db) return false;
   const row = monitorScheduleRow(lease, updatedAtMs);
-
-  await db
-    .prepare(`
-      INSERT INTO monitor_schedule (
-        lease_id,
-        lease_state,
-        next_check_at_ms,
-        expires_at_ms,
-        updated_at_ms
-      ) VALUES (?1, ?2, ?3, ?4, ?5)
-      ON CONFLICT(lease_id) DO UPDATE SET
-        lease_state = excluded.lease_state,
-        next_check_at_ms = excluded.next_check_at_ms,
-        expires_at_ms = excluded.expires_at_ms,
-        updated_at_ms = excluded.updated_at_ms
-    `)
-    .bind(
-      row.lease_id,
-      row.lease_state,
-      row.next_check_at_ms,
-      row.expires_at_ms,
-      row.updated_at_ms
-    )
-    .run();
-
+  await upsertStatement(db, row).run();
   return true;
+}
+
+export async function reconcileMonitorScheduleBatch(db, keys, updatedAtMs = Date.now()) {
+  if (!db || !Array.isArray(keys) || keys.length === 0) return 0;
+
+  const rows = keys
+    .slice(0, MAX_RECONCILE_BATCH)
+    .map((key) => monitorScheduleRowFromKvKey(key, updatedAtMs))
+    .filter(Boolean);
+
+  if (rows.length === 0) return 0;
+  await db.batch(rows.map((row) => upsertStatement(db, row)));
+  return rows.length;
 }
 
 export async function listDueLeaseIds(db, nowMs = Date.now(), limit = DEFAULT_DUE_LIMIT) {
@@ -96,6 +108,31 @@ export async function markMissingLeaseInactive(db, leaseId, updatedAtMs = Date.n
     .run();
 
   return true;
+}
+
+function upsertStatement(db, row) {
+  return db
+    .prepare(`
+      INSERT INTO monitor_schedule (
+        lease_id,
+        lease_state,
+        next_check_at_ms,
+        expires_at_ms,
+        updated_at_ms
+      ) VALUES (?1, ?2, ?3, ?4, ?5)
+      ON CONFLICT(lease_id) DO UPDATE SET
+        lease_state = excluded.lease_state,
+        next_check_at_ms = excluded.next_check_at_ms,
+        expires_at_ms = excluded.expires_at_ms,
+        updated_at_ms = excluded.updated_at_ms
+    `)
+    .bind(
+      row.lease_id,
+      row.lease_state,
+      row.next_check_at_ms,
+      row.expires_at_ms,
+      row.updated_at_ms
+    );
 }
 
 function normalizeLimit(value) {
