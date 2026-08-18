@@ -1,7 +1,12 @@
 import { validatePublicSourceUrl } from "./security.js";
 import { readResponseTextLimited } from "./limits.js";
+import {
+  SEMANTIC_MODEL,
+  buildVerificationCostSample,
+  normalizeAiUsage
+} from "./costs.js";
 
-const MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const MODEL = SEMANTIC_MODEL;
 const SERVICE_VERSION = "0.3.1";
 const PROTOCOL = "ProofTTL/0.3.1";
 const DEFAULT_TTL = 3600;
@@ -126,6 +131,15 @@ async function handleVerify(request, env) {
     sourceUrl: parsed.toString(),
     sourceText: fetched.normalizedText,
     env
+  });
+
+  logVerificationCostSample({
+    phase: "ISSUED",
+    verifier: verdict.verifier,
+    usage: verdict.ai_usage,
+    fetched,
+    result: "VERIFIED",
+    status: verdict.status
   });
 
   const leaseId = `ftl_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -329,6 +343,16 @@ async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true,
       source_fingerprint: currentFingerprint,
       final_url: fetched.finalUrl
     };
+
+    logVerificationCostSample({
+      phase: kind,
+      verifier: "fingerprint-unchanged",
+      usage: null,
+      fetched,
+      result: check.result,
+      status: check.status
+    });
+
     recordCheck(lease, check, checkedAt.getTime());
     scheduleNextCheck(lease, checkedAt.getTime());
     await saveLease(env, lease);
@@ -351,7 +375,8 @@ async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true,
       evidence: currentVerdict.evidence,
       reason: "original_exact_evidence_disappeared_after_source_change",
       confidence: Math.min(currentVerdict.confidence, 0.49),
-      verifier: `proof-basis-guard+${currentVerdict.verifier}`
+      verifier: `proof-basis-guard+${currentVerdict.verifier}`,
+      ai_usage: currentVerdict.ai_usage || null
     };
   }
 
@@ -391,6 +416,15 @@ async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true,
     source_fingerprint: currentFingerprint,
     final_url: fetched.finalUrl
   };
+
+  logVerificationCostSample({
+    phase: kind,
+    verifier: currentVerdict.verifier,
+    usage: currentVerdict.ai_usage,
+    fetched,
+    result,
+    status: currentVerdict.status
+  });
 
   recordCheck(lease, check, checkedAt.getTime());
   scheduleNextCheck(lease, checkedAt.getTime());
@@ -537,7 +571,12 @@ async function fetchSource(sourceUrl, maxChars) {
       const normalizedText = normalizeSource(raw, contentType).slice(0, maxChars);
       if (normalizedText.length < 20) return { ok: false, reason: "source_contains_too_little_text" };
 
-      return { ok: true, finalUrl: current.toString(), normalizedText };
+      return {
+        ok: true,
+        finalUrl: current.toString(),
+        rawChars: raw.length,
+        normalizedText
+      };
     }
 
     return { ok: false, reason: "too_many_source_redirects" };
@@ -583,7 +622,8 @@ async function verifyClaim({ claim, sourceUrl, sourceText, env }) {
       evidence: null,
       reason: "semantic_verifier_not_configured",
       confidence: 0,
-      verifier: "none"
+      verifier: "none",
+      ai_usage: null
     };
   }
 
@@ -632,6 +672,7 @@ async function verifyClaim({ claim, sourceUrl, sourceText, env }) {
       temperature: 0
     });
 
+    const aiUsage = normalizeAiUsage(result?.usage ?? result?.result?.usage);
     const parsed = parseAiResult(result);
     if (!parsed || !["SUPPORTED", "CONTRADICTED", "UNKNOWN"].includes(parsed.status)) {
       throw new Error("bad_ai_output");
@@ -667,7 +708,8 @@ async function verifyClaim({ claim, sourceUrl, sourceText, env }) {
       evidence,
       reason: String(parsed.reason || ""),
       confidence: clampNumber(parsed.confidence, 0, 1),
-      verifier: MODEL
+      verifier: MODEL,
+      ai_usage: aiUsage
     };
   } catch {
     return {
@@ -675,7 +717,8 @@ async function verifyClaim({ claim, sourceUrl, sourceText, env }) {
       evidence: null,
       reason: "semantic_verification_failed",
       confidence: 0,
-      verifier: MODEL
+      verifier: MODEL,
+      ai_usage: null
     };
   }
 }
@@ -691,11 +734,33 @@ function deterministicCheck(claim, sourceText) {
       evidence: sourceText.slice(at, at + claim.length),
       reason: "exact_claim_text_found_in_source",
       confidence: 0.99,
-      verifier: "deterministic-exact-match"
+      verifier: "deterministic-exact-match",
+      ai_usage: null
     };
   }
 
   return null;
+}
+
+function logVerificationCostSample({
+  phase,
+  verifier,
+  usage,
+  fetched,
+  result,
+  status
+}) {
+  console.log(
+    buildVerificationCostSample({
+      phase,
+      verifier,
+      usage,
+      sourceChars: fetched?.normalizedText?.length,
+      rawSourceChars: fetched?.rawChars,
+      result,
+      status
+    })
+  );
 }
 
 function findCriticalLiteralMismatch(claim, evidence) {
