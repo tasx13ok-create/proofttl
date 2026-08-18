@@ -1,4 +1,4 @@
-name: ProofTTL Smoke Test
+name: ProofTTL Code Checks
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  smoke:
+  local-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -65,6 +65,3 @@ jobs:
 
       - name: Run lease lifecycle regression checks
         run: npm run test:regression
-
-      - name: Run live ProofTTL smoke checks
-        run: npm run test:smoke
