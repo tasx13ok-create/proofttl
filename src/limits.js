@@ -19,6 +19,42 @@ export function getVerifiedPayerRateLimitKey(paymentResult) {
   return `verify:payer:${normalized}`;
 }
 
+export async function enforceVerifiedPayerRateLimit(rateLimiter, paymentResult) {
+  const key = getVerifiedPayerRateLimitKey(paymentResult);
+  if (!key) {
+    return {
+      ok: false,
+      status: 502,
+      error: "verified_payer_identity_missing",
+      message: "The verified payment could not be attributed safely."
+    };
+  }
+
+  if (!rateLimiter || typeof rateLimiter.limit !== "function") {
+    return {
+      ok: false,
+      status: 503,
+      error: "payer_rate_limiter_unavailable",
+      message: "Paid verification protection is not configured correctly."
+    };
+  }
+
+  const { success } = await rateLimiter.limit({ key });
+  const payer = key.slice("verify:payer:".length);
+  if (!success) {
+    return {
+      ok: false,
+      status: 429,
+      error: "payer_rate_limit_exceeded",
+      message: "This payer has made too many verification requests. Try again shortly.",
+      payer,
+      retry_after_seconds: 60
+    };
+  }
+
+  return { ok: true, payer, key };
+}
+
 export async function validateVerifyRequest(
   request,
   maxBytes = DEFAULT_MAX_VERIFY_REQUEST_BYTES
