@@ -42,6 +42,9 @@ jobs:
       - name: Validate semantic benchmark fixtures
         run: npm run test:model-fixtures
 
+      - name: Validate hybrid semantic model routing
+        run: npm run test:model-routing
+
       - name: Run lease lifecycle regression checks
         run: npm run test:regression
 
