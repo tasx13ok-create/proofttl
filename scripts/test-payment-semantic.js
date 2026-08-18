@@ -136,6 +136,7 @@ async function main() {
       console.log("Settlement response:");
       console.log(`  success: ${settlement.success ?? "<missing>"}`);
       console.log(`  errorReason: ${settlement.errorReason || "<none>"}`);
+      console.log(`  errorMessage: ${settlement.errorMessage || "<none>"}`);
       console.log(`  transaction: ${settlement.transaction || "<none>"}`);
       console.log(`  network: ${settlement.network || "<missing>"}`);
       console.log(`  payer: ${settlement.payer || "<missing>"}`);
@@ -237,6 +238,7 @@ function diagnosePaymentFailure(response, settlement) {
   if (settlement) {
     console.error(`  settlement success: ${settlement.success ?? "<missing>"}`);
     console.error(`  settlement errorReason: ${settlement.errorReason || "<none>"}`);
+    console.error(`  settlement errorMessage: ${settlement.errorMessage || "<none>"}`);
     console.error(`  settlement transaction: ${settlement.transaction || "<none>"}`);
     console.error(`  settlement network: ${settlement.network || "<missing>"}`);
     console.error("  PAYMENT-RESPONSE is the authoritative settlement diagnostic for this response.");
