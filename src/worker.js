@@ -18,17 +18,23 @@ import {
   applyApiCors,
   apiCorsPreflightResponse
 } from "./http-cors.js";
+import { resolveAssistantEntitlement } from "./entitlements.js";
 import { getDeploymentReadiness } from "./readiness.js";
 import { renderLandingPage } from "./site.js";
 
 const ASSISTANT_VOICE_PATH = "/assistant/voice";
 const ASSISTANT_TEXT_PATH = "/assistant/text";
 const ASSISTANT_USAGE_PATH = "/assistant/usage";
+const ACCOUNT_ENTITLEMENT_PATH = "/account/entitlement";
 const READINESS_PATH = "/readiness";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 
 function isAuthPath(pathname) {
   return pathname === AUTH_PATH_PREFIX || pathname.startsWith(`${AUTH_PATH_PREFIX}/`);
+}
+
+function isCredentialedProductPath(pathname) {
+  return pathname === ACCOUNT_ENTITLEMENT_PATH;
 }
 
 export default {
@@ -39,7 +45,7 @@ export default {
       return renderLandingPage();
     }
 
-    if (request.method === "OPTIONS" && isAuthPath(pathname)) {
+    if (request.method === "OPTIONS" && (isAuthPath(pathname) || isCredentialedProductPath(pathname))) {
       return authPreflightResponse(request, env);
     }
 
@@ -50,6 +56,40 @@ export default {
     if (isAuthPath(pathname)) {
       const response = await handleProofTTLAuth(request, env);
       return applyAuthCors(response, request, env);
+    }
+
+    if (request.method === "GET" && pathname === ACCOUNT_ENTITLEMENT_PATH) {
+      const entitlement = await resolveAssistantEntitlement(request, env, assistantQuotaLimit(env));
+      if (!entitlement.authenticated) {
+        return applyAuthCors(
+          Response.json(
+            { error: "authentication_required", message: "Sign in to read account entitlement status." },
+            { status: 401, headers: { "cache-control": "no-store" } }
+          ),
+          request,
+          env
+        );
+      }
+
+      return applyAuthCors(
+        Response.json(
+          {
+            account: {
+              plan: entitlement.plan,
+              membership_status: entitlement.membership_status,
+              assistant_daily_limit: entitlement.limit,
+              period_end_ms: entitlement.period_end_ms || null
+            },
+            billing: {
+              enabled: false,
+              self_service_upgrade: false
+            }
+          },
+          { headers: { "cache-control": "no-store" } }
+        ),
+        request,
+        env
+      );
     }
 
     if (request.method === "GET" && pathname === READINESS_PATH) {
@@ -138,7 +178,8 @@ export default {
               free_daily_messages: assistantQuotaLimit(env),
               shared_between_text_and_voice: true,
               reset: "daily_utc",
-              durable_accounting: Boolean(env?.MONITOR_DB)
+              durable_accounting: Boolean(env?.MONITOR_DB),
+              account_entitlements: true
             },
             scope: "proofttl_product_only",
             models: ASSISTANT_MODELS,
