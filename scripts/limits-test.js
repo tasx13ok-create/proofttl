@@ -1,5 +1,6 @@
 import {
   DEFAULT_MAX_VERIFY_REQUEST_BYTES,
+  getVerifiedPayerRateLimitKey,
   getVerifyRateLimitKey,
   readResponseTextLimited,
   validateVerifyRequest
@@ -37,6 +38,24 @@ async function run() {
   assert(
     getVerifyRateLimitKey(paidAttemptRequest) === "verify:payment-attempt",
     "payment-bearing requests use a separate limiter bucket"
+  );
+
+  const verifiedPayer = "0x58581d21D4b2c0D9D58E463d54C48863b7fdda43";
+  const verifiedPayment = {
+    paymentPayload: {
+      payload: {
+        authorization: { from: verifiedPayer }
+      }
+    }
+  };
+  assert(
+    getVerifiedPayerRateLimitKey(verifiedPayment) ===
+      `verify:payer:${verifiedPayer.toLowerCase()}`,
+    "verified EVM payer produces a normalized payer limiter key"
+  );
+  assert(
+    getVerifiedPayerRateLimitKey({ paymentPayload: { payload: { authorization: { from: "not-an-address" } } } }) === null,
+    "invalid verified payer identity is rejected instead of creating a limiter key"
   );
 
   const wrongType = await validateVerifyRequest(
