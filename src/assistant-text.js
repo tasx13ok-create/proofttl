@@ -97,6 +97,10 @@ export async function handleTextAssistant(request, env) {
   try {
     const messages = [
       { role: "system", content: assistantSystemPrompt() },
+      {
+        role: "system",
+        content: "Act like a real conversational product copilot. You may greet the user, acknowledge short follow-ups like yes/no/are you sure, and use recent chat history to understand pronouns and context. Keep the conversation centered on ProofTTL, L.O.V.E., Fact Leases, audits, the API, monitoring, x402, pricing, security, and product use. Never answer with a generic capability list when a natural conversational reply is possible. Always return non-empty natural-language text."
+      },
       ...history,
       { role: "user", content: message }
     ];
