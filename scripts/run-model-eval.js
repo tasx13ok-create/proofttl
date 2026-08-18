@@ -7,9 +7,7 @@ const limitArg = Number.parseInt(process.argv[3] || "14", 10);
 const limit = Number.isFinite(limitArg) ? Math.max(1, Math.min(14, limitArg)) : 14;
 const port = 8790;
 const baseUrl = `http://127.0.0.1:${port}`;
-const benchmarkToken = `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
-const launch = buildWranglerDevLaunch({ port, benchmarkToken });
-const authHeaders = { "x-proofttl-benchmark-token": benchmarkToken };
+const launch = buildWranglerDevLaunch({ port });
 
 console.log(`ProofTTL semantic model benchmark: ${model} (${limit} fixtures)`);
 console.log("Benchmark code runs in a temporary Cloudflare remote-preview session; this is not a production deploy.");
@@ -36,10 +34,7 @@ try {
   await waitUntilReady();
   const response = await fetch(`${baseUrl}/run`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...authHeaders
-    },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ model, limit })
   });
 
@@ -54,7 +49,7 @@ try {
 } catch (error) {
   console.error(`\nMODEL BENCHMARK FAILED: ${error instanceof Error ? error.message : String(error)}`);
   if (startupOutput.trim()) {
-    console.error("\nWrangler output:\n" + redactToken(startupOutput.trim()).slice(-6000));
+    console.error("\nWrangler output:\n" + startupOutput.trim().slice(-6000));
   }
   process.exitCode = 1;
 } finally {
@@ -140,10 +135,6 @@ function stopChild() {
     });
     killer.unref();
   }
-}
-
-function redactToken(value) {
-  return value.replaceAll(benchmarkToken, "[REDACTED_BENCHMARK_TOKEN]");
 }
 
 process.on("SIGINT", () => {
