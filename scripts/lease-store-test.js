@@ -2,6 +2,7 @@ import {
   createLeaseStoreBinding,
   reconcileMonitorScheduleFromKv
 } from "../src/lease-store.js";
+import { verifyLeaseIssuanceSignature } from "../src/lease-signing.js";
 
 let passed = 0;
 
@@ -90,8 +91,23 @@ class FakeD1 {
 }
 
 function makeLease(id, nowMs) {
+  const issuedAt = new Date(nowMs).toISOString();
   return {
     lease_id: id,
+    protocol: "ProofTTL/0.3.1",
+    claim: "Example.com is intended for illustrative examples in documents.",
+    status: "SUPPORTED",
+    source_url: "https://example.com",
+    final_url: "https://example.com/",
+    evidence: "This domain is for use in illustrative examples in documents.",
+    reason: "semantic_support",
+    issued_at: issuedAt,
+    observed_at: issuedAt,
+    ttl_seconds: 600,
+    source_fingerprint: "sha256:d003f90bc10db991b76e6fb480123cfce2cbb2b2784abe687fccccfa7ecacad8",
+    confidence: 0.95,
+    verifier: "proofttl-hybrid:qwen3-primary+llama70b-fallback",
+    proof_basis: "SEMANTIC",
     lease_state: "ACTIVE",
     expires_at: new Date(nowMs + 600_000).toISOString(),
     next_check_at: new Date(nowMs + 60_000).toISOString()
@@ -133,7 +149,7 @@ async function run() {
   await indexedStore.put(`lease:${lease.lease_id}`, JSON.stringify(lease), {
     metadata: { lease_state: "ACTIVE" }
   });
-  assert(kvIndexed.putCalls.length === 1, "lease write persists to KV first");
+  assert(kvIndexed.putCalls.length === 1, "lease write persists to KV");
   assert(
     db.runs.some((item) => item.sql.includes("INSERT INTO monitor_schedule")),
     "lease write upserts D1 schedule index"
@@ -143,6 +159,28 @@ async function run() {
   assert(
     db.runs.some((item) => item.sql.includes("SET lease_state = 'MISSING'")),
     "missing KV lease is marked inactive in D1"
+  );
+
+  const signingPair = await crypto.subtle.generateKey(
+    { name: "Ed25519" },
+    true,
+    ["sign", "verify"]
+  );
+  const signingPrivateJwk = await crypto.subtle.exportKey("jwk", signingPair.privateKey);
+  const signingPublicJwk = await crypto.subtle.exportKey("jwk", signingPair.publicKey);
+  const kvSigned = new FakeKV();
+  const signedStore = createLeaseStoreBinding(kvSigned, null, {
+    signingPrivateJwk,
+    signingKeyId: "proofttl-test-key"
+  });
+  const signableLease = makeLease("ftl_signed", base);
+  await signedStore.put(`lease:${signableLease.lease_id}`, JSON.stringify(signableLease));
+  const storedSignedLease = JSON.parse(kvSigned.entries.get("lease:ftl_signed"));
+  assert(storedSignedLease.signature?.algorithm === "Ed25519", "KV adapter persists Ed25519 signature envelope");
+  assert(storedSignedLease.signature?.key_id === "proofttl-test-key", "stored signature preserves configured key ID");
+  assert(
+    await verifyLeaseIssuanceSignature(storedSignedLease, signingPublicJwk),
+    "stored Fact Lease signature verifies with public key"
   );
 
   const shardChars = "0123456789abcdef";
