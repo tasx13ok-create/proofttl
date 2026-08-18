@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
+import { x402HTTPResourceServer, x402ResourceServer } from "@x402/hono";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import core from "./index.js";
@@ -10,6 +10,8 @@ import {
   getVerifyRateLimitKey,
   validateVerifyRequest
 } from "./limits.js";
+import { validatePublicSourceUrl } from "./security.js";
+import { createPreSettledX402Middleware } from "./x402-gate.js";
 
 const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
 const X402_NETWORK = "eip155:84532";
@@ -31,23 +33,22 @@ const x402Routes = {
       }
     ],
     description: "Issue a source-backed ProofTTL fact lease",
-    mimeType: "application/json"
+    mimeType: "application/json",
+    settlementFailedResponseBody: (_context, settlement) => ({
+      contentType: "application/json",
+      body: {
+        error: "x402_settlement_failed",
+        reason: settlement.errorReason || "settlement_failed"
+      }
+    })
   }
 };
 
-// Cloudflare Workers should not perform the facilitator sync during module
-// initialization. Disable x402's eager sync and initialize once, lazily, from
-// the first protected request instead.
-const x402Middleware = paymentMiddleware(
-  x402Routes,
-  resourceServer,
-  undefined,
-  undefined,
-  false
-);
-
-let x402Initialized = false;
-let x402InitPromise = null;
+const x402HttpServer = new x402HTTPResourceServer(resourceServer, x402Routes);
+const x402Middleware = createPreSettledX402Middleware({
+  httpServer: x402HttpServer,
+  prevalidatePaidRequest: validatePaidVerifyRequest
+});
 
 const app = new Hono();
 
@@ -103,27 +104,6 @@ app.use("/verify", async (c, next) => {
     );
   }
 
-  if (!x402Initialized) {
-    if (!x402InitPromise) {
-      x402InitPromise = resourceServer.initialize();
-    }
-
-    try {
-      await x402InitPromise;
-      x402Initialized = true;
-    } catch (error) {
-      x402InitPromise = null;
-      console.error("x402 lazy initialization failed", error);
-      return c.json(
-        {
-          error: "x402_facilitator_initialization_failed",
-          message: error instanceof Error ? error.message : String(error)
-        },
-        502
-      );
-    }
-  }
-
   return x402Middleware(c, next);
 });
 
@@ -165,6 +145,45 @@ export default {
     }
   }
 };
+
+async function validatePaidVerifyRequest(c) {
+  let body;
+  try {
+    body = await c.req.raw.clone().json();
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+
+  const claim = typeof body?.claim === "string" ? body.claim.trim() : "";
+  const sourceUrl = typeof body?.source_url === "string" ? body.source_url.trim() : "";
+
+  if (!claim || claim.length > 1000) {
+    return c.json({ error: "claim_required_or_too_long" }, 400);
+  }
+  if (!sourceUrl) {
+    return c.json({ error: "source_url_required" }, 400);
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(sourceUrl);
+  } catch {
+    return c.json({ error: "invalid_source_url" }, 400);
+  }
+
+  const sourceSafety = await validatePublicSourceUrl(parsed);
+  if (!sourceSafety.ok) {
+    return c.json(
+      {
+        error: "source_url_not_allowed",
+        reason: sourceSafety.reason
+      },
+      400
+    );
+  }
+
+  return null;
+}
 
 function envForCore(env) {
   if (!env?.AI) return env;
