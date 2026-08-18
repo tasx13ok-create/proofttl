@@ -6,6 +6,9 @@ const EXPECTED_PROTOCOL = "ProofTTL/0.3.1";
 const EXPECTED_NETWORK = "eip155:84532";
 const EXPECTED_AMOUNT = "1000";
 const EXPECTED_RECEIVER = "0x29949a066902bd329F74479c9AEBC448100955d8";
+const EXPECTED_FRONTEND_ORIGIN =
+  process.env.PROOFTTL_FRONTEND_ORIGIN ||
+  "https://proofttl-web-git-main-tasx13ok-1769s-projects.vercel.app";
 
 let passed = 0;
 
@@ -72,6 +75,9 @@ async function run() {
   assert(readiness.body?.testnet?.score === 100, "testnet readiness score is 100");
   assert(readiness.body?.testnet?.checks?.assistant_usage_schema === true, "assistant usage schema is installed");
   assert(readiness.body?.testnet?.checks?.account_entitlement_schema === true, "account entitlement schema is installed");
+  assert(readiness.body?.testnet?.checks?.trusted_browser_origin === true, "trusted browser origin is configured");
+  assert(readiness.body?.testnet?.checks?.cross_origin_session_cookies === true, "cross-origin session cookies are configured");
+  assert(readiness.body?.entitlements?.browser_session_aware === true, "entitlements are browser-session aware");
   assert(readiness.body?.entitlements?.billing_enabled === false, "billing remains intentionally disabled");
   assert(readiness.body?.production?.ready === false, "production remains intentionally disabled");
 
@@ -97,6 +103,7 @@ async function run() {
   assert(assistant.body?.scope === "proofttl_product_only", "assistant discovery reports product-only scope");
   assert(assistant.body?.quota?.shared_between_text_and_voice === true, "assistant quota is shared between text and voice");
   assert(assistant.body?.quota?.account_entitlements === true, "assistant discovery reports account entitlement support");
+  assert(assistant.body?.quota?.authenticated_browser_sessions_supported === true, "assistant discovery reports authenticated browser session support");
   assert(Number(assistant.body?.quota?.free_daily_messages) > 0, "assistant discovery advertises a positive free daily quota");
   assert(assistant.body?.configured === true, "assistant discovery reports AI and rate limiting configured");
   assert(assistant.body?.audio_retention === "none_by_default", "assistant discovery reports no default audio retention");
@@ -138,7 +145,7 @@ async function run() {
   assert(headerIncludes(verifyPreflight, "access-control-allow-headers", "payment-signature"), "verify preflight allows PAYMENT-SIGNATURE");
   assert(headerIncludes(verifyPreflight, "access-control-allow-headers", "content-type"), "verify preflight allows Content-Type");
 
-  const assistantPreflight = await fetch(`${BASE_URL}/assistant/voice`, {
+  const anonymousAssistantPreflight = await fetch(`${BASE_URL}/assistant/voice`, {
     method: "OPTIONS",
     headers: {
       origin: "https://browser.example",
@@ -146,9 +153,29 @@ async function run() {
       "access-control-request-headers": "content-type"
     }
   });
-  assert(assistantPreflight.status === 204, "assistant browser preflight returns HTTP 204");
-  assert(assistantPreflight.headers.get("access-control-allow-origin") === "*", "assistant preflight allows browser origin");
-  assert(headerIncludes(assistantPreflight, "access-control-allow-headers", "content-type"), "assistant preflight allows Content-Type");
+  assert(anonymousAssistantPreflight.status === 204, "anonymous assistant browser preflight returns HTTP 204");
+  assert(anonymousAssistantPreflight.headers.get("access-control-allow-origin") === "*", "untrusted assistant origin remains anonymous wildcard access");
+  assert(anonymousAssistantPreflight.headers.get("access-control-allow-credentials") === null, "untrusted assistant origin never receives credential permission");
+  assert(headerIncludes(anonymousAssistantPreflight, "access-control-allow-headers", "content-type"), "assistant preflight allows Content-Type");
+
+  const trustedAssistantPreflight = await fetch(`${BASE_URL}/assistant/text`, {
+    method: "OPTIONS",
+    headers: {
+      origin: EXPECTED_FRONTEND_ORIGIN,
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "content-type"
+    }
+  });
+  assert(trustedAssistantPreflight.status === 204, "trusted frontend assistant preflight returns HTTP 204");
+  assert(trustedAssistantPreflight.headers.get("access-control-allow-origin") === EXPECTED_FRONTEND_ORIGIN, "trusted frontend origin is reflected for assistant requests");
+  assert(trustedAssistantPreflight.headers.get("access-control-allow-credentials") === "true", "trusted frontend can send assistant session cookies");
+
+  const trustedUsage = await json(`${BASE_URL}/assistant/usage`, {
+    headers: { origin: EXPECTED_FRONTEND_ORIGIN }
+  });
+  assert(trustedUsage.response.status === 200, "trusted frontend can read assistant usage");
+  assert(trustedUsage.response.headers.get("access-control-allow-origin") === EXPECTED_FRONTEND_ORIGIN, "assistant usage reflects trusted frontend origin");
+  assert(trustedUsage.response.headers.get("access-control-allow-credentials") === "true", "assistant usage permits trusted frontend credentials");
 
   const unpaid = await json(`${BASE_URL}/verify`, {
     method: "POST",
