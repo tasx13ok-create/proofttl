@@ -62,7 +62,7 @@ export const SEMANTIC_FIXTURES = Object.freeze([
   {
     id: "supported_percentage",
     claim: "The service uptime target is 99.9%.",
-    source: "Our published service-level objective sets the uptime target at 99.9 percent for each calendar month.",
+    source: "Our published service-level objective sets the monthly uptime target at 99.9%, measured across the full service.",
     expected: "SUPPORTED"
   },
   {
