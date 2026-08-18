@@ -16,10 +16,15 @@ if (!Number.isInteger(requestedLimit) || requestedLimit < 100 || requestedLimit 
 const escapedEmail = email.replaceAll("'", "''");
 
 function runD1(command) {
+  const args = ["wrangler", "d1", "execute", "MONITOR_DB", "--remote", "--json", "--command", command];
   const output = execFileSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["wrangler", "d1", "execute", "MONITOR_DB", "--remote", "--json", "--command", command],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    "npx",
+    args,
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32"
+    }
   );
   return JSON.parse(output);
 }
