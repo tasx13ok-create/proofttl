@@ -1,13 +1,31 @@
-export const SEMANTIC_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+export const LLAMA_70B_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+export const QWEN3_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
+
+// Production remains on 70B until the hybrid verifier is wired and regression-tested.
+export const SEMANTIC_MODEL = LLAMA_70B_MODEL;
 
 // Cloudflare Workers AI public unit pricing checked 2026-08-17.
 // Keep this explicit and versioned so pricing decisions are reproducible.
-export const SEMANTIC_MODEL_PRICING = Object.freeze({
-  model: SEMANTIC_MODEL,
-  input_usd_per_million_tokens: 0.293,
-  output_usd_per_million_tokens: 2.253,
-  checked_at: "2026-08-17"
+export const MODEL_PRICING = Object.freeze({
+  [LLAMA_70B_MODEL]: Object.freeze({
+    model: LLAMA_70B_MODEL,
+    input_usd_per_million_tokens: 0.293,
+    output_usd_per_million_tokens: 2.253,
+    checked_at: "2026-08-17"
+  }),
+  [QWEN3_MODEL]: Object.freeze({
+    model: QWEN3_MODEL,
+    input_usd_per_million_tokens: 0.051,
+    output_usd_per_million_tokens: 0.34,
+    checked_at: "2026-08-17"
+  })
 });
+
+export const SEMANTIC_MODEL_PRICING = MODEL_PRICING[SEMANTIC_MODEL];
+
+export function getModelPricing(model) {
+  return MODEL_PRICING[String(model || "")] || null;
+}
 
 export function normalizeAiUsage(usage) {
   if (!usage || typeof usage !== "object") return null;
@@ -50,6 +68,7 @@ export function buildVerificationCostSample({
   phase,
   verifier,
   usage,
+  aiAttempts = null,
   sourceChars,
   rawSourceChars,
   result,
@@ -57,12 +76,38 @@ export function buildVerificationCostSample({
 }) {
   const verifierName = String(verifier || "unknown");
   const normalizedUsage = normalizeAiUsage(usage);
-  const aiInvoked = verifierName.includes(SEMANTIC_MODEL);
-  const estimatedAiCostUsd = normalizedUsage
-    ? estimateAiCostUsd(normalizedUsage)
-    : aiInvoked
-      ? null
-      : 0;
+  const attempts = normalizeAttempts(aiAttempts, verifierName, normalizedUsage);
+  const aiInvoked = attempts.length > 0;
+
+  let estimatedAiCostUsd = 0;
+  let totalKnown = true;
+  const attemptBreakdown = attempts.map((attempt) => {
+    const pricing = getModelPricing(attempt.model);
+    const attemptCost = attempt.usage && pricing
+      ? estimateAiCostUsd(attempt.usage, pricing)
+      : null;
+
+    if (attemptCost === null) totalKnown = false;
+    else estimatedAiCostUsd += attemptCost;
+
+    return {
+      model: attempt.model,
+      outcome: attempt.outcome,
+      usage: attempt.usage,
+      estimated_ai_cost_usd: attemptCost,
+      pricing_checked_at: pricing?.checked_at || null
+    };
+  });
+
+  if (aiInvoked && !totalKnown) estimatedAiCostUsd = null;
+  if (!aiInvoked) estimatedAiCostUsd = 0;
+
+  const pricingModels = [...new Set(attempts.map((attempt) => attempt.model))];
+  const checkedDates = [...new Set(
+    pricingModels
+      .map((model) => getModelPricing(model)?.checked_at)
+      .filter(Boolean)
+  )];
 
   return {
     event: "proofttl_verification_cost_sample",
@@ -74,10 +119,39 @@ export function buildVerificationCostSample({
     raw_source_chars: finiteNonNegative(rawSourceChars),
     ai_invoked: aiInvoked,
     ai_usage: normalizedUsage,
+    ai_attempts: attemptBreakdown,
     estimated_ai_cost_usd: estimatedAiCostUsd,
-    pricing_model: SEMANTIC_MODEL_PRICING.model,
-    pricing_checked_at: SEMANTIC_MODEL_PRICING.checked_at
+    pricing_model: pricingModels.length === 1 ? pricingModels[0] : null,
+    pricing_models: pricingModels,
+    pricing_checked_at: checkedDates.length === 1 ? checkedDates[0] : null
   };
+}
+
+function normalizeAttempts(aiAttempts, verifierName, fallbackUsage) {
+  if (Array.isArray(aiAttempts)) {
+    return aiAttempts
+      .map((attempt) => {
+        const model = String(attempt?.model || "");
+        if (!getModelPricing(model)) return null;
+        return {
+          model,
+          outcome: attempt?.outcome ? String(attempt.outcome) : null,
+          usage: normalizeAiUsage(attempt?.usage)
+        };
+      })
+      .filter(Boolean);
+  }
+
+  const model = knownModelFromVerifier(verifierName);
+  if (!model) return [];
+  return [{ model, outcome: null, usage: fallbackUsage }];
+}
+
+function knownModelFromVerifier(verifierName) {
+  for (const model of Object.keys(MODEL_PRICING)) {
+    if (verifierName.includes(model)) return model;
+  }
+  return null;
 }
 
 function finiteNonNegative(value) {
