@@ -6,6 +6,10 @@ import {
   getAssistantQuota
 } from "./assistant-quota.js";
 import {
+  applyAssistantCors,
+  assistantPreflightResponse
+} from "./assistant-cors.js";
+import {
   AUTH_PATH_PREFIX,
   authRuntimeStatus,
   handleProofTTLAuth
@@ -33,6 +37,12 @@ function isAuthPath(pathname) {
   return pathname === AUTH_PATH_PREFIX || pathname.startsWith(`${AUTH_PATH_PREFIX}/`);
 }
 
+function isAssistantPath(pathname) {
+  return pathname === ASSISTANT_VOICE_PATH ||
+    pathname === ASSISTANT_TEXT_PATH ||
+    pathname === ASSISTANT_USAGE_PATH;
+}
+
 function isCredentialedProductPath(pathname) {
   return pathname === ACCOUNT_ENTITLEMENT_PATH;
 }
@@ -47,6 +57,10 @@ export default {
 
     if (request.method === "OPTIONS" && (isAuthPath(pathname) || isCredentialedProductPath(pathname))) {
       return authPreflightResponse(request, env);
+    }
+
+    if (request.method === "OPTIONS" && isAssistantPath(pathname)) {
+      return assistantPreflightResponse(request, env);
     }
 
     if (request.method === "OPTIONS") {
@@ -132,7 +146,7 @@ export default {
 
     if (request.method === "GET" && pathname === ASSISTANT_USAGE_PATH) {
       const quota = await getAssistantQuota(request, env);
-      return applyApiCors(
+      return applyAssistantCors(
         Response.json(
           {
             service: "ProofTTL Assistant",
@@ -143,18 +157,20 @@ export default {
             }
           },
           { headers: { "cache-control": "no-store" } }
-        )
+        ),
+        request,
+        env
       );
     }
 
     if (pathname === ASSISTANT_VOICE_PATH) {
       const response = await handleVoiceAssistant(request, env);
-      return applyApiCors(response);
+      return applyAssistantCors(response, request, env);
     }
 
     if (pathname === ASSISTANT_TEXT_PATH) {
       const response = await handleTextAssistant(request, env);
-      return applyApiCors(response);
+      return applyAssistantCors(response, request, env);
     }
 
     if (request.method === "GET" && pathname === "/.well-known/proofttl-assistant.json") {
@@ -179,7 +195,8 @@ export default {
               shared_between_text_and_voice: true,
               reset: "daily_utc",
               durable_accounting: Boolean(env?.MONITOR_DB),
-              account_entitlements: true
+              account_entitlements: true,
+              authenticated_browser_sessions_supported: true
             },
             scope: "proofttl_product_only",
             models: ASSISTANT_MODELS,
