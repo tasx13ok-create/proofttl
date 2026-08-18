@@ -17,6 +17,10 @@ function makeEnv() {
     AI: {
       async run(model, input) {
         calls.push({ model, input });
+        const last = input?.messages?.at(-1)?.content || "";
+        if (/what is proofttl/i.test(last)) {
+          return { response: "ProofTTL turns changing factual claims into source-backed Fact Leases that expire and can be rechecked when evidence changes." };
+        }
         return { response: "A Fact Lease is a source-backed claim with an expiry." };
       }
     },
@@ -57,19 +61,12 @@ assert.equal(quota.used, 0, "deterministic navigation must not spend AI quota");
 const about = await handleTextAssistant(req({ message: "what is proofttl" }), env);
 assert.equal(about.status, 200);
 const aboutBody = await about.json();
-assert.match(aboutBody.response, /verification system/i);
 assert.match(aboutBody.response, /Fact Lease/i);
-assert.equal(aboutBody.inference?.knowledge_route, true);
-assert.equal(aboutBody.inference?.response_model, null);
-assert.equal(env.calls.length, 0, "core product knowledge must not invoke the model");
+assert.equal(aboutBody.inference?.deterministic_route, false);
+assert.ok(aboutBody.inference?.response_model, "normal product questions should use the conversational model");
+assert.equal(env.calls.length, 1, "product conversation should invoke the lightweight model");
 quota = await getAssistantQuota(req({ message: "status" }), env);
-assert.equal(quota.used, 0, "core product knowledge must not spend AI quota");
-
-const leaseDefinition = await handleTextAssistant(req({ message: "what is a fact lease" }), env);
-assert.equal(leaseDefinition.status, 200);
-const leaseDefinitionBody = await leaseDefinition.json();
-assert.match(leaseDefinitionBody.response, /time-bounded verification object/i);
-assert.equal(env.calls.length, 0);
+assert.equal(quota.used, 1, "conversational product questions spend AI quota");
 
 const history = [
   { role: "user", content: "old 1" },
@@ -91,11 +88,11 @@ assert.equal(answer.status, 200);
 const answerBody = await answer.json();
 assert.match(answerBody.response, /Fact Lease/i);
 assert.equal(answerBody.context.history_messages_used, 5, "invalid history roles are removed after six-message tail bounding");
-assert.equal(answerBody.quota.used, 1);
-assert.equal(answerBody.quota.remaining, 19);
-assert.equal(env.calls.length, 1);
+assert.equal(answerBody.quota.used, 2);
+assert.equal(answerBody.quota.remaining, 18);
+assert.equal(env.calls.length, 2);
 
-const sentMessages = env.calls[0].input.messages;
+const sentMessages = env.calls[1].input.messages;
 assert.equal(sentMessages[0].role, "system");
 assert.equal(sentMessages.at(-1).role, "user");
 assert.equal(sentMessages.at(-1).content, "Tell me how the verifier decides whether semantic evidence is enough.");
