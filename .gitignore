@@ -3,4 +3,6 @@ node_modules/
 .dev.vars
 .env
 .env.test-payer
+.proofttl-signing-private.jwk
+.proofttl-signing-public.jwk
 .DS_Store
