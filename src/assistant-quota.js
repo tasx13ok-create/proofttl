@@ -1,3 +1,5 @@
+import { resolveAssistantEntitlement } from "./entitlements.js";
+
 const DEFAULT_FREE_DAILY_MESSAGES = 20;
 
 export function assistantQuotaLimit(env) {
@@ -8,9 +10,9 @@ export function assistantQuotaLimit(env) {
 }
 
 export async function getAssistantQuota(request, env) {
-  const limit = assistantQuotaLimit(env);
+  const policy = await assistantQuotaPolicy(request, env);
   const timing = quotaTiming();
-  const subjectHash = await quotaSubjectHash(request, env);
+  const subjectHash = await quotaSubjectHash(request, env, policy.subject);
 
   if (env?.MONITOR_DB && typeof env.MONITOR_DB.prepare === "function") {
     try {
@@ -21,7 +23,7 @@ export async function getAssistantQuota(request, env) {
         .bind(subjectHash, timing.day)
         .first();
       const used = Math.max(0, Number(row?.used_messages) || 0);
-      return quotaShape(limit, used, timing.retryAfterSeconds, "d1");
+      return quotaShape(policy, used, timing.retryAfterSeconds, "d1");
     } catch (error) {
       console.warn(JSON.stringify({
         event: "assistant_quota_status_d1_failed",
@@ -30,13 +32,13 @@ export async function getAssistantQuota(request, env) {
     }
   }
 
-  return getKvQuota(subjectHash, timing, env, limit);
+  return getKvQuota(subjectHash, timing, env, policy);
 }
 
 export async function consumeAssistantQuota(request, env) {
-  const limit = assistantQuotaLimit(env);
+  const policy = await assistantQuotaPolicy(request, env);
   const timing = quotaTiming();
-  const subjectHash = await quotaSubjectHash(request, env);
+  const subjectHash = await quotaSubjectHash(request, env, policy.subject);
 
   if (env?.MONITOR_DB && typeof env.MONITOR_DB.prepare === "function") {
     try {
@@ -50,20 +52,20 @@ export async function consumeAssistantQuota(request, env) {
            WHERE used_messages < ?4
            RETURNING used_messages`
         )
-        .bind(subjectHash, timing.day, Date.now(), limit)
+        .bind(subjectHash, timing.day, Date.now(), policy.limit)
         .first();
 
       if (!row) {
         return {
-          ...quotaShape(limit, limit, timing.retryAfterSeconds, "d1"),
+          ...quotaShape(policy, policy.limit, timing.retryAfterSeconds, "d1"),
           allowed: false
         };
       }
 
       const used = Math.max(0, Number(row.used_messages) || 0);
       return {
-        ...quotaShape(limit, used, timing.retryAfterSeconds, "d1"),
-        allowed: used <= limit
+        ...quotaShape(policy, used, timing.retryAfterSeconds, "d1"),
+        allowed: used <= policy.limit
       };
     } catch (error) {
       console.warn(JSON.stringify({
@@ -73,16 +75,23 @@ export async function consumeAssistantQuota(request, env) {
     }
   }
 
-  return consumeKvQuota(subjectHash, timing, env, limit);
+  return consumeKvQuota(subjectHash, timing, env, policy);
 }
 
-function quotaShape(limit, used, retryAfterSeconds, backend) {
+async function assistantQuotaPolicy(request, env) {
+  const freeLimit = assistantQuotaLimit(env);
+  return resolveAssistantEntitlement(request, env, freeLimit);
+}
+
+function quotaShape(policy, used, retryAfterSeconds, backend) {
   return {
-    allowed: used < limit,
-    plan: "free",
-    limit,
-    used: Math.min(limit, used),
-    remaining: Math.max(0, limit - used),
+    allowed: used < policy.limit,
+    authenticated: policy.authenticated,
+    plan: policy.plan,
+    membership_status: policy.membership_status,
+    limit: policy.limit,
+    used: Math.min(policy.limit, used),
+    remaining: Math.max(0, policy.limit - used),
     reset: "daily_utc",
     retry_after_seconds: retryAfterSeconds,
     accounting_backend: backend
@@ -102,10 +111,11 @@ function quotaTiming() {
   };
 }
 
-async function quotaSubjectHash(request, env) {
-  const ip = (request.headers.get("cf-connecting-ip") || "anonymous")
+async function quotaSubjectHash(request, env, accountSubject) {
+  const anonymousIp = (request.headers.get("cf-connecting-ip") || "anonymous")
     .trim()
     .slice(0, 120);
+  const subject = accountSubject || `anonymous:${anonymousIp}`;
   const secret = String(
     env?.PROOFTTL_USAGE_HASH_SECRET ||
     env?.BETTER_AUTH_SECRET ||
@@ -121,19 +131,21 @@ async function quotaSubjectHash(request, env) {
   const digest = await crypto.subtle.sign(
     "HMAC",
     key,
-    new TextEncoder().encode(`anonymous:${ip}`)
+    new TextEncoder().encode(subject)
   );
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 }
 
-async function getKvQuota(subjectHash, timing, env, limit) {
+async function getKvQuota(subjectHash, timing, env, policy) {
   if (!env?.LEASES || typeof env.LEASES.get !== "function") {
     return {
       allowed: true,
-      plan: "free",
-      limit,
+      authenticated: policy.authenticated,
+      plan: policy.plan,
+      membership_status: policy.membership_status,
+      limit: policy.limit,
       used: null,
       remaining: null,
       reset: "daily_utc",
@@ -145,10 +157,10 @@ async function getKvQuota(subjectHash, timing, env, limit) {
   const used = Number(
     await env.LEASES.get(`assistant-free:${timing.day}:${subjectHash}`)
   ) || 0;
-  return quotaShape(limit, used, timing.retryAfterSeconds, "kv_fallback");
+  return quotaShape(policy, used, timing.retryAfterSeconds, "kv_fallback");
 }
 
-async function consumeKvQuota(subjectHash, timing, env, limit) {
+async function consumeKvQuota(subjectHash, timing, env, policy) {
   if (
     !env?.LEASES ||
     typeof env.LEASES.get !== "function" ||
@@ -156,8 +168,10 @@ async function consumeKvQuota(subjectHash, timing, env, limit) {
   ) {
     return {
       allowed: true,
-      plan: "free",
-      limit,
+      authenticated: policy.authenticated,
+      plan: policy.plan,
+      membership_status: policy.membership_status,
+      limit: policy.limit,
       used: null,
       remaining: null,
       reset: "daily_utc",
@@ -168,9 +182,9 @@ async function consumeKvQuota(subjectHash, timing, env, limit) {
 
   const key = `assistant-free:${timing.day}:${subjectHash}`;
   const previous = Number(await env.LEASES.get(key)) || 0;
-  if (previous >= limit) {
+  if (previous >= policy.limit) {
     return {
-      ...quotaShape(limit, limit, timing.retryAfterSeconds, "kv_fallback"),
+      ...quotaShape(policy, policy.limit, timing.retryAfterSeconds, "kv_fallback"),
       allowed: false
     };
   }
@@ -180,7 +194,7 @@ async function consumeKvQuota(subjectHash, timing, env, limit) {
     expirationTtl: timing.retryAfterSeconds + 300
   });
   return {
-    ...quotaShape(limit, used, timing.retryAfterSeconds, "kv_fallback"),
+    ...quotaShape(policy, used, timing.retryAfterSeconds, "kv_fallback"),
     allowed: true
   };
 }
