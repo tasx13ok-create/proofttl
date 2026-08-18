@@ -53,11 +53,10 @@ export async function validateVerifyRequest(
       if (done) return { ok: true };
       seen += value?.byteLength || 0;
       if (seen > safeMaxBytes) {
-        try {
-          await reader.cancel("verify_request_body_limit_reached");
-        } catch {
-          // The request is already being rejected; cancellation is best-effort.
-        }
+        // Request.clone() tees the body. Awaiting cancellation of only the clone
+        // can wait on the untouched original branch, so cancel best-effort and
+        // return the rejection immediately.
+        void reader.cancel("verify_request_body_limit_reached").catch(() => {});
         return tooLarge(safeMaxBytes);
       }
     }
