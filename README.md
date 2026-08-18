@@ -24,6 +24,31 @@ Verification statuses are intentionally limited to:
 
 `UNKNOWN` is a valid result. ProofTTL is designed to refuse unsupported certainty.
 
+## Current testnet state
+
+The testnet backend now includes:
+
+- x402 v2 payment gating on Base Sepolia
+- pre-handler payment settlement so protected work does not run before settlement succeeds
+- source URL / redirect SSRF controls
+- bounded request and source reads
+- conservative exact-match + semantic verification routing
+- Workers KV lease persistence
+- D1 due-time scheduling for automatic monitoring
+- payer-aware verification rate limiting after payment verification
+- automatic source-change monitoring and revocation
+- Ed25519 issuance signatures with public-key discovery
+- browser-safe API/x402 CORS
+- a rate-limited voice-in/text-out assistant surface with no paid fallback
+- a Better Auth security/runtime foundation with D1 schema, MFA/recovery-code support, optional OAuth providers, optional passkeys, credentialed CORS, and origin controls
+- deterministic local regression suites plus live no-payment smoke verification
+
+The guarded Windows launch path is documented in `LAUNCH-TESTNET.md` and exposed as:
+
+```powershell
+npm run launch:testnet
+```
+
 ## x402 payment status
 
 `POST /verify` is currently protected by **x402 on Base Sepolia testnet**.
@@ -61,7 +86,23 @@ Returns service status, protocol version, and whether storage, AI, and automatic
 
 ### `GET /.well-known/proofttl.json`
 
-Machine-readable ProofTTL discovery metadata, including current operational limits.
+Machine-readable ProofTTL discovery metadata, including current operational limits, payment terms, assistant capability, lease semantics, and signing capability.
+
+### `GET /.well-known/proofttl-keys.json`
+
+Publishes the active Ed25519 public verification key when Fact Lease signing is configured. The private key is never returned.
+
+### `GET /.well-known/proofttl-assistant.json`
+
+Describes the rate-limited voice-in/text-out assistant contract, model path, retention posture, and fail-closed free-capacity behavior.
+
+### `GET /.well-known/proofttl-auth.json`
+
+Describes the Better Auth runtime, database status, optional sign-in providers, passkeys, TOTP/recovery-code support, and auth boundary configuration.
+
+### `/api/auth/*`
+
+Better Auth request surface. The runtime requires D1 plus `BETTER_AUTH_SECRET`; actual customer sign-in methods depend on which optional provider/passkey configuration has been installed.
 
 ### `GET /openapi.json`
 
@@ -73,14 +114,16 @@ Returns current payment mode and x402 pricing metadata.
 
 ### `POST /verify`
 
-Issues a new Fact Lease after x402 payment requirements are satisfied.
+Issues a new Fact Lease after x402 payment verification and settlement succeed.
 
 Current request controls:
 
 - request content type must be `application/json`
 - request body is limited to 16 KiB
-- unpaid challenge traffic and payment-bearing attempts use separate coarse rate-limit buckets
+- unpaid challenge traffic uses a coarse outer rate-limit bucket
+- verified payers are subject to a separate payer-scoped rate limit before settlement/source/AI work
 - source text used by verification is bounded before normalization
+- paid request shape and source safety are validated before settlement
 
 Request:
 
@@ -117,6 +160,8 @@ Example successful response:
 }
 ```
 
+When signing is enabled, issuance responses also include an immutable `issued_attestation` and Ed25519 `signature` envelope.
+
 ### Lease verdict semantics
 
 ProofTTL preserves the original issuance verdict while also exposing the latest observed verdict:
@@ -151,9 +196,15 @@ Each automatic check is appended to the lease history, capped to the latest 20 c
 
 Returns automatic monitoring status.
 
+### `POST /assistant/voice`
+
+Accepts bounded audio input and returns text output through the ProofTTL assistant path. It is rate limited, keeps no audio by default, allows only allowlisted non-destructive navigation behavior, and does not silently fall back to a paid model when free capacity is unavailable.
+
 ## Automatic monitoring and revocation
 
-ProofTTL uses a Cloudflare Worker cron trigger to check active leases that are due for monitoring.
+ProofTTL keeps full Fact Lease payloads in Workers KV and uses D1 as a due-time index for automatic monitoring.
+
+A scheduled run asks D1 for leases that are due, then loads only those lease payloads from KV. A sharded reconciliation path repairs index drift without making D1 the source of truth.
 
 The monitor avoids unnecessary verifier work when the source fingerprint is unchanged. When a source changes, ProofTTL reverifies the original claim against the new source text. If the original supported verdict can no longer be maintained while the lease is active, the lease is automatically revoked.
 
@@ -165,7 +216,13 @@ A controlled production test has already demonstrated this path: a source initia
 claim + source URL + TTL
         |
         v
-x402 payment requirement
+x402 payment verification
+        |
+        v
+paid-request validation + payer quota
+        |
+        v
+pre-handler settlement
         |
         v
 source fetch + normalization
@@ -181,7 +238,12 @@ SHA-256 source fingerprint
 SUPPORTED / CONTRADICTED / UNKNOWN
         |
         v
-persistent Fact Lease in Workers KV
+Ed25519 issuance signature
+        |
+        v
+Fact Lease in Workers KV
+        |
+        +--> due time indexed in D1
         |
         v
 scheduled monitoring
@@ -199,7 +261,11 @@ scheduled monitoring
 - Cloudflare Workers
 - Cloudflare Workers AI
 - Cloudflare Workers KV
+- Cloudflare D1
 - Cloudflare Cron Triggers
+- Cloudflare Worker rate-limit bindings
+- Better Auth
+- Ed25519 issuance signatures
 - SHA-256 source fingerprints
 - x402 v2
 - Base Sepolia testnet
@@ -220,8 +286,11 @@ scheduled monitoring
 - Lease history is preserved instead of silently overwriting prior observations.
 - Issued and current verdicts are exposed separately so a revoked lease cannot be mistaken for a currently supported fact.
 - Public manual reverification is disabled; active leases are monitored automatically.
+- A verified payment is settled before protected source/AI/state work runs.
+- Failed settlement does not run the protected verification handler.
+- Testnet payment credentials and signing/auth secrets are never committed to the repository.
+- Auth uses secure HttpOnly cookies, trusted-origin controls, credentialed CORS rules, and a required server-side session secret.
 - x402 is currently testnet-only.
-- Test payer secrets are never committed to the repository.
 
 ## Regression coverage
 
@@ -229,32 +298,47 @@ The repository includes automated checks for:
 
 - SSRF/source URL validation
 - request body and source-read limits
+- cost accounting and idle monitor cost guards
+- D1 monitor scheduling and reconciliation behavior
 - lease expiry behavior
 - revoked-state persistence
 - unchanged-source monitoring
 - automatic revocation after source changes
 - verification-history capping
+- Ed25519 signing, tamper detection, and public-key safety
+- browser x402 CORS
+- assistant guardrails/routing
+- Better Auth/MFA/CORS boundaries
+- Better Auth generated-schema drift
+- semantic benchmark fixture validity
+- hybrid model routing
+- pre-settlement payment behavior
+- CDP facilitator authentication
 - live unpaid x402 challenge metadata
 
-GitHub Actions runs the security, abuse-limit, lease-lifecycle, and live smoke suites on pushes to `main`.
+GitHub Actions runs deterministic code checks on pushes and pull requests. Live deployed-service smoke verification is kept separate so an old deployment cannot block the code change required to update it.
 
 ## Known limitations before production mainnet
 
 - HTML extraction is still lightweight and can lose structure on complex pages.
-- Monitoring currently processes a bounded number of due leases per run and scans KV rather than using a purpose-built due-work index.
-- The outer verify limiter is still coarse; payer-aware quotas are not yet wired into the application layer.
-- Fact Leases are not yet cryptographically signed.
+- D1 solves due-work selection, but monitoring still uses bounded batches and periodic reconciliation rather than a dedicated queue/workflow system.
+- Payer-aware request quotas exist, but account-scoped usage history, billing records, plan limits, and customer metering are not implemented yet.
+- The Better Auth runtime exists, but a production customer sign-in provider and public account UI are not enabled by default.
+- Fact Lease signing depends on the deployment having its signing secret installed; the guarded launcher verifies this for the testnet launch path.
 - Production pricing has not been finalized from measured compute and monitoring costs.
-- Mainnet settlement/facilitator configuration has not yet been validated end-to-end.
+- Mainnet settlement/facilitator configuration has not been validated end-to-end.
 
 ## Local regression tests
 
-Run the no-payment suites:
+Run deterministic/local checks:
 
 ```powershell
-npm.cmd run test:security
-npm.cmd run test:limits
-npm.cmd run test:regression
+npm.cmd run test:local
+```
+
+Run the live no-payment smoke test against the configured deployment:
+
+```powershell
 npm.cmd run test:smoke
 ```
 
@@ -272,16 +356,16 @@ npm.cmd run test:payment
 
 The payment script performs an unpaid preflight and refuses to proceed unless the payment requirement matches the expected Base Sepolia network, exact scheme, ProofTTL receiver, and its hard test ceiling.
 
-Never commit or share `.env.test-payer`.
+Never commit or share `.env.test-payer`, `.proofttl-signing-private.jwk`, or any Worker secret.
 
 ## Next milestones
 
-1. Deploy and live-smoke-test the current hardening changes.
-2. Measure actual verification + monitoring resource usage and turn it into a defensible production price floor.
-3. Add payer-aware usage accounting/quotas without weakening x402 settlement safety.
-4. Replace KV-wide monitoring scans with a scalable due-work scheduling/indexing strategy.
-5. Add cryptographically signed Fact Leases and publish verification metadata.
-6. Validate a production x402 facilitator/mainnet configuration with deliberately tiny limits before enabling Base mainnet.
+1. Deploy and live-smoke-test the current D1/signing/auth hardening on the canonical testnet Worker.
+2. Configure one production-grade customer sign-in path and build the public account/session UI around the existing auth runtime.
+3. Add account-scoped usage accounting, billing history, plan limits, and a private operator/admin surface.
+4. Measure actual verification + monitoring resource usage and turn it into a defensible production price floor.
+5. Validate a production x402 facilitator/mainnet configuration with deliberately tiny limits before enabling Base mainnet.
+6. Improve structured HTML/content extraction for complex sources without weakening evidence grounding.
 7. Add Fact Half-Life estimation from historical source-change data.
 
 ## License
