@@ -51,13 +51,12 @@ app.use("/verify", async (c, next) => {
   }
 
   // This is a coarse outer abuse shield, not an accounting mechanism. Until
-  // ProofTTL has API keys or stable payer identity available before x402, use
-  // the connecting client address with a deliberately generous ceiling.
+  // ProofTTL has API keys or payer identity available before x402, use one
+  // stable anonymous route key so the limiter counts all /verify attempts in
+  // the current Cloudflare location consistently.
   if (c.env.VERIFY_RATE_LIMITER) {
-    const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-    const clientKey = c.req.header("cf-connecting-ip") || forwarded || "unknown";
     const { success } = await c.env.VERIFY_RATE_LIMITER.limit({
-      key: `verify:${clientKey}`
+      key: "verify:anonymous"
     });
 
     if (!success) {
