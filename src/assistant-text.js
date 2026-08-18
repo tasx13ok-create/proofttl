@@ -95,20 +95,57 @@ export async function handleTextAssistant(request, env) {
   }
 
   try {
-    const completion = await env.AI.run(ASSISTANT_MODELS.response, {
-      messages: [
-        { role: "system", content: assistantSystemPrompt() },
-        ...history,
-        { role: "user", content: message }
-      ],
+    const messages = [
+      { role: "system", content: assistantSystemPrompt() },
+      ...history,
+      { role: "user", content: message }
+    ];
+
+    let completion = await env.AI.run(ASSISTANT_MODELS.response, {
+      messages,
       max_tokens: 220,
       temperature: 0.35
     });
 
-    const response = cleanResponse(extractCompletionText(completion));
+    let response = cleanResponse(extractCompletionText(completion));
+    let retried = false;
+
+    if (!response) {
+      retried = true;
+      console.warn(JSON.stringify({
+        event: "assistant_text_empty_completion",
+        model: ASSISTANT_MODELS.response,
+        completion_keys: completion && typeof completion === "object" ? Object.keys(completion).slice(0, 12) : []
+      }));
+
+      completion = await env.AI.run(ASSISTANT_MODELS.response, {
+        messages: [
+          ...messages,
+          {
+            role: "system",
+            content: "Return a short natural-language reply now. Do not return an empty response. Continue the conversation naturally while staying within ProofTTL product scope."
+          }
+        ],
+        max_tokens: 220,
+        temperature: 0.4
+      });
+      response = cleanResponse(extractCompletionText(completion));
+    }
+
+    if (!response) {
+      return jsonResponse(
+        {
+          error: "assistant_empty_response",
+          message: "L.O.V.E. did not produce a usable reply. Try that message again.",
+          quota
+        },
+        503
+      );
+    }
+
     return jsonResponse({
       message,
-      response: response || "I hit a response-generation issue. Ask me that again and I'll retry.",
+      response,
       action: null,
       quota,
       context: {
@@ -117,7 +154,8 @@ export async function handleTextAssistant(request, env) {
       },
       inference: {
         response_model: ASSISTANT_MODELS.response,
-        deterministic_route: false
+        deterministic_route: false,
+        empty_response_retry: retried
       }
     });
   } catch (error) {
@@ -138,9 +176,14 @@ export async function handleTextAssistant(request, env) {
 }
 
 function extractCompletionText(completion) {
+  if (typeof completion === "string") return completion;
   if (typeof completion?.response === "string") return completion.response;
   if (typeof completion?.result?.response === "string") return completion.result.response;
   if (typeof completion?.text === "string") return completion.text;
+  if (typeof completion?.output_text === "string") return completion.output_text;
+  if (typeof completion?.message?.content === "string") return completion.message.content;
+  if (typeof completion?.choices?.[0]?.message?.content === "string") return completion.choices[0].message.content;
+  if (typeof completion?.choices?.[0]?.text === "string") return completion.choices[0].text;
   return "";
 }
 
