@@ -107,22 +107,26 @@ function printReport(report) {
 }
 
 async function waitUntilReady() {
+  let lastObservation = "no HTTP response observed";
+
   for (let attempt = 0; attempt < 240; attempt += 1) {
     if (child.exitCode !== null) {
       throw new Error(`Wrangler exited during startup with code ${child.exitCode}`);
     }
 
     try {
-      const response = await fetch(`${baseUrl}/`, { headers: authHeaders });
+      const response = await fetch(`${baseUrl}/`);
+      const text = await response.text();
+      lastObservation = `HTTP ${response.status}: ${text.slice(0, 300)}`;
       if (response.ok) return;
-    } catch {
-      // Remote preview has not bound the local proxy port yet.
+    } catch (error) {
+      lastObservation = error instanceof Error ? error.message : String(error);
     }
 
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
-  throw new Error("remote benchmark preview did not become ready");
+  throw new Error(`remote benchmark preview did not become ready; last probe: ${lastObservation}`);
 }
 
 function stopChild() {
