@@ -1,19 +1,73 @@
 import entry from "./entry.js";
 import { handleVoiceAssistant, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
 import {
+  AUTH_PATH_PREFIX,
+  authRuntimeStatus,
+  handleProofTTLAuth
+} from "./auth.js";
+import {
+  applyAuthCors,
+  authPreflightResponse
+} from "./auth-cors.js";
+import {
   applyApiCors,
   apiCorsPreflightResponse
 } from "./http-cors.js";
 
 const ASSISTANT_PATH = "/assistant/voice";
+const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
+
+function isAuthPath(pathname) {
+  return pathname === AUTH_PATH_PREFIX || pathname.startsWith(`${AUTH_PATH_PREFIX}/`);
+}
 
 export default {
   async fetch(request, env, ctx) {
+    const pathname = new URL(request.url).pathname;
+
+    if (request.method === "OPTIONS" && isAuthPath(pathname)) {
+      return authPreflightResponse(request, env);
+    }
+
     if (request.method === "OPTIONS") {
       return apiCorsPreflightResponse();
     }
 
-    const pathname = new URL(request.url).pathname;
+    if (isAuthPath(pathname)) {
+      const response = await handleProofTTLAuth(request, env);
+      return applyAuthCors(response, request, env);
+    }
+
+    if (request.method === "GET" && pathname === AUTH_DISCOVERY_PATH) {
+      const status = authRuntimeStatus(env, request);
+      return applyApiCors(
+        Response.json(
+          {
+            service: "ProofTTL Auth",
+            backend: "better-auth",
+            endpoint: `${AUTH_PATH_PREFIX}/*`,
+            configured: status.configured,
+            database: status.database,
+            sign_in: {
+              github: status.socialProviders.github,
+              google: status.socialProviders.google,
+              discord: status.socialProviders.discord,
+              email: status.emailSignIn,
+              passkey: status.passkeys
+            },
+            security: {
+              totp: status.totp,
+              recovery_codes: status.recoveryCodes,
+              passkeys: status.passkeys,
+              secure_http_only_sessions: true,
+              origin_allowlist: true,
+              csrf_protection: true
+            }
+          },
+          { headers: { "cache-control": "no-store" } }
+        )
+      );
+    }
 
     if (pathname === ASSISTANT_PATH) {
       const response = await handleVoiceAssistant(request, env);
