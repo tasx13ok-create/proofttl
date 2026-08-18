@@ -55,7 +55,7 @@ function assertHttpStatus(result, expectedStatus, message) {
 
 async function run() {
   console.log(`ProofTTL smoke test: ${BASE_URL}`);
-  console.log("No payment will be authorized and no voice AI inference will be invoked by this script.\n");
+  console.log("No payment will be authorized and no AI inference will be invoked by this script.\n");
 
   const health = await json(`${BASE_URL}/health`);
   assert(health.response.status === 200, "health returns HTTP 200");
@@ -64,6 +64,14 @@ async function run() {
   assert(health.body?.storage === true, "KV storage binding is active");
   assert(health.body?.ai === true, "Workers AI binding is active");
   assert(health.body?.automatic_monitoring === true, "automatic monitoring is active");
+
+  const readiness = await json(`${BASE_URL}/readiness`);
+  assert(readiness.response.status === 200, "readiness returns HTTP 200");
+  assert(readiness.body?.environment === "testnet", "readiness identifies testnet environment");
+  assert(readiness.body?.testnet?.ready === true, "all required testnet readiness checks pass");
+  assert(readiness.body?.testnet?.score === 100, "testnet readiness score is 100");
+  assert(readiness.body?.testnet?.checks?.assistant_usage_schema === true, "assistant usage schema is installed");
+  assert(readiness.body?.production?.ready === false, "production remains intentionally disabled");
 
   const discovery = await json(`${BASE_URL}/.well-known/proofttl.json`);
   assert(discovery.response.status === 200, "discovery returns HTTP 200");
@@ -74,15 +82,26 @@ async function run() {
   assert(Boolean(discovery.body?.lease_status_semantics?.issued_status), "discovery documents issued_status semantics");
   assert(Boolean(discovery.body?.lease_status_semantics?.current_status), "discovery documents current_status semantics");
   assert(discovery.body?.endpoints?.assistant_voice?.path === "/assistant/voice", "discovery advertises the voice assistant endpoint");
-  assert(discovery.body?.assistant?.interaction === "voice_input_text_output", "discovery documents voice-in/text-out assistant behavior");
 
   const assistant = await json(`${BASE_URL}/.well-known/proofttl-assistant.json`);
   assert(assistant.response.status === 200, "assistant discovery returns HTTP 200");
-  assert(assistant.body?.interaction === "voice_input_text_output", "assistant discovery reports voice-in/text-out interaction");
-  assert(assistant.body?.endpoint === "/assistant/voice", "assistant discovery reports the expected endpoint");
+  assert(assistant.body?.interaction === "text_or_voice_input_text_output", "assistant discovery reports text/voice input with text output");
+  assert(assistant.body?.endpoints?.voice === "/assistant/voice", "assistant discovery reports voice endpoint");
+  assert(assistant.body?.endpoints?.text === "/assistant/text", "assistant discovery reports text endpoint");
+  assert(assistant.body?.endpoints?.usage === "/assistant/usage", "assistant discovery reports usage endpoint");
+  assert(assistant.body?.scope === "proofttl_product_only", "assistant discovery reports product-only scope");
+  assert(assistant.body?.quota?.shared_between_text_and_voice === true, "assistant quota is shared between text and voice");
+  assert(Number(assistant.body?.quota?.free_daily_messages) > 0, "assistant discovery advertises a positive free daily quota");
   assert(assistant.body?.configured === true, "assistant discovery reports AI and rate limiting configured");
   assert(assistant.body?.audio_retention === "none_by_default", "assistant discovery reports no default audio retention");
   assert(assistant.body?.free_capacity_behavior === "fail_closed_no_paid_fallback", "assistant discovery forbids paid fallback");
+
+  const usage = await json(`${BASE_URL}/assistant/usage`);
+  assert(usage.response.status === 200, "assistant usage returns HTTP 200");
+  assert(usage.body?.quota?.plan === "free", "assistant usage reports free plan");
+  assert(Number(usage.body?.quota?.limit) > 0, "assistant usage reports a positive limit");
+  assert(typeof usage.body?.quota?.remaining === "number", "assistant usage reports authoritative remaining quota");
+  assert(["d1", "kv_fallback"].includes(usage.body?.quota?.accounting_backend), "assistant usage uses durable accounting");
 
   const openapi = await json(`${BASE_URL}/openapi.json`);
   assert(openapi.response.status === 200, "OpenAPI returns HTTP 200");
@@ -145,7 +164,7 @@ async function run() {
   assert(manual.response.status === 403, "manual reverify returns HTTP 403");
   assert(manual.body?.error === "manual_reverify_disabled", "manual reverify returns the expected error code");
 
-  console.log(`\nSUCCESS: ${passed} ProofTTL smoke checks passed. No payment or voice AI inference was made.`);
+  console.log(`\nSUCCESS: ${passed} ProofTTL smoke checks passed. No payment or AI inference was made.`);
 }
 
 run().catch((error) => {
