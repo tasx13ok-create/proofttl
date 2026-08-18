@@ -4,17 +4,15 @@ import { SEMANTIC_FIXTURES } from "./semantic-fixtures.js";
 
 export default {
   async fetch(request, env) {
-    const token = request.headers.get("x-proofttl-benchmark-token") || "";
-    if (!env.BENCHMARK_TOKEN || token !== env.BENCHMARK_TOKEN) {
-      return Response.json({ error: "not_found" }, { status: 404 });
-    }
-
     const url = new URL(request.url);
 
+    // Readiness is intentionally public and side-effect free. It performs no
+    // inference and exposes no benchmark token, so the local runner can tell
+    // when Wrangler's remote-preview proxy is actually ready.
     if (request.method === "GET" && url.pathname === "/") {
       return Response.json({
         service: "ProofTTL semantic benchmark",
-        authenticated_preview: true,
+        preview_ready: true,
         models: Object.fromEntries(
           Object.entries(BENCHMARK_MODELS).map(([key, model]) => [
             key,
@@ -27,11 +25,16 @@ export default {
           ])
         ),
         fixture_count: SEMANTIC_FIXTURES.length,
-        run: "POST /run with JSON {\"model\":\"current70b|qwen3|llama8bFast\",\"limit\":14}"
+        run: "POST /run with an authenticated one-run benchmark token"
       });
     }
 
     if (request.method !== "POST" || url.pathname !== "/run") {
+      return Response.json({ error: "not_found" }, { status: 404 });
+    }
+
+    const token = request.headers.get("x-proofttl-benchmark-token") || "";
+    if (!env.BENCHMARK_TOKEN || token !== env.BENCHMARK_TOKEN) {
       return Response.json({ error: "not_found" }, { status: 404 });
     }
 
