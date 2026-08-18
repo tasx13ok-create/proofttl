@@ -187,7 +187,7 @@ async function runFixture(auth, modelConfig, fixture) {
 
   const aiRequest = {
     messages,
-    max_tokens: 300,
+    max_tokens: Number(modelConfig.maxTokens || 300),
     temperature: 0
   };
 
@@ -226,7 +226,12 @@ async function runFixture(auth, modelConfig, fixture) {
     const parsed = parseModelResponse(raw);
 
     if (!parsed || !["SUPPORTED", "CONTRADICTED", "UNKNOWN"].includes(parsed.status)) {
-      return failure(fixture, "ERROR", "invalid_model_output", usage);
+      return failure(
+        fixture,
+        "ERROR",
+        `invalid_model_output: ${modelOutputExcerpt(raw)}`,
+        usage
+      );
     }
 
     const evidence = typeof parsed.evidence === "string" ? parsed.evidence.trim() : null;
@@ -285,6 +290,20 @@ function parseModelResponse(result) {
       return null;
     }
   }
+}
+
+function modelOutputExcerpt(result) {
+  const candidate = result?.response ?? result?.result ?? result?.output_text ?? result;
+  let text;
+  try {
+    text = typeof candidate === "string" ? candidate : JSON.stringify(candidate);
+  } catch {
+    text = String(candidate);
+  }
+  return String(text || "<empty>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
 }
 
 function estimateBenchmarkCost(modelConfig, promptTokens, completionTokens) {
