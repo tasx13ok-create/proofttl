@@ -22,5 +22,8 @@ jobs:
         with:
           node-version: 24
 
+      - name: Run SSRF security regression checks
+        run: npm run test:security
+
       - name: Run live ProofTTL smoke checks
         run: npm run test:smoke
