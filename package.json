@@ -8,6 +8,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
+    "test:smoke": "node scripts/smoke-test.js",
     "test:payer:create": "node scripts/create-test-payer.js",
     "test:payment": "node --env-file=.env.test-payer scripts/test-payment.js"
   },
