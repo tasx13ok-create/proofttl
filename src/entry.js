@@ -4,6 +4,11 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import core from "./index.js";
 import { DISCOVERY, OPENAPI, PRICING } from "./discovery.js";
+import {
+  DEFAULT_MAX_VERIFY_REQUEST_BYTES,
+  getVerifyRateLimitKey,
+  validateVerifyRequest
+} from "./limits.js";
 
 const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
 const X402_NETWORK = "eip155:84532";
@@ -50,16 +55,21 @@ app.use("/verify", async (c, next) => {
     return next();
   }
 
-  // This is a coarse outer abuse shield, not an accounting mechanism. Until
-  // ProofTTL has API keys or payer identity available before x402, use one
-  // stable anonymous route key so the limiter counts all /verify attempts in
-  // the current Cloudflare location consistently.
+  // Keep two coarse location-local buckets so unpaid challenge traffic cannot
+  // consume the same entire bucket as payment-bearing attempts. These are an
+  // abuse shield, not billing/accounting and not a substitute for payer-level
+  // controls once payer identity is wired into the application layer.
   if (c.env.VERIFY_RATE_LIMITER) {
+    const rateLimitKey = getVerifyRateLimitKey(c.req.raw);
     const { success } = await c.env.VERIFY_RATE_LIMITER.limit({
-      key: "verify:anonymous"
+      key: rateLimitKey
     });
 
     if (!success) {
+      console.warn(JSON.stringify({
+        event: "verify_rate_limited",
+        bucket: rateLimitKey
+      }));
       c.header("retry-after", "60");
       return c.json(
         {
@@ -69,6 +79,27 @@ app.use("/verify", async (c, next) => {
         429
       );
     }
+  }
+
+  const requestGuard = await validateVerifyRequest(
+    c.req.raw,
+    Number(
+      c.env.PROOFTTL_MAX_VERIFY_REQUEST_BYTES ||
+      DEFAULT_MAX_VERIFY_REQUEST_BYTES
+    )
+  );
+
+  if (!requestGuard.ok) {
+    return c.json(
+      {
+        error: requestGuard.error,
+        message: requestGuard.message,
+        ...(requestGuard.max_bytes
+          ? { max_bytes: requestGuard.max_bytes }
+          : {})
+      },
+      requestGuard.status
+    );
   }
 
   if (!x402Initialized) {
