@@ -13,6 +13,8 @@
     "test:regression": "node scripts/regression-test.js",
     "test:limits": "node scripts/limits-test.js",
     "test:costs": "node scripts/costs-test.js",
+    "test:economics": "node scripts/economics-test.js",
+    "economics": "node scripts/unit-economics.js",
     "test:payer:create": "node scripts/create-test-payer.js",
     "test:payment": "node --env-file=.env.test-payer scripts/test-payment.js"
   },
