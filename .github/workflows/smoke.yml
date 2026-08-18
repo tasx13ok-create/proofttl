@@ -13,7 +13,7 @@ permissions:
 jobs:
   local-checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
@@ -23,54 +23,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Run SSRF security regression checks
-        run: npm run test:security
-
-      - name: Run request/source limit regression checks
-        run: npm run test:limits
-
-      - name: Run cost accounting regression checks
-        run: npm run test:costs
-
-      - name: Run lease economics regression checks
-        run: npm run test:economics
-
-      - name: Guard idle monitor KV write budget
-        run: npm run test:monitor-cost
-
-      - name: Validate D1 monitor scheduler adapter
-        run: npm run test:lease-store
-
-      - name: Validate Ed25519 Fact Lease signing
-        run: npm run test:lease-signing
-
-      - name: Validate browser x402 CORS contract
-        run: npm run test:http-cors
-
-      - name: Validate voice assistant guardrails and routing
-        run: npm run test:assistant
-
-      - name: Validate auth, MFA and credentialed CORS boundary
-        run: npm run test:auth
-
-      - name: Validate semantic benchmark fixtures
-        run: npm run test:model-fixtures
-
-      - name: Validate hybrid semantic model routing
-        run: npm run test:model-routing
-
-      - name: Validate pre-settlement payment gate
-        run: npm run test:payment-gate
-
-      - name: Validate CDP facilitator authentication
-        run: npm run test:cdp-auth
-
-      - name: Run lease lifecycle regression checks
-        run: npm run test:regression
+      - name: Run canonical ProofTTL local regression suite
+        run: npm run test:local
 
       - name: Validate Worker bundle
         run: npx wrangler deploy --dry-run --outdir=.wrangler-dry-run
