@@ -126,6 +126,7 @@ async function testPaymentErrorStopsHandler() {
 async function testPaidPrevalidationStopsSettlement() {
   const events = [];
   const telemetryEvents = [];
+  let prevalidatedPayment = null;
   const httpServer = new MockHttpServer({
     paymentResult: verifiedResult(),
     settlement: null
@@ -135,12 +136,19 @@ async function testPaidPrevalidationStopsSettlement() {
     httpServer,
     events,
     telemetryEvents,
-    prevalidatePaidRequest: async (c) => c.json({ error: "source_url_not_allowed" }, 400)
+    prevalidatePaidRequest: async (c, paymentResult) => {
+      prevalidatedPayment = paymentResult;
+      return c.json({ error: "source_url_not_allowed" }, 400);
+    }
   });
 
   assert(response.status === 400, "paid-request validation can reject before settlement");
   assert(httpServer.settleCalls === 0, "invalid paid request is not settled");
   assert(events.length === 0, "invalid paid request never reaches the protected handler");
+  assert(
+    prevalidatedPayment?.paymentPayload?.payload?.authorization?.from === TEST_PAYER,
+    "pre-settlement validation receives the cryptographically verified payer context"
+  );
   assert(
     telemetryEvents[0]?.event === "proofttl_paid_request_rejected" &&
       telemetryEvents[0]?.payer === TEST_PAYER &&
