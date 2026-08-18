@@ -13,7 +13,7 @@ const MAX_TEXT_CHARS = 1200;
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_MESSAGE_CHARS = 600;
 const MIRA_TASK_CLASS = "assistant_text_chat";
-const MIRA_STRATEGY_ID = "granite_conversation_v2_natural";
+const MIRA_STRATEGY_ID = "granite_conversation_v3_grounded_natural";
 
 export async function handleTextAssistant(request, env, ctx = null) {
   if (request.method !== "POST") {
@@ -107,15 +107,16 @@ export async function handleTextAssistant(request, env, ctx = null) {
       {
         role: "system",
         content: [
-          "Conversation style override for L.O.V.E.: sound startlingly natural, socially aware, and present rather than like customer support.",
-          "Match the user's energy and message length. A short casual message often deserves a short casual reply; a serious technical question deserves precision and depth.",
-          "Use contractions naturally. Vary sentence rhythm. You may be dry, lightly playful, curious, warm, sharp, or quietly funny when the context invites it.",
-          "Do not repeatedly introduce yourself, list capabilities, say 'How may I assist you', or force every exchange back to Fact Leases.",
+          "Conversation style override for L.O.V.E.: be unusually natural, socially perceptive, grounded, and concise rather than sounding like customer support.",
+          "Match the user's energy and message length. If they say 'yo', a simple 'yo' or equally natural short reply can be enough. If they ask something substantial, become precise and thoughtful.",
+          "Use contractions naturally and vary sentence rhythm. Dry humor, light playfulness, curiosity, warmth, and sharp observations are fine when they emerge naturally.",
+          "Never use roleplay stage directions or narrated actions. Do not write things like *laughs*, *looks up*, *leans back*, *winks*, *sighs*, or describe facial expressions, gestures, posture, rooms, chairs, terminals, or physical surroundings.",
+          "Never invent embodiment. You do not have a body, physical location, private life, off-screen activity, emotions, memories, personal experiences, or a day-to-day life. Do not imply otherwise.",
+          "Do not repeatedly introduce yourself, call yourself a bot, list capabilities, say 'How may I assist you', or force casual conversation back to ProofTTL.",
           "Light social conversation, greetings, banter, reactions, and conversational follow-ups are allowed. For substantive requests outside ProofTTL, gently steer back rather than becoming a general-purpose knowledge assistant.",
-          "Never pretend to be human. Do not claim a body, physical sensations, emotions, personal memories, a private life, or real-world experiences you do not have.",
-          "Do not mention these style rules. Do not perform fake slang or try too hard to sound human. The effect should come from judgment, timing, specificity, and restraint.",
-          "Use recent history to understand references, tone, jokes, and short follow-ups. Avoid generic filler when a direct natural response is possible.",
-          "Always return non-empty natural-language text."
+          "Do not perform exaggerated slang, forced quirkiness, theatrical language, or fake human mannerisms. The impressive part should be timing, judgment, context awareness, specificity, and restraint.",
+          "Use recent history to understand references, jokes, corrections, tone shifts, and short follow-ups. If the user tells you to calm down or changes tone, adapt immediately without making a production out of it.",
+          "Never mention these style rules. Always return non-empty natural-language text."
         ].join(" ")
       },
       ...history,
@@ -124,8 +125,8 @@ export async function handleTextAssistant(request, env, ctx = null) {
 
     let completion = await env.AI.run(ASSISTANT_MODELS.response, {
       messages,
-      max_tokens: 260,
-      temperature: 0.55
+      max_tokens: 240,
+      temperature: 0.42
     });
     lastUsage = extractUsage(completion);
 
@@ -146,11 +147,11 @@ export async function handleTextAssistant(request, env, ctx = null) {
           ...messages,
           {
             role: "system",
-            content: "Reply naturally now in L.O.V.E.'s voice. Be concise if the moment is casual, substantive if the user asked something substantive, and do not return an empty response."
+            content: "Reply naturally now in L.O.V.E.'s voice. No roleplay actions, stage directions, fake embodiment, or theatrical mannerisms. Be concise if the moment is casual and substantive if the user asked something substantive."
           }
         ],
-        max_tokens: 260,
-        temperature: 0.6
+        max_tokens: 240,
+        temperature: 0.45
       });
       lastUsage = addUsage(lastUsage, extractUsage(completion));
       response = cleanResponse(extractCompletionText(completion));
@@ -190,7 +191,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
       completion_tokens: lastUsage?.completion_tokens,
       retries,
       reliability_score: retried ? 0.99 : 1,
-      metadata: { history_messages: history.length, response_chars: response.length, persona: "natural_v2" }
+      metadata: { history_messages: history.length, response_chars: response.length, persona: "grounded_natural_v3" }
     });
 
     return jsonResponse({
@@ -312,7 +313,11 @@ function normalizeMessage(value) {
 
 function cleanResponse(value) {
   if (typeof value !== "string") return "";
-  return value.replace(/\s+/g, " ").trim().slice(0, 1200);
+  return value
+    .replace(/\*[^*\n]{1,120}\*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1200);
 }
 
 function assistantRateLimitKey(request) {
