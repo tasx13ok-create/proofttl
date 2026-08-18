@@ -2,6 +2,16 @@ import { authRuntimeStatus } from "./auth.js";
 
 export async function getDeploymentReadiness(env, request) {
   const auth = authRuntimeStatus(env, request);
+  const trustedBrowserOrigin = auth.trustedOrigins.some((origin) => {
+    try {
+      const parsed = new URL(origin);
+      return parsed.protocol === "https:" && parsed.origin !== new URL(request.url).origin;
+    } catch {
+      return false;
+    }
+  });
+  const crossOriginCookies = String(env?.PROOFTTL_AUTH_CROSS_ORIGIN || "").toLowerCase() === "true";
+
   const checks = {
     kv_storage: Boolean(env?.LEASES),
     workers_ai: Boolean(env?.AI),
@@ -15,7 +25,9 @@ export async function getDeploymentReadiness(env, request) {
     account_entitlement_schema: await tableExists(env?.MONITOR_DB, "account_entitlement"),
     payment_facilitator_credentials: Boolean(env?.CDP_API_KEY_ID && env?.CDP_API_KEY_SECRET),
     issuance_signing: Boolean(env?.PROOFTTL_SIGNING_PRIVATE_JWK),
-    auth_runtime: auth.configured
+    auth_runtime: auth.configured,
+    trusted_browser_origin: trustedBrowserOrigin,
+    cross_origin_session_cookies: crossOriginCookies
   };
 
   const required = Object.values(checks);
@@ -44,11 +56,14 @@ export async function getDeploymentReadiness(env, request) {
     customer_auth: {
       runtime_configured: auth.configured,
       sign_in_provider_configured: providerConfigured,
+      trusted_browser_origin_configured: trustedBrowserOrigin,
+      cross_origin_session_cookies: crossOriginCookies,
       providers: auth.socialProviders,
       passkeys: auth.passkeys
     },
     entitlements: {
       schema_ready: checks.account_entitlement_schema,
+      browser_session_aware: checks.trusted_browser_origin && checks.cross_origin_session_cookies,
       free_assistant_limit: Number(env?.PROOFTTL_ASSISTANT_FREE_DAILY_MESSAGES) || 20,
       member_assistant_limit_default: Number(env?.PROOFTTL_MEMBER_ASSISTANT_DAILY_MESSAGES) || 200,
       billing_enabled: false
@@ -57,7 +72,7 @@ export async function getDeploymentReadiness(env, request) {
       ready: false,
       blockers: productionBlockers
     },
-    note: "The production section remains false by design until mainnet, pricing, billing, payer ownership, and a customer sign-in path are deliberately enabled."
+    note: "Testnet readiness requires durable storage, AI/rate limits, signing, payment credentials, schemas, and a safe credentialed browser-session path. Production remains false until mainnet, pricing, billing, payer ownership, and a customer sign-in provider are deliberately enabled."
   };
 }
 
