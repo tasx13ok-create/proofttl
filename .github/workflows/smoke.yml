@@ -48,6 +48,9 @@ jobs:
       - name: Validate pre-settlement payment gate
         run: npm run test:payment-gate
 
+      - name: Validate CDP facilitator authentication
+        run: npm run test:cdp-auth
+
       - name: Run lease lifecycle regression checks
         run: npm run test:regression
 
