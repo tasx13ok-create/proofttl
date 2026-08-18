@@ -9,6 +9,7 @@
     "predeploy": "npm run test:local",
     "deploy": "wrangler deploy",
     "postdeploy": "npm run test:smoke",
+    "launch:testnet": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/launch-testnet.ps1",
     "tail": "wrangler tail",
     "monitor:d1:create": "wrangler d1 create proofttl-monitor --binding MONITOR_DB --update-config",
     "monitor:d1:migrate": "wrangler d1 migrations apply MONITOR_DB --remote",
