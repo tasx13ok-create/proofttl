@@ -170,7 +170,7 @@ export default {
     }
 
     if (pathname === ASSISTANT_TEXT_PATH) {
-      const response = await handleTextAssistant(request, env);
+      const response = await handleTextAssistant(request, env, ctx);
       return applyAssistantCors(response, request, env);
     }
 
