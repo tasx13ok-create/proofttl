@@ -13,7 +13,7 @@ permissions:
 jobs:
   local-checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     steps:
       - name: Check out repository
@@ -23,6 +23,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
 
       - name: Run SSRF security regression checks
         run: npm run test:security
@@ -51,6 +54,9 @@ jobs:
       - name: Validate voice assistant guardrails and routing
         run: npm run test:assistant
 
+      - name: Validate auth, MFA and credentialed CORS boundary
+        run: npm run test:auth
+
       - name: Validate semantic benchmark fixtures
         run: npm run test:model-fixtures
 
@@ -65,3 +71,6 @@ jobs:
 
       - name: Run lease lifecycle regression checks
         run: npm run test:regression
+
+      - name: Validate Worker bundle
+        run: npx wrangler deploy --dry-run --outdir=.wrangler-dry-run
