@@ -1,11 +1,13 @@
 import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
+import { createPublicClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const privateKey = process.env.PROOFTTL_TEST_PRIVATE_KEY;
 const endpoint = "https://proofttl.tasx13ok.workers.dev/verify";
 const expectedNetwork = "eip155:84532";
 const expectedPayTo = "0x29949a066902bd329F74479c9AEBC448100955d8".toLowerCase();
+const baseSepoliaRpc = "https://sepolia.base.org";
 const maxAtomicUsdc = 10000n; // $0.01 with 6-decimal USDC
 
 if (!privateKey || !/^0x[0-9a-fA-F]{64}$/.test(privateKey)) {
@@ -81,6 +83,23 @@ console.log(`  amount atomic USDC: ${acceptable.amount}`);
 console.log(`  asset: ${acceptable.asset || "<missing>"}`);
 console.log("  hard client ceiling: 10000 atomic USDC ($0.01)");
 
+const requiredAmount = BigInt(acceptable.amount);
+const tokenBalance = await readErc20Balance({
+  token: acceptable.asset,
+  account: signer.address
+});
+
+if (tokenBalance === null) {
+  console.warn("Balance precheck: unavailable; continuing to facilitator diagnostics.");
+} else {
+  console.log(`Balance precheck: ${tokenBalance} atomic units available`);
+  if (tokenBalance < requiredAmount) {
+    console.error(`Safety stop: insufficient test token balance (${tokenBalance} < ${requiredAmount}).`);
+    console.error("Refill the burner wallet with the Base Sepolia token advertised by PAYMENT-REQUIRED, then rerun.");
+    process.exit(1);
+  }
+}
+
 const client = new x402Client();
 client.register(expectedNetwork, new ExactEvmScheme(signer));
 const fetchWithPayment = wrapFetchWithPayment(fetch, client);
@@ -138,6 +157,34 @@ function decodePaymentRequired(value) {
     } catch {
       return null;
     }
+  }
+}
+
+async function readErc20Balance({ token, account }) {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(String(token || ""))) return null;
+
+  try {
+    const publicClient = createPublicClient({
+      transport: http(baseSepoliaRpc)
+    });
+
+    return await publicClient.readContract({
+      address: token,
+      abi: [
+        {
+          type: "function",
+          name: "balanceOf",
+          stateMutability: "view",
+          inputs: [{ name: "account", type: "address" }],
+          outputs: [{ name: "", type: "uint256" }]
+        }
+      ],
+      functionName: "balanceOf",
+      args: [account]
+    });
+  } catch (error) {
+    console.warn(`Balance precheck error: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
   }
 }
 
