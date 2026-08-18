@@ -10,6 +10,7 @@
     "tail": "wrangler tail",
     "test:smoke": "node scripts/smoke-test.js",
     "test:security": "node scripts/security-test.js",
+    "test:regression": "node scripts/regression-test.js",
     "test:payer:create": "node scripts/create-test-payer.js",
     "test:payment": "node --env-file=.env.test-payer scripts/test-payment.js"
   },
