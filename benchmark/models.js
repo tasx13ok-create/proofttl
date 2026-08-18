@@ -2,6 +2,7 @@ export const BENCHMARK_MODELS = Object.freeze({
   current70b: Object.freeze({
     id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     jsonSchema: true,
+    maxTokens: 300,
     inputUsdPerMillionTokens: 0.293,
     outputUsdPerMillionTokens: 2.253,
     pricingCheckedAt: "2026-08-17",
@@ -10,14 +11,16 @@ export const BENCHMARK_MODELS = Object.freeze({
   qwen3: Object.freeze({
     id: "@cf/qwen/qwen3-30b-a3b-fp8",
     jsonSchema: false,
+    maxTokens: 900,
     inputUsdPerMillionTokens: 0.051,
     outputUsdPerMillionTokens: 0.34,
     pricingCheckedAt: "2026-08-17",
-    note: "Lower-cost candidate. Cloudflare does not currently list this model as JSON Mode-supported, so the benchmark requests JSON text and validates it locally."
+    note: "Lower-cost reasoning candidate. Cloudflare does not currently list this model as JSON Mode-supported, so the benchmark requests JSON text, allows extra reasoning headroom, and validates the final output locally."
   }),
   llama8bFast: Object.freeze({
     id: "@cf/meta/llama-3.1-8b-instruct-fast",
     jsonSchema: true,
+    maxTokens: 300,
     inputUsdPerMillionTokens: null,
     outputUsdPerMillionTokens: null,
     pricingCheckedAt: "2026-08-17",
