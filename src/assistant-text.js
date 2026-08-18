@@ -3,9 +3,9 @@ import {
   assistantSystemPrompt,
   matchAssistantNavigation
 } from "./assistant.js";
+import { consumeAssistantQuota } from "./assistant-quota.js";
 
 const MAX_TEXT_CHARS = 1200;
-const FREE_DAILY_ASSISTANT_MESSAGES = 20;
 
 export async function handleTextAssistant(request, env) {
   if (request.method !== "POST") {
@@ -88,7 +88,7 @@ export async function handleTextAssistant(request, env) {
     );
   }
 
-  const quota = await consumeFreeAssistantQuota(request, env);
+  const quota = await consumeAssistantQuota(request, env);
   if (!quota.allowed) {
     return jsonResponse(
       {
@@ -155,47 +155,6 @@ export async function handleTextAssistant(request, env) {
       503
     );
   }
-}
-
-async function consumeFreeAssistantQuota(request, env) {
-  const now = new Date();
-  const tomorrow = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
-  const retryAfterSeconds = Math.max(1, Math.ceil((tomorrow - Date.now()) / 1000));
-  const ip = (request.headers.get("cf-connecting-ip") || "anonymous").trim().slice(0, 80);
-  const day = now.toISOString().slice(0, 10);
-  const key = `assistant-free:${day}:${ip}`;
-
-  if (!env?.LEASES || typeof env.LEASES.get !== "function" || typeof env.LEASES.put !== "function") {
-    return {
-      allowed: true,
-      plan: "free",
-      limit: FREE_DAILY_ASSISTANT_MESSAGES,
-      remaining: null,
-      reset: "daily"
-    };
-  }
-
-  const previous = Number(await env.LEASES.get(key)) || 0;
-  if (previous >= FREE_DAILY_ASSISTANT_MESSAGES) {
-    return {
-      allowed: false,
-      plan: "free",
-      limit: FREE_DAILY_ASSISTANT_MESSAGES,
-      remaining: 0,
-      reset: "daily",
-      retry_after_seconds: retryAfterSeconds
-    };
-  }
-
-  const used = previous + 1;
-  await env.LEASES.put(key, String(used), { expirationTtl: retryAfterSeconds + 300 });
-  return {
-    allowed: true,
-    plan: "free",
-    limit: FREE_DAILY_ASSISTANT_MESSAGES,
-    remaining: Math.max(0, FREE_DAILY_ASSISTANT_MESSAGES - used),
-    reset: "daily"
-  };
 }
 
 function normalizeMessage(value) {
