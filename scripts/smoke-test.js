@@ -71,6 +71,8 @@ async function run() {
   assert(readiness.body?.testnet?.ready === true, "all required testnet readiness checks pass");
   assert(readiness.body?.testnet?.score === 100, "testnet readiness score is 100");
   assert(readiness.body?.testnet?.checks?.assistant_usage_schema === true, "assistant usage schema is installed");
+  assert(readiness.body?.testnet?.checks?.account_entitlement_schema === true, "account entitlement schema is installed");
+  assert(readiness.body?.entitlements?.billing_enabled === false, "billing remains intentionally disabled");
   assert(readiness.body?.production?.ready === false, "production remains intentionally disabled");
 
   const discovery = await json(`${BASE_URL}/.well-known/proofttl.json`);
@@ -82,6 +84,9 @@ async function run() {
   assert(Boolean(discovery.body?.lease_status_semantics?.issued_status), "discovery documents issued_status semantics");
   assert(Boolean(discovery.body?.lease_status_semantics?.current_status), "discovery documents current_status semantics");
   assert(discovery.body?.endpoints?.assistant_voice?.path === "/assistant/voice", "discovery advertises the voice assistant endpoint");
+  assert(discovery.body?.endpoints?.assistant_text?.path === "/assistant/text", "discovery advertises the text assistant endpoint");
+  assert(discovery.body?.endpoints?.account_entitlement?.path === "/account/entitlement", "discovery advertises account entitlement status");
+  assert(discovery.body?.assistant?.contextual_history?.max_messages === 6, "discovery documents bounded six-message assistant context");
 
   const assistant = await json(`${BASE_URL}/.well-known/proofttl-assistant.json`);
   assert(assistant.response.status === 200, "assistant discovery returns HTTP 200");
@@ -91,6 +96,7 @@ async function run() {
   assert(assistant.body?.endpoints?.usage === "/assistant/usage", "assistant discovery reports usage endpoint");
   assert(assistant.body?.scope === "proofttl_product_only", "assistant discovery reports product-only scope");
   assert(assistant.body?.quota?.shared_between_text_and_voice === true, "assistant quota is shared between text and voice");
+  assert(assistant.body?.quota?.account_entitlements === true, "assistant discovery reports account entitlement support");
   assert(Number(assistant.body?.quota?.free_daily_messages) > 0, "assistant discovery advertises a positive free daily quota");
   assert(assistant.body?.configured === true, "assistant discovery reports AI and rate limiting configured");
   assert(assistant.body?.audio_retention === "none_by_default", "assistant discovery reports no default audio retention");
@@ -98,10 +104,15 @@ async function run() {
 
   const usage = await json(`${BASE_URL}/assistant/usage`);
   assert(usage.response.status === 200, "assistant usage returns HTTP 200");
-  assert(usage.body?.quota?.plan === "free", "assistant usage reports free plan");
+  assert(usage.body?.quota?.plan === "free", "anonymous assistant usage reports free plan");
+  assert(usage.body?.quota?.authenticated === false, "anonymous assistant usage is not treated as authenticated");
   assert(Number(usage.body?.quota?.limit) > 0, "assistant usage reports a positive limit");
   assert(typeof usage.body?.quota?.remaining === "number", "assistant usage reports authoritative remaining quota");
-  assert(["d1", "kv_fallback"].includes(usage.body?.quota?.accounting_backend), "assistant usage uses durable accounting");
+  assert(usage.body?.quota?.accounting_backend === "d1", "assistant usage uses D1 durable accounting");
+
+  const unsignedEntitlement = await json(`${BASE_URL}/account/entitlement`, { method: "GET" });
+  assert(unsignedEntitlement.response.status === 401, "unsigned account entitlement read returns HTTP 401");
+  assert(unsignedEntitlement.body?.error === "authentication_required", "unsigned entitlement read returns the expected error");
 
   const openapi = await json(`${BASE_URL}/openapi.json`);
   assert(openapi.response.status === 200, "OpenAPI returns HTTP 200");
@@ -110,6 +121,10 @@ async function run() {
   const leaseDescription = openapi.body?.paths?.["/lease/{lease_id}"]?.get?.description || "";
   assert(leaseDescription.includes("issued_status") && leaseDescription.includes("current_status"), "OpenAPI documents issued_status and current_status");
   assert(Boolean(openapi.body?.paths?.["/assistant/voice"]?.post), "OpenAPI documents POST /assistant/voice");
+  assert(Boolean(openapi.body?.paths?.["/assistant/text"]?.post), "OpenAPI documents POST /assistant/text");
+  assert(Boolean(openapi.body?.paths?.["/account/entitlement"]?.get), "OpenAPI documents GET /account/entitlement");
+  const historySchema = openapi.body?.paths?.["/assistant/text"]?.post?.requestBody?.content?.["application/json"]?.schema?.properties?.history;
+  assert(historySchema?.maxItems === 6, "OpenAPI caps assistant history at six messages");
 
   const verifyPreflight = await fetch(`${BASE_URL}/verify`, {
     method: "OPTIONS",
@@ -133,7 +148,7 @@ async function run() {
   });
   assert(assistantPreflight.status === 204, "assistant browser preflight returns HTTP 204");
   assert(assistantPreflight.headers.get("access-control-allow-origin") === "*", "assistant preflight allows browser origin");
-  assert(headerIncludes(assistantPreflight, "access-control-allow-headers", "content-type"), "assistant preflight allows audio Content-Type");
+  assert(headerIncludes(assistantPreflight, "access-control-allow-headers", "content-type"), "assistant preflight allows Content-Type");
 
   const unpaid = await json(`${BASE_URL}/verify`, {
     method: "POST",
