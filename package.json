@@ -14,6 +14,7 @@
     "test:limits": "node scripts/limits-test.js",
     "test:costs": "node scripts/costs-test.js",
     "test:economics": "node scripts/economics-test.js",
+    "test:monitor-cost": "node scripts/monitor-cost-test.js",
     "test:model-fixtures": "node scripts/model-eval-fixtures-test.js",
     "economics": "node scripts/unit-economics.js",
     "eval:model": "node scripts/run-model-eval.js",
