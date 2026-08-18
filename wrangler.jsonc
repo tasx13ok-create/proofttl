@@ -5,6 +5,9 @@
   "compatibility_date": "2026-08-17",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "secrets": {
+    "required": ["CDP_API_KEY_ID", "CDP_API_KEY_SECRET"]
+  },
   "observability": {
     "enabled": true,
     "logs": {
