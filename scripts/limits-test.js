@@ -1,5 +1,6 @@
 import {
   DEFAULT_MAX_VERIFY_REQUEST_BYTES,
+  enforceVerifiedPayerRateLimit,
   getVerifiedPayerRateLimitKey,
   getVerifyRateLimitKey,
   readResponseTextLimited,
@@ -48,14 +49,64 @@ async function run() {
       }
     }
   };
+  const expectedPayerKey = `verify:payer:${verifiedPayer.toLowerCase()}`;
   assert(
-    getVerifiedPayerRateLimitKey(verifiedPayment) ===
-      `verify:payer:${verifiedPayer.toLowerCase()}`,
+    getVerifiedPayerRateLimitKey(verifiedPayment) === expectedPayerKey,
     "verified EVM payer produces a normalized payer limiter key"
   );
   assert(
     getVerifiedPayerRateLimitKey({ paymentPayload: { payload: { authorization: { from: "not-an-address" } } } }) === null,
     "invalid verified payer identity is rejected instead of creating a limiter key"
+  );
+
+  const invalidPayerGuard = await enforceVerifiedPayerRateLimit(
+    { limit: async () => ({ success: true }) },
+    { paymentPayload: { payload: { authorization: { from: "not-an-address" } } } }
+  );
+  assert(
+    invalidPayerGuard.ok === false && invalidPayerGuard.status === 502,
+    "payer quota guard fails closed when verified payer identity is invalid"
+  );
+
+  const missingLimiterGuard = await enforceVerifiedPayerRateLimit(null, verifiedPayment);
+  assert(
+    missingLimiterGuard.ok === false && missingLimiterGuard.status === 503,
+    "payer quota guard fails closed when the payer limiter binding is missing"
+  );
+
+  let limitedKey = null;
+  const overQuotaGuard = await enforceVerifiedPayerRateLimit(
+    {
+      async limit({ key }) {
+        limitedKey = key;
+        return { success: false };
+      }
+    },
+    verifiedPayment
+  );
+  assert(
+    overQuotaGuard.ok === false &&
+      overQuotaGuard.status === 429 &&
+      overQuotaGuard.retry_after_seconds === 60 &&
+      limitedKey === expectedPayerKey,
+    "over-quota payer is rejected with retry metadata using the normalized wallet key"
+  );
+
+  let allowedKey = null;
+  const allowedPayerGuard = await enforceVerifiedPayerRateLimit(
+    {
+      async limit({ key }) {
+        allowedKey = key;
+        return { success: true };
+      }
+    },
+    verifiedPayment
+  );
+  assert(
+    allowedPayerGuard.ok === true &&
+      allowedPayerGuard.payer === verifiedPayer.toLowerCase() &&
+      allowedKey === expectedPayerKey,
+    "allowed payer passes the quota guard with normalized wallet identity"
   );
 
   const wrongType = await validateVerifyRequest(
