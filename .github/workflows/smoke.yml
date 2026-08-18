@@ -25,6 +25,9 @@ jobs:
       - name: Run SSRF security regression checks
         run: npm run test:security
 
+      - name: Run request/source limit regression checks
+        run: npm run test:limits
+
       - name: Run lease lifecycle regression checks
         run: npm run test:regression
 
