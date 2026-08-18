@@ -1,24 +1,16 @@
 export function buildWranglerDevLaunch({
   platform = process.platform,
   env = process.env,
-  port = 8790,
-  benchmarkToken
+  port = 8790
 } = {}) {
   const safePort = Number.parseInt(String(port), 10);
   if (!Number.isFinite(safePort) || safePort < 1 || safePort > 65535) {
     throw new Error("invalid benchmark port");
   }
 
-  const safeToken = String(benchmarkToken || "");
-  if (!/^[A-Za-z0-9_-]{20,200}$/.test(safeToken)) {
-    throw new Error("invalid benchmark token");
-  }
-
-  // Full remote preview is deliberate here. The user's Wrangler session showed
-  // that the per-binding remote AI proxy was still being surfaced as local,
-  // while `wrangler dev --remote` guarantees both Worker execution and the AI
-  // binding run on Cloudflare. This creates a temporary preview session, not a
-  // production deployment.
+  // Full remote preview is deliberate here. `wrangler dev --remote` uploads
+  // the benchmark Worker to a temporary Cloudflare preview environment, so
+  // Workers AI runs for real without touching the production ProofTTL Worker.
   const wranglerArgs = [
     "wrangler",
     "dev",
@@ -26,9 +18,7 @@ export function buildWranglerDevLaunch({
     "--config",
     "wrangler.model-eval.jsonc",
     "--port",
-    String(safePort),
-    "--var",
-    `BENCHMARK_TOKEN:${safeToken}`
+    String(safePort)
   ];
 
   if (platform === "win32") {
