@@ -2,6 +2,11 @@ import entry from "./entry.js";
 import { handleVoiceAssistant, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
 import { handleTextAssistant } from "./assistant-text.js";
 import {
+  assistantQuotaLimit,
+  consumeAssistantQuota,
+  getAssistantQuota
+} from "./assistant-quota.js";
+import {
   AUTH_PATH_PREFIX,
   authRuntimeStatus,
   handleProofTTLAuth
@@ -18,6 +23,7 @@ import { renderLandingPage } from "./site.js";
 
 const ASSISTANT_VOICE_PATH = "/assistant/voice";
 const ASSISTANT_TEXT_PATH = "/assistant/text";
+const ASSISTANT_USAGE_PATH = "/assistant/usage";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 
 function isAuthPath(pathname) {
@@ -76,7 +82,45 @@ export default {
       );
     }
 
+    if (request.method === "GET" && pathname === ASSISTANT_USAGE_PATH) {
+      const quota = await getAssistantQuota(request, env);
+      return applyApiCors(
+        Response.json(
+          {
+            service: "ProofTTL Assistant",
+            quota,
+            membership: {
+              available: false,
+              note: "Paid assistant plans are not enabled yet."
+            }
+          },
+          { headers: { "cache-control": "no-store" } }
+        )
+      );
+    }
+
     if (pathname === ASSISTANT_VOICE_PATH) {
+      if (request.method === "POST") {
+        const quota = await consumeAssistantQuota(request, env);
+        if (!quota.allowed) {
+          return applyApiCors(
+            Response.json(
+              {
+                error: "assistant_free_limit_reached",
+                message: "You reached today's free ProofTTL AI limit. Monthly member access will unlock a larger assistant allowance when plans launch.",
+                quota
+              },
+              {
+                status: 429,
+                headers: {
+                  "cache-control": "no-store",
+                  "retry-after": String(quota.retry_after_seconds)
+                }
+              }
+            )
+          );
+        }
+      }
       const response = await handleVoiceAssistant(request, env);
       return applyApiCors(response);
     }
@@ -94,7 +138,8 @@ export default {
             interaction: "text_or_voice_input_text_output",
             endpoints: {
               voice: ASSISTANT_VOICE_PATH,
-              text: ASSISTANT_TEXT_PATH
+              text: ASSISTANT_TEXT_PATH,
+              usage: ASSISTANT_USAGE_PATH
             },
             endpoint: ASSISTANT_VOICE_PATH,
             input: {
@@ -102,6 +147,13 @@ export default {
               text_content_type: "application/json",
               max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes
             },
+            quota: {
+              free_daily_messages: assistantQuotaLimit(env),
+              shared_between_text_and_voice: true,
+              reset: "daily_utc",
+              durable_accounting: Boolean(env?.MONITOR_DB)
+            },
+            scope: "proofttl_product_only",
             models: ASSISTANT_MODELS,
             navigation: "allowlisted_non_destructive_only",
             persistent_actions: "explicit_user_confirmation_required",
