@@ -93,6 +93,8 @@ Example successful response:
   "protocol": "ProofTTL/0.3.1",
   "claim": "Example Domain",
   "status": "SUPPORTED",
+  "issued_status": "SUPPORTED",
+  "current_status": "SUPPORTED",
   "source_url": "https://example.com/",
   "evidence": "Example Domain",
   "issued_at": "2026-08-17T23:56:32.459Z",
@@ -107,6 +109,17 @@ Example successful response:
   "next_check_at": "2026-08-17T23:58:12.459Z"
 }
 ```
+
+### Lease verdict semantics
+
+ProofTTL preserves the original issuance verdict while also exposing the latest observed verdict:
+
+- `status` — legacy/original verdict retained for compatibility.
+- `issued_status` — verdict when the Fact Lease was issued.
+- `current_status` — latest observed verdict. Clients should prefer this field when deciding what the source supports now.
+- `lease_state` — lifecycle state such as `ACTIVE`, `REVOKED`, or `EXPIRED`.
+
+For example, a lease can legitimately contain `issued_status: SUPPORTED`, `current_status: CONTRADICTED`, and `lease_state: REVOKED` after automatic monitoring detects a source change.
 
 ### `GET /lease/:id`
 
@@ -196,6 +209,7 @@ scheduled monitoring
 - Unchanged source fingerprints bypass repeated semantic verification.
 - ProofTTL prefers `UNKNOWN` to invented certainty.
 - Lease history is preserved instead of silently overwriting prior observations.
+- Issued and current verdicts are exposed separately so a revoked lease cannot be mistaken for a currently supported fact.
 - Public manual reverification is disabled; active leases are monitored automatically.
 - x402 is currently testnet-only.
 - Test payer secrets are never committed to the repository.
@@ -205,7 +219,6 @@ scheduled monitoring
 - URL filtering is not yet full DNS-resolution SSRF protection.
 - HTML extraction is still lightweight.
 - Monitoring currently processes a bounded number of due leases per run.
-- Revoked leases preserve the originally issued top-level status; the current changed verdict is recorded in revocation/check state. This should be made less ambiguous in a future schema revision.
 - Fact Leases are not yet cryptographically signed.
 - Production pricing has not been finalized from measured compute and monitoring costs.
 
@@ -229,14 +242,13 @@ Never commit or share `.env.test-payer`.
 
 ## Next milestones
 
-1. Add automated regression tests for verification, revocation, and payment-gate behavior.
-2. Clarify issued status vs current status in the lease schema.
-3. Add broader rate limiting and abuse controls before public promotion.
-4. Improve SSRF defenses with DNS resolution checks.
-5. Measure real per-lease compute + monitoring cost and set production pricing.
-6. Add cryptographically signed Fact Leases.
-7. Validate a production x402 facilitator/mainnet configuration before enabling Base mainnet.
-8. Add Fact Half-Life estimation from historical source-change data.
+1. Expand automated regression coverage for verification and revocation behavior.
+2. Add broader rate limiting and abuse controls before public promotion.
+3. Improve SSRF defenses with DNS resolution checks.
+4. Measure real per-lease compute + monitoring cost and set production pricing.
+5. Add cryptographically signed Fact Leases.
+6. Validate a production x402 facilitator/mainnet configuration before enabling Base mainnet.
+7. Add Fact Half-Life estimation from historical source-change data.
 
 ## License
 
