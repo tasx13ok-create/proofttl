@@ -30,9 +30,15 @@ function decodePaymentRequired(value) {
   return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
 }
 
+function headerIncludes(response, name, expected) {
+  return (response.headers.get(name) || "")
+    .toLowerCase()
+    .includes(expected.toLowerCase());
+}
+
 async function run() {
   console.log(`ProofTTL smoke test: ${BASE_URL}`);
-  console.log("No payment will be authorized by this script.\n");
+  console.log("No payment will be authorized and no voice AI inference will be invoked by this script.\n");
 
   const health = await json(`${BASE_URL}/health`);
   assert(health.response.status === 200, "health returns HTTP 200");
@@ -50,6 +56,16 @@ async function run() {
   assert(discovery.body?.endpoints?.reverify?.public_enabled === false, "discovery marks manual reverify disabled");
   assert(Boolean(discovery.body?.lease_status_semantics?.issued_status), "discovery documents issued_status semantics");
   assert(Boolean(discovery.body?.lease_status_semantics?.current_status), "discovery documents current_status semantics");
+  assert(discovery.body?.endpoints?.assistant_voice?.path === "/assistant/voice", "discovery advertises the voice assistant endpoint");
+  assert(discovery.body?.assistant?.interaction === "voice_input_text_output", "discovery documents voice-in/text-out assistant behavior");
+
+  const assistant = await json(`${BASE_URL}/.well-known/proofttl-assistant.json`);
+  assert(assistant.response.status === 200, "assistant discovery returns HTTP 200");
+  assert(assistant.body?.interaction === "voice_input_text_output", "assistant discovery reports voice-in/text-out interaction");
+  assert(assistant.body?.endpoint === "/assistant/voice", "assistant discovery reports the expected endpoint");
+  assert(assistant.body?.configured === true, "assistant discovery reports AI and rate limiting configured");
+  assert(assistant.body?.audio_retention === "none_by_default", "assistant discovery reports no default audio retention");
+  assert(assistant.body?.free_capacity_behavior === "fail_closed_no_paid_fallback", "assistant discovery forbids paid fallback");
 
   const openapi = await json(`${BASE_URL}/openapi.json`);
   assert(openapi.response.status === 200, "OpenAPI returns HTTP 200");
@@ -57,6 +73,31 @@ async function run() {
   assert(Boolean(reverifyResponses?.["403"]), "OpenAPI documents manual reverify as HTTP 403");
   const leaseDescription = openapi.body?.paths?.["/lease/{lease_id}"]?.get?.description || "";
   assert(leaseDescription.includes("issued_status") && leaseDescription.includes("current_status"), "OpenAPI documents issued_status and current_status");
+  assert(Boolean(openapi.body?.paths?.["/assistant/voice"]?.post), "OpenAPI documents POST /assistant/voice");
+
+  const verifyPreflight = await fetch(`${BASE_URL}/verify`, {
+    method: "OPTIONS",
+    headers: {
+      origin: "https://browser.example",
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "content-type,payment-signature"
+    }
+  });
+  assert(verifyPreflight.status === 204, "verify browser preflight returns HTTP 204");
+  assert(headerIncludes(verifyPreflight, "access-control-allow-headers", "payment-signature"), "verify preflight allows PAYMENT-SIGNATURE");
+  assert(headerIncludes(verifyPreflight, "access-control-allow-headers", "content-type"), "verify preflight allows Content-Type");
+
+  const assistantPreflight = await fetch(`${BASE_URL}/assistant/voice`, {
+    method: "OPTIONS",
+    headers: {
+      origin: "https://browser.example",
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "content-type"
+    }
+  });
+  assert(assistantPreflight.status === 204, "assistant browser preflight returns HTTP 204");
+  assert(assistantPreflight.headers.get("access-control-allow-origin") === "*", "assistant preflight allows browser origin");
+  assert(headerIncludes(assistantPreflight, "access-control-allow-headers", "content-type"), "assistant preflight allows audio Content-Type");
 
   const unpaid = await json(`${BASE_URL}/verify`, {
     method: "POST",
@@ -68,6 +109,9 @@ async function run() {
     })
   });
   assert(unpaid.response.status === 402, "unpaid verify returns HTTP 402");
+  assert(unpaid.response.headers.get("access-control-allow-origin") === "*", "402 is readable cross-origin");
+  assert(headerIncludes(unpaid.response, "access-control-expose-headers", "payment-required"), "402 exposes PAYMENT-REQUIRED to browser clients");
+  assert(headerIncludes(unpaid.response, "access-control-expose-headers", "payment-response"), "browser clients can read PAYMENT-RESPONSE after settlement");
 
   const paymentHeader = unpaid.response.headers.get("payment-required");
   assert(Boolean(paymentHeader), "402 includes PAYMENT-REQUIRED header");
@@ -84,7 +128,7 @@ async function run() {
   assert(manual.response.status === 403, "manual reverify returns HTTP 403");
   assert(manual.body?.error === "manual_reverify_disabled", "manual reverify returns the expected error code");
 
-  console.log(`\nSUCCESS: ${passed} ProofTTL smoke checks passed. No payment was made.`);
+  console.log(`\nSUCCESS: ${passed} ProofTTL smoke checks passed. No payment or voice AI inference was made.`);
 }
 
 run().catch((error) => {
