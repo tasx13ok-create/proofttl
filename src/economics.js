@@ -1,4 +1,10 @@
-import { estimateAiCostUsd } from "./costs.js";
+import {
+  LLAMA_70B_MODEL,
+  MODEL_PRICING,
+  SEMANTIC_MODEL,
+  SEMANTIC_MODEL_PRICING,
+  estimateAiCostUsd
+} from "./costs.js";
 
 // Marginal Workers Paid rates after included monthly allocations.
 // Snapshot checked against official Cloudflare pricing on 2026-08-17.
@@ -21,6 +27,11 @@ export function defaultMonitorIntervalSeconds(ttlSeconds) {
 export function estimateLeaseEconomics({
   promptTokens = 0,
   completionTokens = 0,
+  aiPricing = SEMANTIC_MODEL_PRICING,
+  fallbackRatePerSemanticVerification = 0,
+  fallbackPromptTokens = null,
+  fallbackCompletionTokens = null,
+  fallbackAiPricing = MODEL_PRICING[LLAMA_70B_MODEL],
   ttlSeconds = 3600,
   monitorIntervalSeconds = null,
   sourceChangeRatePerCheck = 0,
@@ -37,6 +48,7 @@ export function estimateLeaseEconomics({
   );
   const activeLeases = Math.max(1, Math.floor(positiveNumber(activeLeasesSharingMonitor, 1)));
   const changeRate = clamp(sourceChangeRatePerCheck, 0, 1);
+  const fallbackRate = clamp(fallbackRatePerSemanticVerification, 0, 1);
   const margin = clamp(targetGrossMargin, 0, 0.99);
   const monthlyVolume = Math.max(0, Math.floor(numberOrZero(monthlyPaidVerifications)));
   const cpuMs = Math.max(0, numberOrZero(workerCpuMsPerLifecycle));
@@ -46,10 +58,24 @@ export function estimateLeaseEconomics({
   const expectedMonitorChecks = Math.max(0, Math.ceil(ttl / monitorInterval) - 1);
   const expectedChangedSourceChecks = expectedMonitorChecks * changeRate;
 
-  const issueAiCost = estimateAiCostUsd({
+  const primaryIssueAiCost = estimateAiCostUsd({
     prompt_tokens: numberOrZero(promptTokens),
     completion_tokens: numberOrZero(completionTokens)
-  }) ?? 0;
+  }, aiPricing) ?? 0;
+
+  const fallbackPrompt = fallbackPromptTokens === null
+    ? numberOrZero(promptTokens)
+    : numberOrZero(fallbackPromptTokens);
+  const fallbackCompletion = fallbackCompletionTokens === null
+    ? numberOrZero(completionTokens)
+    : numberOrZero(fallbackCompletionTokens);
+  const fallbackCostWhenInvoked = estimateAiCostUsd({
+    prompt_tokens: fallbackPrompt,
+    completion_tokens: fallbackCompletion
+  }, fallbackAiPricing) ?? 0;
+  const expectedFallbackIssueAiCost = fallbackCostWhenInvoked * fallbackRate;
+  const issueAiCost = primaryIssueAiCost + expectedFallbackIssueAiCost;
+
   const expectedMonitoringAiCost = issueAiCost * expectedChangedSourceChecks;
   const aiCost = issueAiCost + expectedMonitoringAiCost;
 
@@ -94,11 +120,16 @@ export function estimateLeaseEconomics({
       target_gross_margin: margin,
       monthly_paid_verifications: monthlyVolume,
       worker_cpu_ms_per_lifecycle: cpuMs,
+      ai_model: aiPricing?.model || SEMANTIC_MODEL,
+      fallback_ai_model: fallbackAiPricing?.model || null,
+      fallback_rate_per_semantic_verification: fallbackRate,
       pricing_checked_at: pricing.checked_at
     },
     operations: {
       expected_monitor_checks: expectedMonitorChecks,
       expected_changed_source_checks: expectedChangedSourceChecks,
+      expected_fallback_calls_at_issuance: fallbackRate,
+      expected_fallback_calls_during_monitoring: expectedChangedSourceChecks * fallbackRate,
       allocated_monitor_runs: allocatedMonitorRuns,
       worker_requests: workerRequests,
       kv_reads: kvReads,
@@ -107,6 +138,8 @@ export function estimateLeaseEconomics({
       log_events: logEvents
     },
     costs_usd: {
+      issuance_ai_primary: round(primaryIssueAiCost),
+      issuance_ai_fallback_expected: round(expectedFallbackIssueAiCost),
       issuance_ai: round(issueAiCost),
       expected_monitoring_ai: round(expectedMonitoringAiCost),
       ai_total: round(aiCost),
