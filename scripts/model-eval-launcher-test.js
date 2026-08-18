@@ -58,7 +58,10 @@ function run() {
   const configText = fs.readFileSync("wrangler.model-eval.jsonc", "utf8");
   const config = JSON.parse(configText);
   assert(config.ai?.binding === "AI", "benchmark config binds Workers AI as AI");
-  assert(config.ai?.remote === true, "benchmark config remains compatible with local remote-binding mode");
+  assert(
+    config.ai?.remote === undefined,
+    "full remote preview uses a native AI binding instead of a local remote-binding proxy"
+  );
   assert(config.workers_dev === false, "benchmark config remains non-deployable to workers.dev by default");
 
   let invalidPortRejected = false;
