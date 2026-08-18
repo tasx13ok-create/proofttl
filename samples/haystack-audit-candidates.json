@@ -1,0 +1,97 @@
+{
+  "schema_version": "proofttl.sample-audit-candidates.v1",
+  "report_target": {
+    "organization": "deepset Haystack",
+    "purpose": "Signed ProofTTL demonstration using official GitHub API sources that are suitable for time-bound verification.",
+    "sample_only": true
+  },
+  "research_rules": [
+    "Use only official GitHub API endpoints for the deepset-ai/haystack repository.",
+    "Treat /releases/latest as intentionally time-sensitive and therefore high monitoring priority.",
+    "Use CONTRADICTED only when the fetched source directly negates the precise claim.",
+    "Preserve source access time and exact evidence spans in the resulting Fact Lease."
+  ],
+  "candidates": [
+    {
+      "id": "HS-001",
+      "claim": "The latest Haystack GitHub release is v2.29.0.",
+      "source_url": "https://api.github.com/repos/deepset-ai/haystack/releases/latest",
+      "source_type": "primary_github_api_dynamic",
+      "expected_role": "current_supported_high_drift",
+      "monitoring_priority": "critical",
+      "notes": "The latest-release endpoint is intentionally dynamic; this claim should eventually expire or change when a new release ships."
+    },
+    {
+      "id": "HS-002",
+      "claim": "Haystack v2.29.0 was published on May 12, 2026.",
+      "source_url": "https://api.github.com/repos/deepset-ai/haystack/releases/latest",
+      "source_type": "primary_github_api_dynamic",
+      "expected_role": "supported_calibration",
+      "monitoring_priority": "medium",
+      "notes": "Publication timestamp calibration claim from the latest release object."
+    },
+    {
+      "id": "HS-003",
+      "claim": "Haystack v2.29.0 introduced MultiRetriever.",
+      "source_url": "https://api.github.com/repos/deepset-ai/haystack/releases/latest",
+      "source_type": "primary_github_api_dynamic",
+      "expected_role": "supported_release_feature",
+      "monitoring_priority": "high",
+      "notes": "Release-note feature claim."
+    },
+    {
+      "id": "HS-004",
+      "claim": "In Haystack v2.29.0, MultiRetriever runs multiple text retrievers in parallel.",
+      "source_url": "https://api.github.com/repos/deepset-ai/haystack/releases/latest",
+      "source_type": "primary_github_api_dynamic",
+      "expected_role": "supported_release_behavior",
+      "monitoring_priority": "high",
+      "notes": "Precise behavioral claim from release notes."
+    },
+    {
+      "id": "HS-005",
+      "claim": "In Haystack v2.29.0, MultiRetriever merges retriever results into a single deduplicated list ranked by reciprocal rank fusion by default.",
+      "source_url": "https://api.github.com/repos/deepset-ai/haystack/releases/latest",
+      "source_type": "primary_github_api_dynamic",
+      "expected_role": "supported_release_behavior",
+      "monitoring_priority": "high",
+      "notes": "Precise implementation behavior from release notes."
+    },
+    {
+      "id": "HS-006",
+      "claim": "Haystack v2.29.0 allows individual retrievers in MultiRetriever to be enabled or disabled at runtime with the active_retrievers parameter.",
+      "source_url": "https://api.github.com/repos/deepset-ai/haystack/releases/latest",
+      "source_type": "primary_github_api_dynamic",
+      "expected_role": "supported_release_behavior",
+      "monitoring_priority": "high",
+      "notes": "Runtime configuration claim from release notes."
+    },
+    {
+      "id": "HS-007",
+      "claim": "The deepset-ai/haystack repository describes Haystack as an open-source AI orchestration framework for production-ready LLM applications.",
+      "source_url": "https://api.github.com/repos/deepset-ai/haystack",
+      "source_type": "primary_github_api_repository",
+      "expected_role": "source_supported_project_description",
+      "monitoring_priority": "medium",
+      "notes": "Repository-description claim; useful as a stable baseline."
+    },
+    {
+      "id": "HS-008",
+      "claim": "The deepset-ai/haystack GitHub repository is public.",
+      "source_url": "https://api.github.com/repos/deepset-ai/haystack",
+      "source_type": "primary_github_api_repository",
+      "expected_role": "supported_calibration",
+      "monitoring_priority": "low",
+      "notes": "Simple calibration claim from repository visibility metadata."
+    }
+  ],
+  "planned_report_sections": [
+    "Executive summary",
+    "Risk and drift dashboard",
+    "Signed Fact Lease records",
+    "Latest-release drift case study",
+    "Monitoring log",
+    "Methodology and limitations",
+    "Source index"
+  ]
+}
