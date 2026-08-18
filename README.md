@@ -61,7 +61,7 @@ Returns service status, protocol version, and whether storage, AI, and automatic
 
 ### `GET /.well-known/proofttl.json`
 
-Machine-readable ProofTTL discovery metadata.
+Machine-readable ProofTTL discovery metadata, including current operational limits.
 
 ### `GET /openapi.json`
 
@@ -74,6 +74,13 @@ Returns current payment mode and x402 pricing metadata.
 ### `POST /verify`
 
 Issues a new Fact Lease after x402 payment requirements are satisfied.
+
+Current request controls:
+
+- request content type must be `application/json`
+- request body is limited to 16 KiB
+- unpaid challenge traffic and payment-bearing attempts use separate coarse rate-limit buckets
+- source text used by verification is bounded before normalization
 
 Request:
 
@@ -201,10 +208,12 @@ scheduled monitoring
 ## Safety and design choices
 
 - ProofTTL verifies support from the caller-supplied source rather than claiming universal truth.
-- Obvious localhost/private-network URL targets are rejected.
+- Source URLs are checked for allowed schemes, credentials, ports, local hostnames, private/reserved IP literals, and DNS resolutions that point to non-public addresses.
+- Redirect targets are revalidated before they are followed.
 - Semantic verification may use only fetched source text, not outside knowledge.
 - AI-provided evidence must occur verbatim in the normalized source or the verdict is downgraded to `UNKNOWN`.
-- Source fetching has a timeout and content-size limit.
+- Source fetching has a timeout and bounded streaming text reads.
+- Verification request bodies are size-limited before expensive payment/verifier work.
 - Exact text matches bypass AI when possible.
 - Unchanged source fingerprints bypass repeated semantic verification.
 - ProofTTL prefers `UNKNOWN` to invented certainty.
@@ -214,17 +223,42 @@ scheduled monitoring
 - x402 is currently testnet-only.
 - Test payer secrets are never committed to the repository.
 
+## Regression coverage
+
+The repository includes automated checks for:
+
+- SSRF/source URL validation
+- request body and source-read limits
+- lease expiry behavior
+- revoked-state persistence
+- unchanged-source monitoring
+- automatic revocation after source changes
+- verification-history capping
+- live unpaid x402 challenge metadata
+
+GitHub Actions runs the security, abuse-limit, lease-lifecycle, and live smoke suites on pushes to `main`.
+
 ## Known limitations before production mainnet
 
-- URL filtering is not yet full DNS-resolution SSRF protection.
-- HTML extraction is still lightweight.
-- Monitoring currently processes a bounded number of due leases per run.
+- HTML extraction is still lightweight and can lose structure on complex pages.
+- Monitoring currently processes a bounded number of due leases per run and scans KV rather than using a purpose-built due-work index.
+- The outer verify limiter is still coarse; payer-aware quotas are not yet wired into the application layer.
 - Fact Leases are not yet cryptographically signed.
 - Production pricing has not been finalized from measured compute and monitoring costs.
+- Mainnet settlement/facilitator configuration has not yet been validated end-to-end.
 
-## Local x402 regression test
+## Local regression tests
 
-Create a local burner payer:
+Run the no-payment suites:
+
+```powershell
+npm.cmd run test:security
+npm.cmd run test:limits
+npm.cmd run test:regression
+npm.cmd run test:smoke
+```
+
+Create a local burner payer for the optional paid test:
 
 ```powershell
 npm.cmd run test:payer:create
@@ -242,12 +276,12 @@ Never commit or share `.env.test-payer`.
 
 ## Next milestones
 
-1. Expand automated regression coverage for verification and revocation behavior.
-2. Add broader rate limiting and abuse controls before public promotion.
-3. Improve SSRF defenses with DNS resolution checks.
-4. Measure real per-lease compute + monitoring cost and set production pricing.
-5. Add cryptographically signed Fact Leases.
-6. Validate a production x402 facilitator/mainnet configuration before enabling Base mainnet.
+1. Deploy and live-smoke-test the current hardening changes.
+2. Measure actual verification + monitoring resource usage and turn it into a defensible production price floor.
+3. Add payer-aware usage accounting/quotas without weakening x402 settlement safety.
+4. Replace KV-wide monitoring scans with a scalable due-work scheduling/indexing strategy.
+5. Add cryptographically signed Fact Leases and publish verification metadata.
+6. Validate a production x402 facilitator/mainnet configuration with deliberately tiny limits before enabling Base mainnet.
 7. Add Fact Half-Life estimation from historical source-change data.
 
 ## License
