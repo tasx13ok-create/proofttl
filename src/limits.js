@@ -1,12 +1,22 @@
 export const DEFAULT_MAX_VERIFY_REQUEST_BYTES = 16 * 1024;
 
 const JSON_CONTENT_TYPE = /^application\/(?:[a-z0-9!#$&^_.+-]+\+)?json(?:\s*;|$)/i;
+const EVM_ADDRESS = /^0x[a-f0-9]{40}$/;
 
 export function getVerifyRateLimitKey(request) {
   const hasPayment = Boolean(
     request.headers.get("payment-signature") || request.headers.get("x-payment")
   );
   return hasPayment ? "verify:payment-attempt" : "verify:challenge";
+}
+
+export function getVerifiedPayerRateLimitKey(paymentResult) {
+  const payer = paymentResult?.paymentPayload?.payload?.authorization?.from;
+  if (typeof payer !== "string") return null;
+
+  const normalized = payer.trim().toLowerCase();
+  if (!EVM_ADDRESS.test(normalized)) return null;
+  return `verify:payer:${normalized}`;
 }
 
 export async function validateVerifyRequest(
