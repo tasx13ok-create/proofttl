@@ -45,6 +45,9 @@ jobs:
       - name: Validate hybrid semantic model routing
         run: npm run test:model-routing
 
+      - name: Validate pre-settlement payment gate
+        run: npm run test:payment-gate
+
       - name: Run lease lifecycle regression checks
         run: npm run test:regression
 
