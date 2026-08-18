@@ -36,6 +36,9 @@ jobs:
       - name: Run lease economics regression checks
         run: npm run test:economics
 
+      - name: Guard idle monitor KV write budget
+        run: npm run test:monitor-cost
+
       - name: Validate semantic benchmark fixtures
         run: npm run test:model-fixtures
 
