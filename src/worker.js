@@ -150,6 +150,7 @@ export default {
         Response.json(
           {
             service: "ProofTTL Assistant",
+            version: "1.0.0",
             quota,
             love: loveCapability(quota, env),
             membership: {
@@ -183,9 +184,10 @@ export default {
         Response.json(
           {
             service: "ProofTTL Assistant",
+            version: "1.0.0",
             persona: {
               name: "L.O.V.E.",
-              expansion: "Lease Offering Value Interpreter"
+              role: "ProofTTL product intelligence"
             },
             interaction: "text_or_voice_input_text_and_optional_voice_output",
             endpoints: {
@@ -204,6 +206,11 @@ export default {
               voice: true,
               voice_encoding: "mp3",
               voice_capability: loveCapability(anonymousQuota, env)
+            },
+            grounding: {
+              fact_lease_ids: true,
+              source: "live_lease_storage",
+              missing_lease_behavior: "refuse_to_invent"
             },
             quota: {
               free_daily_messages: assistantQuotaLimit(env),
