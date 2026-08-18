@@ -1,23 +1,34 @@
 export function buildWranglerDevLaunch({
   platform = process.platform,
   env = process.env,
-  port = 8790
+  port = 8790,
+  benchmarkToken
 } = {}) {
   const safePort = Number.parseInt(String(port), 10);
   if (!Number.isFinite(safePort) || safePort < 1 || safePort > 65535) {
     throw new Error("invalid benchmark port");
   }
 
-  // Do not pass --local here. The benchmark Worker still executes locally by
-  // default, while wrangler.model-eval.jsonc marks only the AI binding as
-  // remote. Cloudflare's --local flag disables remote bindings entirely.
+  const safeToken = String(benchmarkToken || "");
+  if (!/^[A-Za-z0-9_-]{20,200}$/.test(safeToken)) {
+    throw new Error("invalid benchmark token");
+  }
+
+  // Full remote preview is deliberate here. The user's Wrangler session showed
+  // that the per-binding remote AI proxy was still being surfaced as local,
+  // while `wrangler dev --remote` guarantees both Worker execution and the AI
+  // binding run on Cloudflare. This creates a temporary preview session, not a
+  // production deployment.
   const wranglerArgs = [
     "wrangler",
     "dev",
+    "--remote",
     "--config",
     "wrangler.model-eval.jsonc",
     "--port",
-    String(safePort)
+    String(safePort),
+    "--var",
+    `BENCHMARK_TOKEN:${safeToken}`
   ];
 
   if (platform === "win32") {
