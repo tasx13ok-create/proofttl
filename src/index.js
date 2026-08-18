@@ -1,3 +1,5 @@
+import { validatePublicSourceUrl } from "./security.js";
+
 const MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const SERVICE_VERSION = "0.3.1";
 const PROTOCOL = "ProofTTL/0.3.1";
@@ -96,7 +98,10 @@ async function handleVerify(request, env) {
     return json({ error: "invalid_source_url" }, 400);
   }
 
-  if (!isSafePublicHttpUrl(parsed)) return json({ error: "source_url_not_allowed" }, 400);
+  const sourceSafety = await validatePublicSourceUrl(parsed);
+  if (!sourceSafety.ok) {
+    return json({ error: "source_url_not_allowed", reason: sourceSafety.reason }, 400);
+  }
 
   const fetched = await fetchSource(
     parsed.toString(),
@@ -494,7 +499,10 @@ async function fetchSource(sourceUrl, maxChars) {
     let current = new URL(sourceUrl);
 
     for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-      if (!isSafePublicHttpUrl(current)) return { ok: false, reason: "source_url_not_allowed" };
+      const sourceSafety = await validatePublicSourceUrl(current);
+      if (!sourceSafety.ok) {
+        return { ok: false, reason: sourceSafety.reason || "source_url_not_allowed" };
+      }
 
       const response = await fetch(current.toString(), {
         redirect: "manual",
@@ -738,17 +746,6 @@ function parseAiResult(result) {
       return null;
     }
   }
-}
-
-function isSafePublicHttpUrl(url) {
-  if (!["http:", "https:"].includes(url.protocol)) return false;
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
-  if (/^(127\.|0\.|10\.|192\.168\.|169\.254\.)/.test(host)) return false;
-  const m = host.match(/^172\.(\d+)\./);
-  if (m && Number(m[1]) >= 16 && Number(m[1]) <= 31) return false;
-  if (host === "::1" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) return false;
-  return true;
 }
 
 async function sha256(value) {
