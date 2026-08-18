@@ -2,7 +2,7 @@ const BASE_URL = (
   process.env.PROOFTTL_BASE_URL ||
   "https://proofttl.tasx13ok.workers.dev"
 ).replace(/\/+$/, "");
-const EXPECTED_PROTOCOL = "ProofTTL/1.0.0";
+const EXPECTED_PROTOCOL = "ProofTTL/0.3.1";
 const EXPECTED_NETWORK = "eip155:84532";
 const EXPECTED_AMOUNT = "1000";
 const EXPECTED_RECEIVER = "0x29949a066902bd329F74479c9AEBC448100955d8";
