@@ -34,10 +34,12 @@ export function createPreSettledX402Middleware({
       await ensureInitialized();
     } catch (error) {
       console.error("x402 lazy initialization failed", error);
+      const cause = safeInitializationCause(error);
       return c.json(
         {
           error: "x402_facilitator_initialization_failed",
-          message: error instanceof Error ? error.message : String(error)
+          message: error instanceof Error ? error.message : String(error),
+          ...(cause ? { cause } : {})
         },
         502
       );
@@ -137,6 +139,28 @@ export function createPreSettledX402Middleware({
       withPrivateCacheControl(c.res.headers.get("cache-control"))
     );
   };
+}
+
+function safeInitializationCause(error) {
+  const parts = [];
+  let current = error?.cause;
+
+  for (let depth = 0; depth < 3 && current; depth += 1) {
+    const raw = current instanceof Error ? current.message : String(current);
+    const sanitized = sanitizeDiagnostic(raw);
+    if (sanitized) parts.push(sanitized);
+    current = current && typeof current === "object" ? current.cause : null;
+  }
+
+  return parts.length ? parts.join(" <- ") : null;
+}
+
+function sanitizeDiagnostic(value) {
+  return String(value)
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g, "[redacted-jwt]")
+    .replace(/(?:organizations\/[^\s/]+\/apiKeys\/)[^\s"']+/gi, "organizations/[redacted]/apiKeys/[redacted]")
+    .slice(0, 500);
 }
 
 function renderInstructions(c, response) {
