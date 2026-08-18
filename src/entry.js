@@ -91,7 +91,15 @@ app.post("/lease/:id/reverify", (c) =>
   )
 );
 
-app.all("*", async (c) => core.fetch(c.req.raw, c.env));
+app.all("*", async (c) => {
+  const response = await core.fetch(c.req.raw, c.env);
+  const pathname = new URL(c.req.url).pathname;
+  const isVerifyResponse = c.req.method === "POST" && pathname === "/verify";
+  const isLeaseRead = c.req.method === "GET" && /^\/lease\/[^/]+$/.test(pathname);
+
+  if (!isVerifyResponse && !isLeaseRead) return response;
+  return enrichLeaseVerdictSemantics(response);
+});
 
 export default {
   async fetch(request, env, ctx) {
@@ -109,4 +117,38 @@ function machineJson(c, value) {
   c.header("cache-control", "public, max-age=60");
   c.header("access-control-allow-origin", "*");
   return c.json(value);
+}
+
+async function enrichLeaseVerdictSemantics(response) {
+  if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+    return response;
+  }
+
+  let body;
+  try {
+    body = await response.clone().json();
+  } catch {
+    return response;
+  }
+
+  if (!body || typeof body !== "object" || !body.lease_id) return response;
+
+  const issuedStatus = body.issued_status || body.status || null;
+  const currentStatus =
+    body.current_status ||
+    body.revocation?.current_status ||
+    body.last_check?.status ||
+    issuedStatus;
+
+  const enriched = {
+    ...body,
+    issued_status: issuedStatus,
+    current_status: currentStatus
+  };
+
+  return new Response(JSON.stringify(enriched, null, 2), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: new Headers(response.headers)
+  });
 }
