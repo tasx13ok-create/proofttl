@@ -20,7 +20,12 @@ export const DISCOVERY = {
     health: { method: "GET", path: "/health" },
     verify: { method: "POST", path: "/verify", payment_required: true },
     lease: { method: "GET", path: "/lease/{lease_id}" },
-    reverify: { method: "POST", path: "/lease/{lease_id}/reverify" },
+    reverify: {
+      method: "POST",
+      path: "/lease/{lease_id}/reverify",
+      public_enabled: false,
+      status: "manual_reverify_disabled"
+    },
     monitor: { method: "GET", path: "/monitor/status" },
     pricing: { method: "GET", path: "/pricing" },
     openapi: { method: "GET", path: "/openapi.json" }
@@ -37,7 +42,7 @@ export const DISCOVERY = {
     price_per_verification: "$0.001",
     pay_to: "0x29949a066902bd329F74479c9AEBC448100955d8",
     facilitator: "https://x402.org/facilitator",
-    status: "testnet_payment_gate_enabled"
+    status: "testnet_paid_flow_proven"
   }
 };
 
@@ -61,7 +66,7 @@ export const OPENAPI = {
   info: {
     title: "ProofTTL API",
     version: "0.3.1",
-    description: "Issue and monitor expiring, source-backed fact leases. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is currently protected by an x402 v2 Base Sepolia test payment."
+    description: "Issue and monitor expiring, source-backed fact leases. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is currently protected by an x402 v2 Base Sepolia test payment. Active leases are automatically reverified; public manual reverification is disabled."
   },
   servers: [{ url: BASE_URL }],
   paths: {
@@ -107,9 +112,10 @@ export const OPENAPI = {
     },
     "/lease/{lease_id}/reverify": {
       post: {
-        summary: "Manually reverify a lease",
+        summary: "Manual reverification disabled on the public API",
+        description: "Active leases are automatically reverified by ProofTTL. This public endpoint is disabled to prevent unmetered source-fetch and AI compute abuse.",
         parameters: [{ name: "lease_id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Updated lease and check result" }, "404": { description: "Lease not found" } }
+        responses: { "403": { description: "Manual reverification disabled" } }
       }
     },
     "/monitor/status": {
