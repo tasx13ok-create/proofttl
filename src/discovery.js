@@ -21,6 +21,13 @@ export const DISCOVERY = {
     issued_status: "Verdict when the Fact Lease was issued.",
     current_status: "Latest observed verdict. Clients should prefer this field when evaluating a stored lease."
   },
+  limits: {
+    verify_request_body_max_bytes: 16384,
+    verify_content_type: "application/json",
+    source_text_max_chars: 30000,
+    source_fetch_raw_prefix_multiplier: 3,
+    automatic_checks_per_monitor_run: 10
+  },
   endpoints: {
     health: { method: "GET", path: "/health" },
     verify: { method: "POST", path: "/verify", payment_required: true },
@@ -84,7 +91,7 @@ export const OPENAPI = {
     "/verify": {
       post: {
         summary: "Issue a fact lease",
-        description: "Requires an x402 v2 payment on Base Sepolia during testnet validation. New leases return issued_status and current_status equal to the issued verdict.",
+        description: "Requires an x402 v2 payment on Base Sepolia during testnet validation. Requests must be application/json and are limited to 16384 bytes. New leases return issued_status and current_status equal to the issued verdict.",
         requestBody: {
           required: true,
           content: {
@@ -104,7 +111,10 @@ export const OPENAPI = {
         responses: {
           "200": { description: "Fact lease or UNKNOWN source result after valid payment" },
           "400": { description: "Invalid request" },
-          "402": { description: "x402 payment required" }
+          "402": { description: "x402 payment required" },
+          "413": { description: "Verification request body exceeds 16384 bytes" },
+          "415": { description: "Verification request body is not application/json" },
+          "429": { description: "Verification request rate limit exceeded" }
         }
       }
     },
