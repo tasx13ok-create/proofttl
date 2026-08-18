@@ -19,11 +19,13 @@ import {
   applyApiCors,
   apiCorsPreflightResponse
 } from "./http-cors.js";
+import { getDeploymentReadiness } from "./readiness.js";
 import { renderLandingPage } from "./site.js";
 
 const ASSISTANT_VOICE_PATH = "/assistant/voice";
 const ASSISTANT_TEXT_PATH = "/assistant/text";
 const ASSISTANT_USAGE_PATH = "/assistant/usage";
+const READINESS_PATH = "/readiness";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 
 function isAuthPath(pathname) {
@@ -49,6 +51,13 @@ export default {
     if (isAuthPath(pathname)) {
       const response = await handleProofTTLAuth(request, env);
       return applyAuthCors(response, request, env);
+    }
+
+    if (request.method === "GET" && pathname === READINESS_PATH) {
+      const readiness = await getDeploymentReadiness(env, request);
+      return applyApiCors(
+        Response.json(readiness, { headers: { "cache-control": "no-store" } })
+      );
     }
 
     if (request.method === "GET" && pathname === AUTH_DISCOVERY_PATH) {
