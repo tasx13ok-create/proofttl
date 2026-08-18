@@ -13,6 +13,7 @@ const CONFIRM_VALUE = 'YES'
 function usage() {
   console.error('Usage: node scripts/run-audit-batch.js <worklist.json> [output.json]')
   console.error(`Set PROOFTTL_AUDIT_CONFIRM=${CONFIRM_VALUE} to authorize payments after all preflights pass.`)
+  console.error('Optional: PROOFTTL_AUDIT_SKIP_IDS=PX-004,PX-005 to skip known attempted claim IDs.')
   process.exitCode = 1
 }
 
@@ -78,6 +79,13 @@ function requestInit(request) {
   }
 }
 
+function parseSkipIds(value) {
+  return new Set(String(value || '')
+    .split(',')
+    .map(id => id.trim())
+    .filter(Boolean))
+}
+
 async function preflight(endpoint, item) {
   const response = await fetch(endpoint, requestInit(item.request))
   if (response.status !== 402) {
@@ -110,20 +118,70 @@ async function paidVerify(fetchWithPayment, endpoint, item) {
   let parsed = raw
   try { parsed = JSON.parse(raw) } catch {}
 
-  if (!response.ok) {
-    throw new Error(`${item.audit_claim_id}: paid verification returned HTTP ${response.status}: ${typeof parsed === 'string' ? parsed.slice(0, 500) : JSON.stringify(parsed).slice(0, 500)}`)
-  }
-  if (!parsed || typeof parsed !== 'object' || !parsed.lease_id) {
-    throw new Error(`${item.audit_claim_id}: verification succeeded without a lease_id`)
+  const common = {
+    audit_claim_id: item.audit_claim_id,
+    completed_at_batch_ms: Date.now(),
+    request_duration_ms: Date.now() - startedAt,
+    http_status: response.status,
+    payment_response_present: Boolean(response.headers.get('payment-response') || response.headers.get('x-payment-response')),
+    worklist_metadata: item.metadata
   }
 
+  if (!response.ok) {
+    return {
+      ...common,
+      outcome: 'HTTP_ERROR',
+      error: typeof parsed === 'string' ? parsed.slice(0, 2000) : parsed,
+      lease: null
+    }
+  }
+
+  if (parsed && typeof parsed === 'object' && parsed.lease_id) {
+    return {
+      ...common,
+      outcome: 'LEASE_ISSUED',
+      response: parsed,
+      lease: parsed
+    }
+  }
+
+  // ProofTTL currently returns HTTP 200 + UNKNOWN without a Fact Lease when the
+  // source fetch itself fails. That is a valid verifier response shape, not a
+  // runner crash condition. Preserve it for audit review and continue safely.
   return {
-    audit_claim_id: item.audit_claim_id,
-    issued_at_batch_ms: Date.now(),
-    request_duration_ms: Date.now() - startedAt,
-    payment_response_present: Boolean(response.headers.get('payment-response') || response.headers.get('x-payment-response')),
-    worklist_metadata: item.metadata,
-    lease: parsed
+    ...common,
+    outcome: 'NO_LEASE_RESULT',
+    response: parsed,
+    lease: null
+  }
+}
+
+function buildOutput({ inputPath, signer, endpoint, totalAtomic, preflights, records, skipped }) {
+  const leases = records
+    .filter(record => record?.lease?.lease_id)
+    .map(record => ({
+      ...record.lease,
+      audit_claim_id: record.audit_claim_id,
+      audit_metadata: record.worklist_metadata
+    }))
+
+  return {
+    schema_version: 'proofttl.audit-batch-result.v2',
+    generated_at: new Date().toISOString(),
+    source_worklist: basename(inputPath),
+    payer: signer.address,
+    endpoint,
+    expected_network: EXPECTED_NETWORK,
+    expected_pay_to: EXPECTED_PAY_TO,
+    quoted_total_atomic_usdc: String(totalAtomic),
+    preflights,
+    skipped,
+    result_count: records.length,
+    lease_count: leases.length,
+    no_lease_result_count: records.filter(record => record.outcome === 'NO_LEASE_RESULT').length,
+    http_error_count: records.filter(record => record.outcome === 'HTTP_ERROR').length,
+    records,
+    leases
   }
 }
 
@@ -140,14 +198,24 @@ if (!inputArg) {
   const inputPath = resolve(inputArg)
   const outputPath = resolve(outputArg || inputArg.replace(/\.json$/i, '') + '-leases.json')
   const parsed = JSON.parse(await readFile(inputPath, 'utf8'))
-  const items = normalizeWorklist(parsed)
+  const allItems = normalizeWorklist(parsed)
+  const skipIds = parseSkipIds(process.env.PROOFTTL_AUDIT_SKIP_IDS)
+  const skipped = allItems
+    .filter(item => skipIds.has(item.audit_claim_id))
+    .map(item => item.audit_claim_id)
+  const items = allItems.filter(item => !skipIds.has(item.audit_claim_id))
   const signer = privateKeyToAccount(privateKey)
+
+  if (!items.length) {
+    throw new Error('No claims remain after applying PROOFTTL_AUDIT_SKIP_IDS')
+  }
 
   console.log(`ProofTTL audit batch: ${basename(inputPath)}`)
   console.log(`Payer: ${signer.address}`)
   console.log(`Endpoint: ${endpoint}`)
-  console.log(`Claims: ${items.length}`)
-  console.log('Running unpaid safety preflights for every claim...')
+  console.log(`Claims selected: ${items.length}/${allItems.length}`)
+  if (skipped.length) console.log(`Skipping known attempted IDs: ${skipped.join(', ')}`)
+  console.log('Running unpaid safety preflights for every selected claim...')
 
   const preflights = []
   let totalAtomic = 0n
@@ -159,13 +227,13 @@ if (!inputArg) {
     console.log(`PASS preflight ${item.audit_claim_id}: ${amount} atomic USDC`)
   }
 
-  console.log(`All ${items.length} preflights passed.`)
-  console.log(`Quoted total: ${totalAtomic} atomic USDC ($${(Number(totalAtomic) / 1_000_000).toFixed(6)})`)
+  console.log(`All ${items.length} selected preflights passed.`)
+  console.log(`Quoted selected total: ${totalAtomic} atomic USDC ($${(Number(totalAtomic) / 1_000_000).toFixed(6)})`)
   console.log(`Hard per-claim ceiling: ${MAX_ATOMIC_USDC_PER_CLAIM} atomic USDC`)
 
   if (process.env.PROOFTTL_AUDIT_CONFIRM !== CONFIRM_VALUE) {
     console.log('DRY RUN COMPLETE: no payment was authorized.')
-    console.log(`To issue the leases, rerun with PROOFTTL_AUDIT_CONFIRM=${CONFIRM_VALUE}.`)
+    console.log(`To issue the selected claims, rerun with PROOFTTL_AUDIT_CONFIRM=${CONFIRM_VALUE}.`)
     process.exit(0)
   }
 
@@ -173,33 +241,43 @@ if (!inputArg) {
   client.register(EXPECTED_NETWORK, new ExactEvmScheme(signer))
   const fetchWithPayment = wrapFetchWithPayment(fetch, client)
 
-  console.log('Explicit confirmation detected. Issuing paid testnet Fact Leases sequentially...')
+  console.log('Explicit confirmation detected. Processing paid testnet verifications sequentially...')
   const records = []
   for (const item of items) {
-    const record = await paidVerify(fetchWithPayment, endpoint, item)
+    let record
+    try {
+      record = await paidVerify(fetchWithPayment, endpoint, item)
+    } catch (error) {
+      record = {
+        audit_claim_id: item.audit_claim_id,
+        completed_at_batch_ms: Date.now(),
+        outcome: 'CLIENT_ERROR',
+        error: error instanceof Error ? error.message : String(error),
+        worklist_metadata: item.metadata,
+        lease: null
+      }
+    }
+
     records.push(record)
-    console.log(`PASS issued ${item.audit_claim_id}: ${record.lease.lease_id}`)
+    await writeFile(
+      outputPath,
+      JSON.stringify(buildOutput({ inputPath, signer, endpoint, totalAtomic, preflights, records, skipped }), null, 2) + '\n',
+      'utf8'
+    )
+
+    if (record.outcome === 'LEASE_ISSUED') {
+      console.log(`PASS issued ${item.audit_claim_id}: ${record.lease.lease_id}`)
+    } else if (record.outcome === 'NO_LEASE_RESULT') {
+      const status = record.response && typeof record.response === 'object' ? record.response.status : null
+      const reason = record.response && typeof record.response === 'object' ? record.response.reason : null
+      console.log(`WARN ${item.audit_claim_id}: HTTP ${record.http_status} ${status || 'result'} without lease${reason ? ` (${reason})` : ''}`)
+    } else {
+      console.log(`WARN ${item.audit_claim_id}: ${record.outcome}`)
+    }
   }
 
-  const output = {
-    schema_version: 'proofttl.audit-batch-result.v1',
-    generated_at: new Date().toISOString(),
-    source_worklist: basename(inputPath),
-    payer: signer.address,
-    endpoint,
-    expected_network: EXPECTED_NETWORK,
-    expected_pay_to: EXPECTED_PAY_TO,
-    quoted_total_atomic_usdc: String(totalAtomic),
-    preflights,
-    claim_count: records.length,
-    records,
-    leases: records.map(record => ({
-      ...record.lease,
-      audit_claim_id: record.audit_claim_id,
-      audit_metadata: record.worklist_metadata
-    }))
-  }
-
+  const output = buildOutput({ inputPath, signer, endpoint, totalAtomic, preflights, records, skipped })
   await writeFile(outputPath, JSON.stringify(output, null, 2) + '\n', 'utf8')
-  console.log(`SUCCESS: ${records.length} paid ProofTTL leases written to ${outputPath}`)
+  console.log(`COMPLETE: ${output.lease_count} leases, ${output.no_lease_result_count} no-lease results, ${output.http_error_count} HTTP errors.`)
+  console.log(`Results written to ${outputPath}`)
 }
