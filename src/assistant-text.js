@@ -7,12 +7,15 @@ import {
   consumeAssistantQuota,
   getAssistantQuota
 } from "./assistant-quota.js";
+import { recordMiraObservation } from "./mira.js";
 
 const MAX_TEXT_CHARS = 1200;
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_MESSAGE_CHARS = 600;
+const MIRA_TASK_CLASS = "assistant_text_chat";
+const MIRA_STRATEGY_ID = "granite_conversation_v1";
 
-export async function handleTextAssistant(request, env) {
+export async function handleTextAssistant(request, env, ctx = null) {
   if (request.method !== "POST") {
     return jsonResponse(
       { error: "method_not_allowed", message: "Use POST with application/json and a message field." },
@@ -94,6 +97,10 @@ export async function handleTextAssistant(request, env) {
     );
   }
 
+  const startedAt = Date.now();
+  let retries = 0;
+  let lastUsage = null;
+
   try {
     const messages = [
       { role: "system", content: assistantSystemPrompt() },
@@ -110,12 +117,14 @@ export async function handleTextAssistant(request, env) {
       max_tokens: 220,
       temperature: 0.35
     });
+    lastUsage = extractUsage(completion);
 
     let response = cleanResponse(extractCompletionText(completion));
     let retried = false;
 
     if (!response) {
       retried = true;
+      retries = 1;
       console.warn(JSON.stringify({
         event: "assistant_text_empty_completion",
         model: ASSISTANT_MODELS.response,
@@ -133,10 +142,24 @@ export async function handleTextAssistant(request, env) {
         max_tokens: 220,
         temperature: 0.4
       });
+      lastUsage = addUsage(lastUsage, extractUsage(completion));
       response = cleanResponse(extractCompletionText(completion));
     }
 
     if (!response) {
+      queueMiraObservation(ctx, env, {
+        task_class: MIRA_TASK_CLASS,
+        strategy_id: MIRA_STRATEGY_ID,
+        model_id: ASSISTANT_MODELS.response,
+        success: false,
+        latency_ms: Date.now() - startedAt,
+        prompt_tokens: lastUsage?.prompt_tokens,
+        completion_tokens: lastUsage?.completion_tokens,
+        retries,
+        reliability_score: 0,
+        metadata: { failure: "empty_response", history_messages: history.length }
+      });
+
       return jsonResponse(
         {
           error: "assistant_empty_response",
@@ -146,6 +169,19 @@ export async function handleTextAssistant(request, env) {
         503
       );
     }
+
+    queueMiraObservation(ctx, env, {
+      task_class: MIRA_TASK_CLASS,
+      strategy_id: MIRA_STRATEGY_ID,
+      model_id: ASSISTANT_MODELS.response,
+      success: true,
+      latency_ms: Date.now() - startedAt,
+      prompt_tokens: lastUsage?.prompt_tokens,
+      completion_tokens: lastUsage?.completion_tokens,
+      retries,
+      reliability_score: retried ? 0.99 : 1,
+      metadata: { history_messages: history.length, response_chars: response.length }
+    });
 
     return jsonResponse({
       message,
@@ -159,10 +195,24 @@ export async function handleTextAssistant(request, env) {
       inference: {
         response_model: ASSISTANT_MODELS.response,
         deterministic_route: false,
-        empty_response_retry: retried
+        empty_response_retry: retried,
+        improvement_observation: "mira"
       }
     });
   } catch (error) {
+    queueMiraObservation(ctx, env, {
+      task_class: MIRA_TASK_CLASS,
+      strategy_id: MIRA_STRATEGY_ID,
+      model_id: ASSISTANT_MODELS.response,
+      success: false,
+      latency_ms: Date.now() - startedAt,
+      prompt_tokens: lastUsage?.prompt_tokens,
+      completion_tokens: lastUsage?.completion_tokens,
+      retries,
+      reliability_score: 0,
+      metadata: { failure: error?.name || error?.constructor?.name || "Error", history_messages: history.length }
+    });
+
     console.warn(JSON.stringify({
       event: "assistant_text_response_failed",
       error: error?.name || error?.constructor?.name || "Error"
@@ -179,6 +229,15 @@ export async function handleTextAssistant(request, env) {
   }
 }
 
+function queueMiraObservation(ctx, env, observation) {
+  const write = recordMiraObservation(env, observation);
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(write);
+    return;
+  }
+  void write;
+}
+
 function extractCompletionText(completion) {
   if (typeof completion === "string") return completion;
   if (typeof completion?.response === "string") return completion.response;
@@ -189,6 +248,36 @@ function extractCompletionText(completion) {
   if (typeof completion?.choices?.[0]?.message?.content === "string") return completion.choices[0].message.content;
   if (typeof completion?.choices?.[0]?.text === "string") return completion.choices[0].text;
   return "";
+}
+
+function extractUsage(completion) {
+  const usage = completion?.usage || completion?.result?.usage || null;
+  if (!usage || typeof usage !== "object") return null;
+  const promptTokens = numericUsage(usage.prompt_tokens ?? usage.input_tokens);
+  const completionTokens = numericUsage(usage.completion_tokens ?? usage.output_tokens);
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens
+  };
+}
+
+function addUsage(first, second) {
+  if (!first) return second;
+  if (!second) return first;
+  return {
+    prompt_tokens: addNullable(first.prompt_tokens, second.prompt_tokens),
+    completion_tokens: addNullable(first.completion_tokens, second.completion_tokens)
+  };
+}
+
+function numericUsage(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : null;
+}
+
+function addNullable(first, second) {
+  if (first === null && second === null) return null;
+  return Number(first || 0) + Number(second || 0);
 }
 
 function normalizeHistory(value) {
