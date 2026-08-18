@@ -17,9 +17,25 @@ export async function resolveAssistantEntitlement(request, env, freeLimit) {
     };
   }
 
+  return resolveStoredAssistantEntitlement(String(userId), env, freeLimit);
+}
+
+export async function resolveStoredAssistantEntitlement(userId, env, freeLimit) {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) {
+    return {
+      authenticated: false,
+      subject: null,
+      plan: "free",
+      membership_status: "anonymous",
+      limit: freeLimit,
+      source: "anonymous"
+    };
+  }
+
   const fallback = {
     authenticated: true,
-    subject: `user:${String(userId)}`,
+    subject: `user:${normalizedUserId}`,
     plan: "free",
     membership_status: "inactive",
     limit: freeLimit,
@@ -38,7 +54,7 @@ export async function resolveAssistantEntitlement(request, env, freeLimit) {
          WHERE user_id = ?1
          LIMIT 1`
       )
-      .bind(String(userId))
+      .bind(normalizedUserId)
       .first();
 
     if (!row) return fallback;
@@ -56,7 +72,7 @@ export async function resolveAssistantEntitlement(request, env, freeLimit) {
 
     return {
       authenticated: true,
-      subject: `user:${String(userId)}`,
+      subject: `user:${normalizedUserId}`,
       plan: member ? "member" : "free",
       membership_status: member ? "active" : String(row.membership_status || "inactive"),
       limit: member ? storedLimit : freeLimit,
