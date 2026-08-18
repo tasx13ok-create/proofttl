@@ -6,9 +6,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // Readiness is intentionally public and side-effect free. It performs no
-    // inference and exposes no benchmark token, so the local runner can tell
-    // when Wrangler's remote-preview proxy is actually ready.
+    // Readiness is intentionally side-effect free. The benchmark itself only
+    // exists inside Wrangler's temporary remote-preview session and is never
+    // deployed to workers.dev.
     if (request.method === "GET" && url.pathname === "/") {
       return Response.json({
         service: "ProofTTL semantic benchmark",
@@ -25,16 +25,11 @@ export default {
           ])
         ),
         fixture_count: SEMANTIC_FIXTURES.length,
-        run: "POST /run with an authenticated one-run benchmark token"
+        run: "POST /run inside the active Wrangler remote-preview session"
       });
     }
 
     if (request.method !== "POST" || url.pathname !== "/run") {
-      return Response.json({ error: "not_found" }, { status: 404 });
-    }
-
-    const token = request.headers.get("x-proofttl-benchmark-token") || "";
-    if (!env.BENCHMARK_TOKEN || token !== env.BENCHMARK_TOKEN) {
       return Response.json({ error: "not_found" }, { status: 404 });
     }
 
@@ -129,7 +124,7 @@ async function runFixture(ai, model, fixture) {
   const user = `CLAIM:\n${fixture.claim}\n\nSOURCE TEXT:\n${fixture.source}`;
 
   try {
-    const request = {
+    const aiRequest = {
       messages: [
         { role: "system", content: system },
         { role: "user", content: user }
@@ -139,7 +134,7 @@ async function runFixture(ai, model, fixture) {
     };
 
     if (model.jsonSchema) {
-      request.response_format = {
+      aiRequest.response_format = {
         type: "json_schema",
         json_schema: {
           name: "proofttl_benchmark_verdict",
@@ -148,10 +143,10 @@ async function runFixture(ai, model, fixture) {
         }
       };
     } else {
-      request.messages[0].content += " Return ONLY one JSON object with keys status, evidence, reason, confidence. No markdown.";
+      aiRequest.messages[0].content += " Return ONLY one JSON object with keys status, evidence, reason, confidence. No markdown.";
     }
 
-    const raw = await ai.run(model.id, request);
+    const raw = await ai.run(model.id, aiRequest);
     const usage = normalizeAiUsage(raw?.usage ?? raw?.result?.usage);
     const parsed = parseModelResponse(raw);
 
