@@ -145,9 +145,20 @@ async function run() {
     "missing KV lease is marked inactive in D1"
   );
 
+  const shardChars = "0123456789abcdef";
+  const expectedShard = shardChars[
+    Math.floor(Math.floor(base / 60_000) / 5) % shardChars.length
+  ];
   const kvReconcile = new FakeKV();
-  kvReconcile.entries.set("lease:ftl_0abc", JSON.stringify(makeLease("ftl_0abc", base)));
-  kvReconcile.entries.set("lease:ftl_1abc", JSON.stringify(makeLease("ftl_1abc", base)));
+  kvReconcile.entries.set(
+    `lease:ftl_${expectedShard}abc`,
+    JSON.stringify(makeLease(`ftl_${expectedShard}abc`, base))
+  );
+  const otherShard = expectedShard === "f" ? "0" : shardChars[shardChars.indexOf(expectedShard) + 1];
+  kvReconcile.entries.set(
+    `lease:ftl_${otherShard}abc`,
+    JSON.stringify(makeLease(`ftl_${otherShard}abc`, base))
+  );
   const reconcileDb = new FakeD1();
   const reconcile = await reconcileMonitorScheduleFromKv(
     { LEASES: kvReconcile, MONITOR_DB: reconcileDb },
@@ -156,7 +167,7 @@ async function run() {
   assert(reconcile.attempted === true, "five-minute boundary runs reconciliation");
   assert(kvReconcile.listCalls.length === 1, "reconciliation uses one KV list call");
   assert(
-    kvReconcile.listCalls[0].prefix === "lease:ftl_0",
+    kvReconcile.listCalls[0].prefix === `lease:ftl_${expectedShard}`,
     "reconciliation rotates through deterministic hex shards"
   );
   assert(reconcile.reconciled === 1, "reconciliation indexes the selected shard");
