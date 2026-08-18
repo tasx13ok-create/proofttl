@@ -22,7 +22,8 @@
     "economics": "node scripts/unit-economics.js",
     "eval:model": "node scripts/run-model-eval.js",
     "test:payer:create": "node scripts/create-test-payer.js",
-    "test:payment": "node --env-file=.env.test-payer scripts/test-payment.js"
+    "test:payment": "node --env-file=.env.test-payer scripts/test-payment.js",
+    "test:payment:semantic": "node --env-file=.env.test-payer scripts/test-payment-semantic.js"
   },
   "dependencies": {
     "@x402/core": "2.20.0",
