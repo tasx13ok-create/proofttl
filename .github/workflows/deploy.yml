@@ -40,6 +40,9 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN repository secret"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID repository secret"; exit 1; }
 
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply MONITOR_DB --remote
+
       - name: Deploy Cloudflare Worker
         run: npx wrangler deploy
 
