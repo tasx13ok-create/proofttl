@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "secrets": {
-    "required": ["CDP_API_KEY_ID", "CDP_API_KEY_SECRET"]
+    "required": ["CDP_API_KEY_ID", "CDP_API_KEY_SECRET", "BETTER_AUTH_SECRET"]
   },
   "observability": {
     "enabled": true,
