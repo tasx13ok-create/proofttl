@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
 
 const email = String(process.argv[2] || "").trim().toLowerCase();
 const requestedLimit = Number(process.argv[3] || 5000);
@@ -14,16 +15,24 @@ if (!Number.isInteger(requestedLimit) || requestedLimit < 100 || requestedLimit 
 }
 
 const escapedEmail = email.replaceAll("'", "''");
+const wranglerBin = resolve("node_modules", "wrangler", "bin", "wrangler.js");
 
 function runD1(command) {
-  const args = ["wrangler", "d1", "execute", "MONITOR_DB", "--remote", "--json", "--command", command];
   const output = execFileSync(
-    "npx",
-    args,
+    process.execPath,
+    [
+      wranglerBin,
+      "d1",
+      "execute",
+      "MONITOR_DB",
+      "--remote",
+      "--json",
+      "--command",
+      command
+    ],
     {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: process.platform === "win32"
+      stdio: ["ignore", "pipe", "pipe"]
     }
   );
   return JSON.parse(output);
