@@ -45,6 +45,9 @@ jobs:
       - name: Validate model benchmark launcher portability
         run: npm run test:model-launcher
 
+      - name: Validate benchmark preview readiness and auth
+        run: npm run test:model-preview
+
       - name: Run lease lifecycle regression checks
         run: npm run test:regression
 
