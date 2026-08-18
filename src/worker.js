@@ -1,5 +1,5 @@
 import entry from "./entry.js";
-import { handleVoiceAssistant, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
+import { handleVoiceAssistant, loveCapability, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
 import { handleTextAssistant } from "./assistant-text.js";
 import {
   assistantQuotaLimit,
@@ -151,9 +151,10 @@ export default {
           {
             service: "ProofTTL Assistant",
             quota,
+            love: loveCapability(quota, env),
             membership: {
               available: false,
-              note: "Paid assistant plans are not enabled yet."
+              note: "Paid assistant plans are not enabled yet; L.O.V.E. voice mode is temporarily available through the testnet preview."
             }
           },
           { headers: { "cache-control": "no-store" } }
@@ -174,11 +175,19 @@ export default {
     }
 
     if (request.method === "GET" && pathname === "/.well-known/proofttl-assistant.json") {
+      const anonymousQuota = {
+        plan: "free",
+        membership_status: "anonymous"
+      };
       return applyApiCors(
         Response.json(
           {
             service: "ProofTTL Assistant",
-            interaction: "text_or_voice_input_text_output",
+            persona: {
+              name: "L.O.V.E.",
+              expansion: "Lease Offering Value Interpreter"
+            },
+            interaction: "text_or_voice_input_text_and_optional_voice_output",
             endpoints: {
               voice: ASSISTANT_VOICE_PATH,
               text: ASSISTANT_TEXT_PATH,
@@ -189,6 +198,12 @@ export default {
               voice_content_type: "audio/*",
               text_content_type: "application/json",
               max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes
+            },
+            output: {
+              text: true,
+              voice: true,
+              voice_encoding: "mp3",
+              voice_capability: loveCapability(anonymousQuota, env)
             },
             quota: {
               free_daily_messages: assistantQuotaLimit(env),
