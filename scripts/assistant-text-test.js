@@ -54,6 +54,23 @@ assert.equal(env.calls.length, 0, "deterministic navigation must not invoke the 
 quota = await getAssistantQuota(req({ message: "status" }), env);
 assert.equal(quota.used, 0, "deterministic navigation must not spend AI quota");
 
+const about = await handleTextAssistant(req({ message: "what is proofttl" }), env);
+assert.equal(about.status, 200);
+const aboutBody = await about.json();
+assert.match(aboutBody.response, /verification system/i);
+assert.match(aboutBody.response, /Fact Lease/i);
+assert.equal(aboutBody.inference?.knowledge_route, true);
+assert.equal(aboutBody.inference?.response_model, null);
+assert.equal(env.calls.length, 0, "core product knowledge must not invoke the model");
+quota = await getAssistantQuota(req({ message: "status" }), env);
+assert.equal(quota.used, 0, "core product knowledge must not spend AI quota");
+
+const leaseDefinition = await handleTextAssistant(req({ message: "what is a fact lease" }), env);
+assert.equal(leaseDefinition.status, 200);
+const leaseDefinitionBody = await leaseDefinition.json();
+assert.match(leaseDefinitionBody.response, /time-bounded verification object/i);
+assert.equal(env.calls.length, 0);
+
 const history = [
   { role: "user", content: "old 1" },
   { role: "assistant", content: "old 2" },
@@ -67,7 +84,7 @@ const history = [
 ];
 
 const answer = await handleTextAssistant(req({
-  message: "What is a Fact Lease?",
+  message: "Tell me how the verifier decides whether semantic evidence is enough.",
   history
 }), env);
 assert.equal(answer.status, 200);
@@ -81,7 +98,7 @@ assert.equal(env.calls.length, 1);
 const sentMessages = env.calls[0].input.messages;
 assert.equal(sentMessages[0].role, "system");
 assert.equal(sentMessages.at(-1).role, "user");
-assert.equal(sentMessages.at(-1).content, "What is a Fact Lease?");
+assert.equal(sentMessages.at(-1).content, "Tell me how the verifier decides whether semantic evidence is enough.");
 assert.equal(sentMessages.some((item) => item.content === "old 1"), false, "old history falls outside the bounded context window");
 assert.equal(sentMessages.some((item) => item.role === "system" && item.content === "must be discarded"), false, "caller cannot inject a system-role history message");
 const longHistoryItem = sentMessages.find((item) => item.role === "assistant" && /^x+$/.test(item.content));
