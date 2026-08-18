@@ -1,4 +1,25 @@
-const CLAIM_BUCKETS = new Set(['10-15', '16-25', '25+']);
+const OFFERS = {
+  stress_test: {
+    name: 'ProofTTL Claim Stress Test',
+    price_usd: 129,
+    included_claims: '3-5',
+    turnaround: '48 hours after payment and scope confirmation',
+    monitoring_days: 0,
+    upgrade_credit_usd: 129
+  },
+  full_audit: {
+    name: 'ProofTTL Verification Audit',
+    price_usd: 500,
+    included_claims: '10-25',
+    turnaround: '3-5 business days after payment and scope confirmation',
+    monitoring_days: 7,
+    upgrade_credit_usd: 0
+  }
+};
+const CLAIM_BUCKETS = {
+  stress_test: new Set(['3-5']),
+  full_audit: new Set(['10-15', '16-25', '25+'])
+};
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_PER_WINDOW = 3;
 
@@ -25,6 +46,8 @@ export async function handleAuditIntake(request, env) {
     return json({ ok: true, status: 'received' });
   }
 
+  const offerType = clean(body?.offer_type, 30) || 'full_audit';
+  const offer = OFFERS[offerType];
   const email = clean(body?.email, 254).toLowerCase();
   const companyOrProject = clean(body?.company_or_project, 160);
   const websiteUrl = clean(body?.website_url, 600);
@@ -33,13 +56,16 @@ export async function handleAuditIntake(request, env) {
   const whyItMatters = clean(body?.why_it_matters, 2500);
   const deadline = clean(body?.deadline, 120);
 
+  if (!offer) return json({ error: 'invalid_offer_type' }, 400);
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return json({ error: 'valid_email_required' }, 400);
   }
   if (!companyOrProject) return json({ error: 'company_or_project_required' }, 400);
   if (!claimScope) return json({ error: 'claim_scope_required' }, 400);
   if (!whyItMatters) return json({ error: 'why_it_matters_required' }, 400);
-  if (!CLAIM_BUCKETS.has(approximateClaims)) return json({ error: 'invalid_claim_count' }, 400);
+  if (!CLAIM_BUCKETS[offerType].has(approximateClaims)) {
+    return json({ error: 'invalid_claim_count_for_offer' }, 400);
+  }
 
   if (websiteUrl) {
     try {
@@ -66,8 +92,9 @@ export async function handleAuditIntake(request, env) {
   await env.MONITOR_DB.prepare(
     `INSERT INTO audit_intakes (
       id, created_at_ms, status, email, company_or_project, website_url,
-      claim_scope, approximate_claims, why_it_matters, deadline, request_fingerprint
-    ) VALUES (?, ?, 'received', ?, ?, ?, ?, ?, ?, ?, ?)`
+      claim_scope, approximate_claims, why_it_matters, deadline, request_fingerprint,
+      offer_type
+    ) VALUES (?, ?, 'received', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     id,
     now,
@@ -78,7 +105,8 @@ export async function handleAuditIntake(request, env) {
     approximateClaims,
     whyItMatters,
     deadline || null,
-    fingerprint
+    fingerprint,
+    offerType
   ).run();
 
   return json({
@@ -86,16 +114,17 @@ export async function handleAuditIntake(request, env) {
     audit_intake_id: id,
     status: 'received',
     offer: {
-      name: 'ProofTTL Verification Audit',
-      price_usd: 500,
-      included_claims: '10-25',
-      monitoring_days: 7
+      type: offerType,
+      ...offer,
+      upgrade: offerType === 'stress_test'
+        ? { to: 'full_audit', additional_usd: 371, total_usd: 500 }
+        : null
     },
     payment: {
       required_now: false,
       state: 'scope_review_before_payment'
     },
-    next_step: 'ProofTTL reviews the submitted scope before payment is requested.'
+    next_step: 'ProofTTL reviews the submitted scope within 24 hours before payment is requested.'
   }, 201);
 }
 
