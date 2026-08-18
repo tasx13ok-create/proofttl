@@ -48,6 +48,9 @@ jobs:
       - name: Validate browser x402 CORS contract
         run: npm run test:http-cors
 
+      - name: Validate voice assistant guardrails and routing
+        run: npm run test:assistant
+
       - name: Validate semantic benchmark fixtures
         run: npm run test:model-fixtures
 
