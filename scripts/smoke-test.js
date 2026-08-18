@@ -2,7 +2,7 @@ const BASE_URL = (
   process.env.PROOFTTL_BASE_URL ||
   "https://proofttl.tasx13ok.workers.dev"
 ).replace(/\/+$/, "");
-const EXPECTED_PROTOCOL = "ProofTTL/0.3.1";
+const EXPECTED_PROTOCOL = "ProofTTL/1.0.0";
 const EXPECTED_NETWORK = "eip155:84532";
 const EXPECTED_AMOUNT = "1000";
 const EXPECTED_RECEIVER = "0x29949a066902bd329F74479c9AEBC448100955d8";
@@ -84,6 +84,9 @@ async function run() {
   const discovery = await json(`${BASE_URL}/.well-known/proofttl.json`);
   assert(discovery.response.status === 200, "discovery returns HTTP 200");
   assert(discovery.body?.protocol === EXPECTED_PROTOCOL, "discovery protocol matches");
+  assert(discovery.body?.version === "1.0.0", "discovery reports version 1.0.0");
+  assert(discovery.body?.capabilities?.includes("signed_monitoring_event_chain"), "discovery advertises signed monitoring-event chains");
+  assert(discovery.body?.capabilities?.includes("lease_grounded_assistant"), "discovery advertises Lease-grounded assistant behavior");
   assert(discovery.body?.payments?.network === EXPECTED_NETWORK, "discovery advertises Base Sepolia");
   assert(discovery.body?.payments?.pay_to?.toLowerCase() === EXPECTED_RECEIVER.toLowerCase(), "discovery advertises the expected receiver");
   assert(discovery.body?.endpoints?.reverify?.public_enabled === false, "discovery marks manual reverify disabled");
@@ -93,6 +96,7 @@ async function run() {
   assert(discovery.body?.endpoints?.assistant_text?.path === "/assistant/text", "discovery advertises the text assistant endpoint");
   assert(discovery.body?.endpoints?.account_entitlement?.path === "/account/entitlement", "discovery advertises account entitlement status");
   assert(discovery.body?.assistant?.contextual_history?.max_messages === 6, "discovery documents bounded six-message assistant context");
+  assert(discovery.body?.assistant?.lease_grounding === "live_lease_storage_when_ftl_id_present", "discovery documents live Lease grounding");
 
   const assistant = await json(`${BASE_URL}/.well-known/proofttl-assistant.json`);
   assert(assistant.response.status === 200, "assistant discovery returns HTTP 200");
@@ -128,6 +132,7 @@ async function run() {
 
   const openapi = await json(`${BASE_URL}/openapi.json`);
   assert(openapi.response.status === 200, "OpenAPI returns HTTP 200");
+  assert(openapi.body?.info?.version === "1.0.0", "OpenAPI reports version 1.0.0");
   const reverifyResponses = openapi.body?.paths?.["/lease/{lease_id}/reverify"]?.post?.responses;
   assert(Boolean(reverifyResponses?.["403"]), "OpenAPI documents manual reverify as HTTP 403");
   const leaseDescription = openapi.body?.paths?.["/lease/{lease_id}"]?.get?.description || "";
@@ -211,7 +216,7 @@ async function run() {
   assert(manual.response.status === 403, "manual reverify returns HTTP 403");
   assert(manual.body?.error === "manual_reverify_disabled", "manual reverify returns the expected error code");
 
-  console.log(`\nSUCCESS: ${passed} ProofTTL smoke checks passed. No payment or AI inference was made.`);
+  console.log(`\nSUCCESS: ${passed} ProofTTL v1.0.0 smoke checks passed. No payment or AI inference was made.`);
 }
 
 run().catch((error) => {
