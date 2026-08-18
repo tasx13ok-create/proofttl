@@ -1,0 +1,5 @@
+ProofTTL v1.0.0 source snapshot marker
+commit: 52f931e51c9415f212be07e7dda9c2e84472c241
+wire_protocol: ProofTTL/0.3.1
+settlement: Base Sepolia testnet
+mainnet: disabled
