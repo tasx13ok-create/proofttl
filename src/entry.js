@@ -11,6 +11,7 @@ import {
 import { DISCOVERY, OPENAPI, PRICING } from "./discovery.js";
 import {
   DEFAULT_MAX_VERIFY_REQUEST_BYTES,
+  getVerifiedPayerRateLimitKey,
   getVerifyRateLimitKey,
   validateVerifyRequest
 } from "./limits.js";
@@ -56,10 +57,10 @@ app.use("/verify", async (c, next) => {
     return next();
   }
 
-  // Keep two coarse location-local buckets so unpaid challenge traffic cannot
-  // consume the same entire bucket as payment-bearing attempts. These are an
-  // abuse shield, not billing/accounting and not a substitute for payer-level
-  // controls once payer identity is wired into the application layer.
+  // These coarse location-local buckets protect the unpaid challenge and the
+  // facilitator verification path before payer identity is cryptographically
+  // available. A separate payer-scoped limiter runs after x402 verification
+  // and before settlement/source/AI work.
   if (c.env.VERIFY_RATE_LIMITER) {
     const rateLimitKey = getVerifyRateLimitKey(c.req.raw);
     const { success } = await c.env.VERIFY_RATE_LIMITER.limit({
@@ -186,7 +187,7 @@ function getX402Middleware(env) {
   return x402Middleware;
 }
 
-async function validatePaidVerifyRequest(c) {
+async function validatePaidVerifyRequest(c, paymentResult) {
   let body;
   try {
     body = await c.req.raw.clone().json();
@@ -209,6 +210,48 @@ async function validatePaidVerifyRequest(c) {
     parsed = new URL(sourceUrl);
   } catch {
     return c.json({ error: "invalid_source_url" }, 400);
+  }
+
+  const payerRateLimitKey = getVerifiedPayerRateLimitKey(paymentResult);
+  if (!payerRateLimitKey) {
+    console.error("Verified x402 payment did not expose a valid EVM payer identity.");
+    return c.json(
+      {
+        error: "verified_payer_identity_missing",
+        message: "The verified payment could not be attributed safely."
+      },
+      502
+    );
+  }
+
+  if (!c.env.PAYER_VERIFY_RATE_LIMITER) {
+    console.error("PAYER_VERIFY_RATE_LIMITER binding is missing.");
+    return c.json(
+      {
+        error: "payer_rate_limiter_unavailable",
+        message: "Paid verification protection is not configured correctly."
+      },
+      503
+    );
+  }
+
+  const payerLimit = await c.env.PAYER_VERIFY_RATE_LIMITER.limit({
+    key: payerRateLimitKey
+  });
+  if (!payerLimit.success) {
+    const payer = payerRateLimitKey.slice("verify:payer:".length);
+    console.warn(JSON.stringify({
+      event: "payer_verify_rate_limited",
+      payer
+    }));
+    c.header("retry-after", "60");
+    return c.json(
+      {
+        error: "payer_rate_limit_exceeded",
+        message: "This payer has made too many verification requests. Try again shortly."
+      },
+      429
+    );
   }
 
   const sourceSafety = await validatePublicSourceUrl(parsed);
