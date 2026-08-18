@@ -5,6 +5,7 @@ import {
   upsertMonitorSchedule
 } from "./monitor-schedule.js";
 import { attachLeaseIssuanceSignature } from "./lease-signing.js";
+import { attachLeaseEventSignatures } from "./event-signing.js";
 
 const LEASE_PREFIX = "lease:";
 const FALLBACK_LIST_EVERY_MINUTES = 2;
@@ -53,15 +54,16 @@ export function createLeaseStoreBinding(kv, db, options = {}) {
         }));
       }
 
-      if (lease && typeof lease === "object" && !lease.signature && signingPrivateJwk) {
+      if (lease && typeof lease === "object" && signingPrivateJwk) {
         try {
-          await attachLeaseIssuanceSignature(lease, signingPrivateJwk, signingKeyId);
+          if (!lease.signature) {
+            await attachLeaseIssuanceSignature(lease, signingPrivateJwk, signingKeyId);
+          }
+          await attachLeaseEventSignatures(lease, signingPrivateJwk, signingKeyId);
           storedValue = JSON.stringify(lease);
         } catch (error) {
-          // Signing is additive during rollout. A crypto/configuration problem
+          // Signing stays additive during rollout. A crypto/configuration problem
           // must not turn a correctly settled verification into a charged 500.
-          // Telemetry exposes the failure and discovery only advertises signing
-          // when a valid key is configured.
           console.error(JSON.stringify({
             event: "lease_signing_failed",
             lease_id: lease?.lease_id || null,
