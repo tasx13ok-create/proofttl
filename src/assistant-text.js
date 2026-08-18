@@ -3,17 +3,19 @@ import {
   assistantSystemPrompt,
   matchAssistantNavigation
 } from "./assistant.js";
-import { consumeAssistantQuota } from "./assistant-quota.js";
+import {
+  consumeAssistantQuota,
+  getAssistantQuota
+} from "./assistant-quota.js";
 
 const MAX_TEXT_CHARS = 1200;
+const MAX_HISTORY_MESSAGES = 6;
+const MAX_HISTORY_MESSAGE_CHARS = 600;
 
 export async function handleTextAssistant(request, env) {
   if (request.method !== "POST") {
     return jsonResponse(
-      {
-        error: "method_not_allowed",
-        message: "Use POST with application/json and a message field."
-      },
+      { error: "method_not_allowed", message: "Use POST with application/json and a message field." },
       405,
       { allow: "POST, OPTIONS" }
     );
@@ -21,10 +23,7 @@ export async function handleTextAssistant(request, env) {
 
   if (!env?.AI || typeof env.AI.run !== "function") {
     return jsonResponse(
-      {
-        error: "assistant_unavailable",
-        message: "ProofTTL assistance is not available right now."
-      },
+      { error: "assistant_unavailable", message: "ProofTTL assistance is not available right now." },
       503
     );
   }
@@ -32,10 +31,7 @@ export async function handleTextAssistant(request, env) {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.toLowerCase().includes("application/json")) {
     return jsonResponse(
-      {
-        error: "json_content_type_required",
-        message: "Send application/json with a message field."
-      },
+      { error: "json_content_type_required", message: "Send application/json with a message field." },
       415
     );
   }
@@ -43,22 +39,15 @@ export async function handleTextAssistant(request, env) {
   const limiter = env.ASSISTANT_RATE_LIMITER;
   if (!limiter || typeof limiter.limit !== "function") {
     return jsonResponse(
-      {
-        error: "assistant_rate_limiter_unavailable",
-        message: "ProofTTL assistance is not configured safely yet."
-      },
+      { error: "assistant_rate_limiter_unavailable", message: "ProofTTL assistance is not configured safely yet." },
       503
     );
   }
 
-  const rateKey = assistantRateLimitKey(request);
-  const { success } = await limiter.limit({ key: rateKey });
+  const { success } = await limiter.limit({ key: assistantRateLimitKey(request) });
   if (!success) {
     return jsonResponse(
-      {
-        error: "assistant_rate_limit_exceeded",
-        message: "Too many assistant requests. Try again shortly."
-      },
+      { error: "assistant_rate_limit_exceeded", message: "Too many assistant requests. Try again shortly." },
       429,
       { "retry-after": "60" }
     );
@@ -69,23 +58,27 @@ export async function handleTextAssistant(request, env) {
     body = await request.json();
   } catch {
     return jsonResponse(
-      {
-        error: "invalid_json",
-        message: "The assistant request body must be valid JSON."
-      },
+      { error: "invalid_json", message: "The assistant request body must be valid JSON." },
       400
     );
   }
 
   const message = normalizeMessage(body?.message);
   if (!message) {
-    return jsonResponse(
-      {
-        error: "message_required",
-        message: "Enter a ProofTTL question."
-      },
-      400
-    );
+    return jsonResponse({ error: "message_required", message: "Enter a ProofTTL question." }, 400);
+  }
+
+  const history = normalizeHistory(body?.history);
+  const action = matchAssistantNavigation(message);
+  if (action) {
+    const quota = await getAssistantQuota(request, env);
+    return jsonResponse({
+      message,
+      response: `Opening ${action.label}.`,
+      action: { type: "navigate", route: action.route, section: action.section },
+      quota,
+      inference: { response_model: null, deterministic_route: true }
+    });
   }
 
   const quota = await consumeAssistantQuota(request, env);
@@ -101,31 +94,14 @@ export async function handleTextAssistant(request, env) {
     );
   }
 
-  const action = matchAssistantNavigation(message);
-  if (action) {
-    return jsonResponse({
-      message,
-      response: `Opening ${action.label}.`,
-      action: {
-        type: "navigate",
-        route: action.route,
-        section: action.section
-      },
-      quota,
-      inference: {
-        response_model: null,
-        deterministic_route: true
-      }
-    });
-  }
-
   try {
     const completion = await env.AI.run(ASSISTANT_MODELS.response, {
       messages: [
         { role: "system", content: assistantSystemPrompt() },
+        ...history,
         { role: "user", content: message }
       ],
-      max_tokens: 160,
+      max_tokens: 180,
       temperature: 0.2
     });
 
@@ -135,6 +111,10 @@ export async function handleTextAssistant(request, env) {
         "I can help with ProofTTL, Fact Leases, the API, x402, monitoring, payments, and product navigation.",
       action: null,
       quota,
+      context: {
+        history_messages_used: history.length,
+        max_history_messages: MAX_HISTORY_MESSAGES
+      },
       inference: {
         response_model: ASSISTANT_MODELS.response,
         deterministic_route: false
@@ -155,6 +135,20 @@ export async function handleTextAssistant(request, env) {
       503
     );
   }
+}
+
+function normalizeHistory(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(-MAX_HISTORY_MESSAGES)
+    .map((item) => {
+      const role = item?.role === "assistant" ? "assistant" : item?.role === "user" ? "user" : null;
+      const content = typeof item?.content === "string"
+        ? item.content.replace(/\s+/g, " ").trim().slice(0, MAX_HISTORY_MESSAGE_CHARS)
+        : "";
+      return role && content ? { role, content } : null;
+    })
+    .filter(Boolean);
 }
 
 function normalizeMessage(value) {
