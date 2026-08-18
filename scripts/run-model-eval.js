@@ -7,10 +7,12 @@ const limitArg = Number.parseInt(process.argv[3] || "14", 10);
 const limit = Number.isFinite(limitArg) ? Math.max(1, Math.min(14, limitArg)) : 14;
 const port = 8790;
 const baseUrl = `http://127.0.0.1:${port}`;
-const launch = buildWranglerDevLaunch({ port });
+const benchmarkToken = `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+const launch = buildWranglerDevLaunch({ port, benchmarkToken });
+const authHeaders = { "x-proofttl-benchmark-token": benchmarkToken };
 
 console.log(`ProofTTL semantic model benchmark: ${model} (${limit} fixtures)`);
-console.log("Workers AI runs remotely even though the benchmark Worker is local.");
+console.log("Benchmark code runs in a temporary Cloudflare remote-preview session; this is not a production deploy.");
 console.log(`Safety gate: >= ${(MIN_ACCURACY * 100).toFixed(0)}% accuracy and ZERO false-SUPPORTED results on non-supported fixtures.\n`);
 
 const child = spawn(launch.command, launch.args, {
@@ -34,7 +36,10 @@ try {
   await waitUntilReady();
   const response = await fetch(`${baseUrl}/run`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...authHeaders
+    },
     body: JSON.stringify({ model, limit })
   });
 
@@ -49,7 +54,7 @@ try {
 } catch (error) {
   console.error(`\nMODEL BENCHMARK FAILED: ${error instanceof Error ? error.message : String(error)}`);
   if (startupOutput.trim()) {
-    console.error("\nWrangler output:\n" + startupOutput.trim().slice(-6000));
+    console.error("\nWrangler output:\n" + redactToken(startupOutput.trim()).slice(-6000));
   }
   process.exitCode = 1;
 } finally {
@@ -102,30 +107,28 @@ function printReport(report) {
 }
 
 async function waitUntilReady() {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
     if (child.exitCode !== null) {
       throw new Error(`Wrangler exited during startup with code ${child.exitCode}`);
     }
 
     try {
-      const response = await fetch(`${baseUrl}/`);
+      const response = await fetch(`${baseUrl}/`, { headers: authHeaders });
       if (response.ok) return;
     } catch {
-      // Local Worker has not bound the port yet.
+      // Remote preview has not bound the local proxy port yet.
     }
 
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
-  throw new Error("local benchmark Worker did not become ready");
+  throw new Error("remote benchmark preview did not become ready");
 }
 
 function stopChild() {
   if (child.exitCode !== null || child.killed) return;
   child.kill(process.platform === "win32" ? undefined : "SIGTERM");
 
-  // Windows sometimes leaves the Wrangler child process behind when only the
-  // command-shell wrapper receives a signal. Best-effort cleanup of the tree.
   if (process.platform === "win32" && child.pid) {
     const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
       stdio: "ignore",
@@ -133,6 +136,10 @@ function stopChild() {
     });
     killer.unref();
   }
+}
+
+function redactToken(value) {
+  return value.replaceAll(benchmarkToken, "[REDACTED_BENCHMARK_TOKEN]");
 }
 
 process.on("SIGINT", () => {
