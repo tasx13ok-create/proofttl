@@ -13,6 +13,7 @@ import {
   applyApiCors,
   apiCorsPreflightResponse
 } from "./http-cors.js";
+import { renderLandingPage } from "./site.js";
 
 const ASSISTANT_PATH = "/assistant/voice";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
@@ -24,6 +25,10 @@ function isAuthPath(pathname) {
 export default {
   async fetch(request, env, ctx) {
     const pathname = new URL(request.url).pathname;
+
+    if (request.method === "GET" && pathname === "/") {
+      return renderLandingPage();
+    }
 
     if (request.method === "OPTIONS" && isAuthPath(pathname)) {
       return authPreflightResponse(request, env);
