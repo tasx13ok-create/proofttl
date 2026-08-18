@@ -13,6 +13,7 @@
     "tail": "wrangler tail",
     "monitor:d1:create": "wrangler d1 create proofttl-monitor --binding MONITOR_DB --update-config",
     "monitor:d1:migrate": "wrangler d1 migrations apply MONITOR_DB --remote",
+    "auth:schema:generate": "npx auth@1.6.25 generate --config ./scripts/auth-schema-config.js --output ./generated-auth-schema.sql --yes",
     "signing:key:generate": "node scripts/generate-signing-key.js",
     "test:smoke": "node scripts/smoke-test.js",
     "test:security": "node scripts/security-test.js",
