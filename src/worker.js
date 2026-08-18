@@ -3,7 +3,6 @@ import { handleVoiceAssistant, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assi
 import { handleTextAssistant } from "./assistant-text.js";
 import {
   assistantQuotaLimit,
-  consumeAssistantQuota,
   getAssistantQuota
 } from "./assistant-quota.js";
 import {
@@ -109,27 +108,6 @@ export default {
     }
 
     if (pathname === ASSISTANT_VOICE_PATH) {
-      if (request.method === "POST") {
-        const quota = await consumeAssistantQuota(request, env);
-        if (!quota.allowed) {
-          return applyApiCors(
-            Response.json(
-              {
-                error: "assistant_free_limit_reached",
-                message: "You reached today's free ProofTTL AI limit. Monthly member access will unlock a larger assistant allowance when plans launch.",
-                quota
-              },
-              {
-                status: 429,
-                headers: {
-                  "cache-control": "no-store",
-                  "retry-after": String(quota.retry_after_seconds)
-                }
-              }
-            )
-          );
-        }
-      }
       const response = await handleVoiceAssistant(request, env);
       return applyApiCors(response);
     }
