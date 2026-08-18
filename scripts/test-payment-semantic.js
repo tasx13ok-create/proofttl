@@ -4,7 +4,11 @@ import { createPublicClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const privateKey = process.env.PROOFTTL_TEST_PRIVATE_KEY;
-const endpoint = "https://proofttl.tasx13ok.workers.dev/verify";
+const baseUrl = (
+  process.env.PROOFTTL_BASE_URL ||
+  "https://proofttl.tasx13ok.workers.dev"
+).replace(/\/+$/, "");
+const endpoint = `${baseUrl}/verify`;
 const expectedNetwork = "eip155:84532";
 const expectedPayTo = "0x29949a066902bd329F74479c9AEBC448100955d8".toLowerCase();
 const baseSepoliaRpc = "https://sepolia.base.org";
