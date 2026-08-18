@@ -19,6 +19,9 @@ async function run() {
   assert(BENCHMARK_MODELS.qwen3.jsonSchema === false, "Qwen3 benchmark does not claim undocumented JSON schema support");
   assert(BENCHMARK_MODELS.qwen3.inputUsdPerMillionTokens < BENCHMARK_MODELS.current70b.inputUsdPerMillionTokens, "Qwen3 candidate input pricing is lower than current 70B pricing");
   assert(BENCHMARK_MODELS.qwen3.outputUsdPerMillionTokens < BENCHMARK_MODELS.current70b.outputUsdPerMillionTokens, "Qwen3 candidate output pricing is lower than current 70B pricing");
+  assert(Number(BENCHMARK_MODELS.qwen3.maxTokens) === 900, "Qwen3 starts with the measured 900-token reasoning budget");
+  assert(Number(BENCHMARK_MODELS.qwen3.retryMaxTokens) === 2000, "Qwen3 has one larger budget available only for explicit length truncation retries");
+  assert(BENCHMARK_MODELS.current70b.retryMaxTokens === null, "70B does not use Qwen-specific truncation retries");
 
   const ids = new Set();
   const statusCounts = {
