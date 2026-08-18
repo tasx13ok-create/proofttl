@@ -52,7 +52,10 @@ async function run() {
   assert(!voiceAssistant.includes("Lease Offering Value Interpreter"), "unapproved L.O.V.E. expansion is absent from active assistant code");
 
   const worker = await text("src/worker.js");
-  assert(worker.includes('version: "1.0.0"'), "assistant public contract reports v1.0.0");
+  assert(worker.includes('const PRODUCT_VERSION = "1.0.0"'), "Worker defines canonical product version 1.0.0");
+  assert(worker.includes('const COMPATIBLE_PROTOCOL = "ProofTTL/0.3.1"'), "Worker defines compatible protocol separately from product version");
+  assert(worker.includes("core_version"), "health contract exposes core version separately from product version");
+  assert(worker.includes("version: PRODUCT_VERSION"), "assistant public contract uses canonical product version");
   assert(worker.includes('role: "ProofTTL product intelligence"'), "public L.O.V.E. role is canonical");
   assert(worker.includes('source: "live_lease_storage"'), "assistant discovery documents live Lease grounding");
   assert(!worker.includes("Lease Offering Value Interpreter"), "unapproved L.O.V.E. expansion is absent from public discovery");
