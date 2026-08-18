@@ -17,6 +17,10 @@ import {
 } from "./limits.js";
 import { validatePublicSourceUrl } from "./security.js";
 import { createPreSettledX402Middleware } from "./x402-gate.js";
+import {
+  createLeaseStoreBinding,
+  reconcileMonitorScheduleFromKv
+} from "./lease-store.js";
 
 const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
 const X402_NETWORK = "eip155:84532";
@@ -154,8 +158,18 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
+    // D1 is the due-time index. Reconciliation is intentionally separate from
+    // the core monitor run so a repair failure never blocks normal due checks.
+    if (env?.MONITOR_DB && env?.LEASES) {
+      ctx.waitUntil(reconcileMonitorScheduleFromKv(env, controller.scheduledTime));
+    }
+
     if (typeof core.scheduled === "function") {
-      return core.scheduled(controller, envForCore(env), ctx);
+      return core.scheduled(
+        controller,
+        envForCore(env, controller.scheduledTime),
+        ctx
+      );
     }
   }
 };
@@ -255,18 +269,31 @@ async function validatePaidVerifyRequest(c, paymentResult) {
   return null;
 }
 
-function envForCore(env) {
-  if (!env?.AI) return env;
+function envForCore(env, monitorNow = null) {
+  if (!env) return env;
 
-  // Keep Hono/x402 on the original environment. Only core sees the semantic
-  // routing wrapper, so other Workers AI helpers/bindings are not shadowed.
+  // Keep Hono/x402 on the original environment. Core receives wrappers only
+  // for bindings that need ProofTTL-specific routing/index behavior.
   const routed = Object.create(env);
-  Object.defineProperty(routed, "AI", {
-    value: createHybridAiBinding(env.AI),
-    enumerable: true,
-    configurable: false,
-    writable: false
-  });
+
+  if (env.AI) {
+    Object.defineProperty(routed, "AI", {
+      value: createHybridAiBinding(env.AI),
+      enumerable: true,
+      configurable: false,
+      writable: false
+    });
+  }
+
+  if (env.LEASES) {
+    Object.defineProperty(routed, "LEASES", {
+      value: createLeaseStoreBinding(env.LEASES, env.MONITOR_DB, { monitorNow }),
+      enumerable: true,
+      configurable: false,
+      writable: false
+    });
+  }
+
   return routed;
 }
 
