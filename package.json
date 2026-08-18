@@ -14,7 +14,9 @@
     "test:limits": "node scripts/limits-test.js",
     "test:costs": "node scripts/costs-test.js",
     "test:economics": "node scripts/economics-test.js",
+    "test:model-fixtures": "node scripts/model-eval-fixtures-test.js",
     "economics": "node scripts/unit-economics.js",
+    "eval:model": "node scripts/run-model-eval.js",
     "test:payer:create": "node scripts/create-test-payer.js",
     "test:payment": "node --env-file=.env.test-payer scripts/test-payment.js"
   },
