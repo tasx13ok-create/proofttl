@@ -100,7 +100,7 @@ export function createPreSettledX402Middleware({
     const verifiedContext = paymentTelemetryContext(paymentResult);
 
     if (prevalidatePaidRequest) {
-      const validationResponse = await prevalidatePaidRequest(c);
+      const validationResponse = await prevalidatePaidRequest(c, paymentResult);
       if (validationResponse) {
         emitTelemetry(telemetry, {
           event: "proofttl_paid_request_rejected",
