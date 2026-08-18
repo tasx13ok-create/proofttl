@@ -9,7 +9,6 @@
     "enabled": false
   },
   "ai": {
-    "binding": "AI",
-    "remote": true
+    "binding": "AI"
   }
 }
