@@ -3,6 +3,7 @@ import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import core from "./index.js";
+import { createHybridAiBinding } from "./ai-router.js";
 import { DISCOVERY, OPENAPI, PRICING } from "./discovery.js";
 import {
   DEFAULT_MAX_VERIFY_REQUEST_BYTES,
@@ -144,7 +145,7 @@ app.post("/lease/:id/reverify", (c) =>
 );
 
 app.all("*", async (c) => {
-  const response = await core.fetch(c.req.raw, c.env);
+  const response = await core.fetch(c.req.raw, envForCore(c.env));
   const pathname = new URL(c.req.url).pathname;
   const isVerifyResponse = c.req.method === "POST" && pathname === "/verify";
   const isLeaseRead = c.req.method === "GET" && /^\/lease\/[^/]+$/.test(pathname);
@@ -160,10 +161,25 @@ export default {
 
   async scheduled(controller, env, ctx) {
     if (typeof core.scheduled === "function") {
-      return core.scheduled(controller, env, ctx);
+      return core.scheduled(controller, envForCore(env), ctx);
     }
   }
 };
+
+function envForCore(env) {
+  if (!env?.AI) return env;
+
+  // Keep Hono/x402 on the original environment. Only core sees the semantic
+  // routing wrapper, so other Workers AI helpers/bindings are not shadowed.
+  const routed = Object.create(env);
+  Object.defineProperty(routed, "AI", {
+    value: createHybridAiBinding(env.AI),
+    enumerable: true,
+    configurable: false,
+    writable: false
+  });
+  return routed;
+}
 
 function machineJson(c, value) {
   c.header("cache-control", "public, max-age=60");
