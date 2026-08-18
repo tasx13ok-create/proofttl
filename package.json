@@ -9,6 +9,8 @@
     "predeploy": "npm run test:all",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
+    "monitor:d1:create": "wrangler d1 create proofttl-monitor --binding MONITOR_DB --update-config",
+    "monitor:d1:migrate": "wrangler d1 migrations apply MONITOR_DB --remote",
     "test:smoke": "node scripts/smoke-test.js",
     "test:security": "node scripts/security-test.js",
     "test:regression": "node scripts/regression-test.js",
