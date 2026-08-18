@@ -15,6 +15,7 @@ const MAX_SOURCE_CHARS = 30000;
 const MAX_HISTORY = 20;
 const MAX_AUTO_CHECKS_PER_RUN = 10;
 const MAX_REDIRECTS = 5;
+const MONITOR_STATUS_IDLE_WRITE_INTERVAL_MINUTES = 5;
 
 export default {
   async fetch(request, env) {
@@ -215,6 +216,7 @@ async function handleMonitorStatus(env) {
     enabled: true,
     schedule: "every_minute",
     max_checks_per_run: MAX_AUTO_CHECKS_PER_RUN,
+    idle_status_persistence_minutes: MONITOR_STATUS_IDLE_WRITE_INTERVAL_MINUTES,
     last_run: raw ? JSON.parse(raw) : null
   });
 }
@@ -296,7 +298,14 @@ async function runMonitor(env, scheduledTime) {
     errors
   };
 
-  await env.LEASES.put("monitor:last_run", JSON.stringify(summary), { expirationTtl: 86400 });
+  const scheduledMinute = Math.floor(now / 60000);
+  const periodicStatusMinute =
+    scheduledMinute % MONITOR_STATUS_IDLE_WRITE_INTERVAL_MINUTES === 0;
+  const significantRun = checked > 0 || revoked > 0 || expired > 0 || errors > 0;
+
+  if (periodicStatusMinute || significantRun) {
+    await env.LEASES.put("monitor:last_run", JSON.stringify(summary), { expirationTtl: 86400 });
+  }
 }
 
 async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true, nowMs = Date.now()) {
