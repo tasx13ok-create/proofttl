@@ -50,6 +50,28 @@ app.use("/verify", async (c, next) => {
     return next();
   }
 
+  // This is a coarse outer abuse shield, not an accounting mechanism. Until
+  // ProofTTL has API keys or stable payer identity available before x402, use
+  // the connecting client address with a deliberately generous ceiling.
+  if (c.env.VERIFY_RATE_LIMITER) {
+    const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
+    const clientKey = c.req.header("cf-connecting-ip") || forwarded || "unknown";
+    const { success } = await c.env.VERIFY_RATE_LIMITER.limit({
+      key: `verify:${clientKey}`
+    });
+
+    if (!success) {
+      c.header("retry-after", "60");
+      return c.json(
+        {
+          error: "rate_limit_exceeded",
+          message: "Too many verification requests. Try again shortly."
+        },
+        429
+      );
+    }
+  }
+
   if (!x402Initialized) {
     if (!x402InitPromise) {
       x402InitPromise = resourceServer.initialize();
