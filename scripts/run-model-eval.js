@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 
+const MIN_ACCURACY = 0.85;
 const model = process.argv[2] || "qwen3";
 const limitArg = Number.parseInt(process.argv[3] || "14", 10);
 const limit = Number.isFinite(limitArg) ? Math.max(1, Math.min(14, limitArg)) : 14;
@@ -8,7 +9,8 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
 console.log(`ProofTTL semantic model benchmark: ${model} (${limit} fixtures)`);
-console.log("Workers AI runs remotely even though the benchmark Worker is local.\n");
+console.log("Workers AI runs remotely even though the benchmark Worker is local.");
+console.log(`Safety gate: >= ${(MIN_ACCURACY * 100).toFixed(0)}% accuracy and ZERO false-SUPPORTED results on non-supported fixtures.\n`);
 
 const child = spawn(
   npx,
@@ -51,8 +53,9 @@ try {
     throw new Error(`benchmark HTTP ${response.status}: ${JSON.stringify(body)}`);
   }
 
-  printReport(body);
+  const gate = printReport(body);
   finished = true;
+  if (!gate.pass) process.exitCode = 2;
 } catch (error) {
   console.error(`\nMODEL BENCHMARK FAILED: ${error instanceof Error ? error.message : String(error)}`);
   if (startupOutput.trim()) {
@@ -73,16 +76,39 @@ function printReport(report) {
   console.log(`Elapsed: ${report.elapsed_ms}ms`);
 
   const failures = report.cases.filter((item) => !item.pass);
+  const falseSupported = report.cases.filter(
+    (item) => item.expected !== "SUPPORTED" && item.actual === "SUPPORTED"
+  );
+  const enoughAccuracy = report.accuracy >= MIN_ACCURACY;
+  const noDangerousFalseSupport = falseSupported.length === 0;
+  const pass = enoughAccuracy && noDangerousFalseSupport;
+
+  console.log(`Dangerous false-SUPPORTED results: ${falseSupported.length}`);
+  console.log(`QUALITY GATE: ${pass ? "PASS" : "FAIL"}`);
+
   if (failures.length === 0) {
     console.log("\nALL FIXTURES PASSED.");
-    return;
+  } else {
+    console.log("\nFailures:");
+    for (const item of failures) {
+      console.log(`- ${item.id}: expected ${item.expected}, got ${item.actual}`);
+      console.log(`  reason: ${item.reason}`);
+    }
   }
 
-  console.log("\nFailures:");
-  for (const item of failures) {
-    console.log(`- ${item.id}: expected ${item.expected}, got ${item.actual}`);
-    console.log(`  reason: ${item.reason}`);
+  if (falseSupported.length > 0) {
+    console.log("\nHARD SAFETY FAILURES:");
+    for (const item of falseSupported) {
+      console.log(`- ${item.id}: ${item.expected} was incorrectly labeled SUPPORTED`);
+    }
   }
+
+  return {
+    pass,
+    enoughAccuracy,
+    noDangerousFalseSupport,
+    dangerousFalseSupported: falseSupported.length
+  };
 }
 
 async function waitUntilReady() {
