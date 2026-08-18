@@ -1,0 +1,167 @@
+import {
+  ASSISTANT_MODELS,
+  assistantSystemPrompt,
+  matchAssistantNavigation
+} from "./assistant.js";
+
+const MAX_TEXT_CHARS = 1200;
+
+export async function handleTextAssistant(request, env) {
+  if (request.method !== "POST") {
+    return jsonResponse(
+      {
+        error: "method_not_allowed",
+        message: "Use POST with application/json and a message field."
+      },
+      405,
+      { allow: "POST, OPTIONS" }
+    );
+  }
+
+  if (!env?.AI || typeof env.AI.run !== "function") {
+    return jsonResponse(
+      {
+        error: "assistant_unavailable",
+        message: "ProofTTL assistance is not available right now."
+      },
+      503
+    );
+  }
+
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    return jsonResponse(
+      {
+        error: "json_content_type_required",
+        message: "Send application/json with a message field."
+      },
+      415
+    );
+  }
+
+  const limiter = env.ASSISTANT_RATE_LIMITER;
+  if (!limiter || typeof limiter.limit !== "function") {
+    return jsonResponse(
+      {
+        error: "assistant_rate_limiter_unavailable",
+        message: "ProofTTL assistance is not configured safely yet."
+      },
+      503
+    );
+  }
+
+  const rateKey = assistantRateLimitKey(request);
+  const { success } = await limiter.limit({ key: rateKey });
+  if (!success) {
+    return jsonResponse(
+      {
+        error: "assistant_rate_limit_exceeded",
+        message: "Too many assistant requests. Try again shortly."
+      },
+      429,
+      { "retry-after": "60" }
+    );
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse(
+      {
+        error: "invalid_json",
+        message: "The assistant request body must be valid JSON."
+      },
+      400
+    );
+  }
+
+  const message = normalizeMessage(body?.message);
+  if (!message) {
+    return jsonResponse(
+      {
+        error: "message_required",
+        message: "Enter a ProofTTL question."
+      },
+      400
+    );
+  }
+
+  const action = matchAssistantNavigation(message);
+  if (action) {
+    return jsonResponse({
+      message,
+      response: `Opening ${action.label}.`,
+      action: {
+        type: "navigate",
+        route: action.route,
+        section: action.section
+      },
+      inference: {
+        response_model: null,
+        deterministic_route: true
+      }
+    });
+  }
+
+  try {
+    const completion = await env.AI.run(ASSISTANT_MODELS.response, {
+      messages: [
+        { role: "system", content: assistantSystemPrompt() },
+        { role: "user", content: message }
+      ],
+      max_tokens: 160,
+      temperature: 0.2
+    });
+
+    return jsonResponse({
+      message,
+      response: cleanResponse(completion?.response) ||
+        "I can help with ProofTTL, Fact Leases, the API, x402, monitoring, payments, and product navigation.",
+      action: null,
+      inference: {
+        response_model: ASSISTANT_MODELS.response,
+        deterministic_route: false
+      }
+    });
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "assistant_text_response_failed",
+      error: error?.name || error?.constructor?.name || "Error"
+    }));
+
+    return jsonResponse(
+      {
+        error: "assistant_capacity_unavailable",
+        message: "ProofTTL assistance has reached its current free AI capacity or the model is temporarily unavailable. Try again later."
+      },
+      503
+    );
+  }
+}
+
+function normalizeMessage(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim().slice(0, MAX_TEXT_CHARS);
+}
+
+function cleanResponse(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim().slice(0, 1200);
+}
+
+function assistantRateLimitKey(request) {
+  const ip = (request.headers.get("cf-connecting-ip") || "anonymous").trim();
+  return `assistant:${ip.slice(0, 80)}`;
+}
+
+function jsonResponse(body, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      ...extraHeaders
+    }
+  });
+}
