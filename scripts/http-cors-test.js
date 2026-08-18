@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   API_CORS,
   applyApiCors,
@@ -70,9 +71,9 @@ check("sets reusable preflight cache duration", () => {
   );
 });
 
-check("preserves response body", async () => {
-  const body = await wrapped402.clone().json();
-  assert.equal(body.error, "payment_required");
+const wrapped402Body = await wrapped402.clone().json();
+check("preserves response body", () => {
+  assert.equal(wrapped402Body.error, "payment_required");
 });
 
 const wrappedSettlement = applyApiCors(
@@ -97,6 +98,26 @@ check("preflight allows GET POST OPTIONS", () => {
     preflight.headers.get("access-control-allow-methods"),
     "GET, POST, OPTIONS"
   );
+});
+
+const workerSource = await readFile(new URL("../src/worker.js", import.meta.url), "utf8");
+const wranglerSource = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+
+check("Worker fetch path applies outer CORS wrapper", () => {
+  assert.match(workerSource, /applyApiCors\(response\)/);
+});
+
+check("Worker handles browser preflight before payment middleware", () => {
+  assert.match(workerSource, /request\.method === "OPTIONS"/);
+  assert.match(workerSource, /apiCorsPreflightResponse\(\)/);
+});
+
+check("Worker preserves scheduled monitoring delegation", () => {
+  assert.match(workerSource, /entry\.scheduled\(controller, env, ctx\)/);
+});
+
+check("Wrangler deploys the CORS wrapper entrypoint", () => {
+  assert.match(wranglerSource, /"main"\s*:\s*"src\/worker\.js"/);
 });
 
 console.log(`\n${checks} HTTP CORS checks passed.`);
