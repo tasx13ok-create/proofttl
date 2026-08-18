@@ -3,7 +3,7 @@ export const BASE_URL = "https://proofttl.tasx13ok.workers.dev";
 export const DISCOVERY = {
   service: "ProofTTL",
   version: "1.0.0",
-  protocol: "ProofTTL/1.0.0",
+  protocol: "ProofTTL/0.3.1",
   description: "Expiring, source-backed fact leases for machines.",
   base_url: BASE_URL,
   capabilities: [
@@ -155,7 +155,7 @@ export const OPENAPI = {
   info: {
     title: "ProofTTL API",
     version: "1.0.0",
-    description: "ProofTTL v1.0.0 issues and monitors expiring, source-backed Fact Leases. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is protected by an x402 v2 Base Sepolia test payment. Active leases are automatically reverified; public manual reverification is disabled. Stored leases expose issued_status and current_status so the original verdict is preserved without hiding later changes. When signing is configured, issued leases include an immutable Ed25519 issuance attestation; new monitoring events can be individually signed and cryptographically chained. ProofTTL also exposes a bounded product AI assistant with text or voice input, bounded conversational history, live Fact Lease grounding when an ftl_ identifier is present, a shared daily quota, allowlisted navigation, account-entitlement foundations, and no paid-model fallback."
+    description: "ProofTTL v1.0.0 issues and monitors expiring, source-backed Fact Leases while retaining the compatible ProofTTL/0.3.1 wire protocol. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is protected by an x402 v2 Base Sepolia test payment. Active leases are automatically reverified; public manual reverification is disabled. Stored leases expose issued_status and current_status so the original verdict is preserved without hiding later changes. When signing is configured, issued leases include an immutable Ed25519 issuance attestation; new monitoring events can be individually signed and cryptographically chained. ProofTTL also exposes a bounded product AI assistant with text or voice input, bounded conversational history, live Fact Lease grounding when an ftl_ identifier is present, a shared daily quota, allowlisted navigation, account-entitlement foundations, and no paid-model fallback."
   },
   servers: [{ url: BASE_URL }],
   paths: {
