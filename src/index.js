@@ -1,4 +1,5 @@
 import { validatePublicSourceUrl } from "./security.js";
+import { readResponseTextLimited } from "./limits.js";
 
 const MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const SERVICE_VERSION = "0.3.1";
@@ -532,7 +533,7 @@ async function fetchSource(sourceUrl, maxChars) {
         return { ok: false, reason: "unsupported_source_content_type" };
       }
 
-      const raw = (await response.text()).slice(0, maxChars * 3);
+      const raw = await readResponseTextLimited(response, maxChars * 3);
       const normalizedText = normalizeSource(raw, contentType).slice(0, maxChars);
       if (normalizedText.length < 20) return { ok: false, reason: "source_contains_too_little_text" };
 
