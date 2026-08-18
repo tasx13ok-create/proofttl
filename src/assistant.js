@@ -2,6 +2,8 @@ import { consumeAssistantQuota } from "./assistant-quota.js";
 
 const WHISPER_MODEL = "@cf/openai/whisper";
 const ASSISTANT_MODEL = "@cf/ibm-granite/granite-4.0-h-micro";
+const LOVE_TTS_MODEL = "@cf/deepgram/aura-2-en";
+const DEFAULT_LOVE_SPEAKER = "atlas";
 const DEFAULT_MAX_AUDIO_BYTES = 512 * 1024;
 const MAX_TRANSCRIPT_CHARS = 700;
 
@@ -83,7 +85,7 @@ export async function handleVoiceAssistant(request, env) {
     return jsonResponse(
       {
         error: "assistant_free_limit_reached",
-        message: "You reached today's free ProofTTL AI limit. Monthly member access will unlock a larger assistant allowance when plans launch.",
+        message: "You reached today's ProofTTL AI limit.",
         quota
       },
       429,
@@ -109,12 +111,15 @@ export async function handleVoiceAssistant(request, env) {
 
   const action = matchAssistantNavigation(transcript);
   if (action) {
+    const responseText = `Opening ${action.label}.`;
     return jsonResponse({
       transcript,
-      response: `Opening ${action.label}.`,
+      response: responseText,
       action: { type: "navigate", route: action.route, section: action.section },
       quota,
-      inference: { transcription_model: WHISPER_MODEL, response_model: null, deterministic_route: true }
+      love: loveCapability(quota, env),
+      speech: await synthesizeLoveSpeech(responseText, quota, env),
+      inference: { transcription_model: WHISPER_MODEL, response_model: null, speech_model: LOVE_TTS_MODEL, deterministic_route: true }
     });
   }
 
@@ -134,13 +139,82 @@ export async function handleVoiceAssistant(request, env) {
     return aiCapacityResponse(transcript, quota);
   }
 
+  const finalText = responseText || "I can help with ProofTTL, Fact Leases, the API, x402, monitoring, payments, and product navigation.";
+
   return jsonResponse({
     transcript,
-    response: responseText || "I can help with ProofTTL, Fact Leases, the API, x402, monitoring, payments, and product navigation.",
+    response: finalText,
     action: null,
     quota,
-    inference: { transcription_model: WHISPER_MODEL, response_model: ASSISTANT_MODEL, deterministic_route: false }
+    love: loveCapability(quota, env),
+    speech: await synthesizeLoveSpeech(finalText, quota, env),
+    inference: { transcription_model: WHISPER_MODEL, response_model: ASSISTANT_MODEL, speech_model: LOVE_TTS_MODEL, deterministic_route: false }
   });
+}
+
+export function loveCapability(quota, env) {
+  const preview = String(env?.PROOFTTL_LOVE_PUBLIC_PREVIEW || "").toLowerCase() === "true";
+  const member = quota?.plan === "member" && quota?.membership_status === "active";
+  return {
+    persona: "L.O.V.E.",
+    expansion: "Lease Offering Value Interpreter",
+    voice_mode: member || preview,
+    member_only: true,
+    preview_enabled: preview,
+    plan: quota?.plan || "free",
+    speaker: String(env?.PROOFTTL_LOVE_TTS_SPEAKER || DEFAULT_LOVE_SPEAKER)
+  };
+}
+
+async function synthesizeLoveSpeech(text, quota, env) {
+  const capability = loveCapability(quota, env);
+  if (!capability.voice_mode) {
+    return { available: false, reason: "membership_required" };
+  }
+
+  try {
+    const output = await env.AI.run(LOVE_TTS_MODEL, {
+      text: cleanAssistantResponse(text),
+      speaker: capability.speaker,
+      encoding: "mp3"
+    });
+    const bytes = await streamOrBufferToBytes(output);
+    if (!bytes?.byteLength) return { available: false, reason: "empty_tts_output" };
+
+    return {
+      available: true,
+      mime_type: "audio/mpeg",
+      audio_base64: bytesToBase64(bytes),
+      model: LOVE_TTS_MODEL,
+      speaker: capability.speaker
+    };
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "love_tts_failed", error: safeErrorName(error) }));
+    return { available: false, reason: "tts_unavailable", model: LOVE_TTS_MODEL };
+  }
+}
+
+async function streamOrBufferToBytes(value) {
+  if (!value) return null;
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (typeof value.arrayBuffer === "function") {
+    return new Uint8Array(await value.arrayBuffer());
+  }
+  if (typeof value.getReader === "function") {
+    const response = new Response(value);
+    return new Uint8Array(await response.arrayBuffer());
+  }
+  return null;
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
 }
 
 export function matchAssistantNavigation(transcript) {
@@ -156,7 +230,8 @@ export function matchAssistantNavigation(transcript) {
 
 export function assistantSystemPrompt() {
   return [
-    "You are the ProofTTL product assistant.",
+    "You are L.O.V.E., the ProofTTL product intelligence: Lease Offering Value Interpreter.",
+    "Your voice persona is calm, deep, precise, composed, cinematic, and slightly ominous without being theatrical.",
     "Answer only questions about ProofTTL and its documented product behavior.",
     "ProofTTL issues source-backed, expiring Fact Leases for precise claims.",
     "A lease records claim, source, evidence, verdict, fingerprint, TTL, issued status, and current state.",
@@ -239,7 +314,7 @@ function aiCapacityResponse(transcript = null, quota = null) {
   return jsonResponse(
     {
       error: "assistant_capacity_unavailable",
-      message: "ProofTTL voice assistance has reached its current free AI capacity or the model is temporarily unavailable. Try again later.",
+      message: "ProofTTL voice assistance has reached its current AI capacity or a model is temporarily unavailable. Try again later.",
       ...(transcript ? { transcript } : {}),
       ...(quota ? { quota } : {})
     },
@@ -258,5 +333,5 @@ function jsonResponse(body, status = 200, extraHeaders = {}) {
   });
 }
 
-export const ASSISTANT_MODELS = Object.freeze({ transcription: WHISPER_MODEL, response: ASSISTANT_MODEL });
+export const ASSISTANT_MODELS = Object.freeze({ transcription: WHISPER_MODEL, response: ASSISTANT_MODEL, speech: LOVE_TTS_MODEL });
 export const ASSISTANT_LIMITS = Object.freeze({ maxAudioBytes: DEFAULT_MAX_AUDIO_BYTES, maxTranscriptChars: MAX_TRANSCRIPT_CHARS });
