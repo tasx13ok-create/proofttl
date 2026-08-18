@@ -1,372 +1,230 @@
 # ProofTTL
 
-ProofTTL issues **expiring, source-backed fact leases** for machines.
+ProofTTL issues **expiring, source-backed Fact Leases** for machines.
 
-Instead of treating a web fact as permanent, a client sends a claim, a source URL, and a desired TTL. ProofTTL fetches the source, verifies whether the source currently supports the claim, fingerprints the source text, stores the lease, and automatically monitors active leases for source changes. If the source changes and the original verdict can no longer be maintained before expiry, the lease is revoked.
+A client supplies a claim, a public source URL, and a TTL. ProofTTL checks whether that source currently supports the claim, fingerprints the observed source text, stores the lease, and automatically monitors active leases for changes. If the source changes and the issued verdict can no longer be maintained before expiry, the lease can be revoked.
 
 Live API: `https://proofttl.tasx13ok.workers.dev`
 
-Current protocol: `ProofTTL/0.3.1`
+Protocol: `ProofTTL/0.3.1`
 
-## Core principle
+## What ProofTTL claims
 
-ProofTTL does **not** claim to determine universal truth. It answers the narrower question:
+ProofTTL does not claim universal truth. It answers a narrower and auditable question:
 
 > Does this specified source currently support this exact claim?
 
-The source, evidence, observation time, expiry, source fingerprint, verification history, and lease state travel with the result.
-
-Verification statuses are intentionally limited to:
+Verdicts are deliberately limited to:
 
 - `SUPPORTED`
 - `CONTRADICTED`
 - `UNKNOWN`
 
-`UNKNOWN` is a valid result. ProofTTL is designed to refuse unsupported certainty.
+`UNKNOWN` is a valid result and is preferred over unsupported certainty.
 
-## Current testnet state
+## Current testnet platform
 
-The testnet backend now includes:
+The backend currently contains the following testnet-grade foundations:
 
 - x402 v2 payment gating on Base Sepolia
-- pre-handler payment settlement so protected work does not run before settlement succeeds
-- source URL / redirect SSRF controls
-- bounded request and source reads
-- conservative exact-match + semantic verification routing
-- Workers KV lease persistence
+- pre-handler settlement before protected source/AI/state work
+- SSRF and redirect-target validation
+- bounded request bodies and bounded source reads
+- deterministic exact-match verification plus conservative Workers AI semantic verification
+- Workers KV as the Fact Lease payload store
 - D1 due-time scheduling for automatic monitoring
-- payer-aware verification rate limiting after payment verification
-- automatic source-change monitoring and revocation
+- sharded KV-to-D1 reconciliation with a bounded fallback path
+- automatic lease expiry, source-change checking, and revocation
 - Ed25519 issuance signatures with public-key discovery
-- browser-safe API/x402 CORS
-- a rate-limited voice-in/text-out assistant surface with no paid fallback
-- a Better Auth security/runtime foundation with D1 schema, MFA/recovery-code support, optional OAuth providers, optional passkeys, credentialed CORS, and origin controls
-- deterministic local regression suites plus live no-payment smoke verification
+- payer-aware verification rate limiting
+- browser-safe x402 CORS
+- Better Auth runtime with D1 schema, secure sessions, TOTP/recovery codes, optional OAuth providers, and optional passkeys
+- text + voice ProofTTL product assistant
+- bounded six-message text-chat context
+- one shared daily assistant allowance across text and voice
+- atomic D1 assistant usage accounting with keyed pseudonymous subjects
+- account entitlement schema for future member limits
+- read-only authenticated account entitlement status
+- deployment readiness diagnostics
+- deterministic local regression checks
+- daily no-payment / no-AI live smoke workflow
 
-The guarded Windows launch path is documented in `LAUNCH-TESTNET.md` and exposed as:
+The guarded Windows launch path is:
 
 ```powershell
 npm run launch:testnet
 ```
 
-## x402 payment status
+That command runs local tests, provisions/reuses D1 when needed, applies all migrations, preserves or creates the Better Auth secret, installs the signing key, dry-runs the Worker bundle, deploys, runs the live smoke suite, and refuses to finish unless required testnet readiness reaches 100%.
 
-`POST /verify` is currently protected by **x402 on Base Sepolia testnet**.
+## x402 testnet payment
 
-Current testnet terms:
+`POST /verify` is protected by x402 v2 on Base Sepolia.
 
-- Protocol: x402 v2
 - Scheme: `exact`
-- Network: `eip155:84532` (Base Sepolia)
+- Network: `eip155:84532`
 - Asset: USDC
-- Price: `$0.001` per verification request
+- Price: `$0.001` per verification
 - Receiver: `0x29949a066902bd329F74479c9AEBC448100955d8`
+- Production/mainnet settlement: **not enabled**
 
-This is **testnet only**. Mainnet payments are not enabled yet.
+A complete paid Base Sepolia verification flow has already been proven end to end. Mainnet remains intentionally separate from that testnet validation.
 
-### First successful paid verification
+## Main API surfaces
 
-On 2026-08-17, ProofTTL completed its first end-to-end machine-paid verification on Base Sepolia:
+### Verification and leases
 
-- x402 payment gate returned payment requirements
-- a separate test payer authorized the payment
-- ProofTTL returned `HTTP 200`
-- a payment-response header was returned
-- Fact Lease issued: `ftl_2842e9c92eb24fd2a273228f1eaa4a79`
-- testnet payment received by the ProofTTL receiver wallet: `0.001 USDC`
-- transaction hash recorded from the wallet activity: `0x726f8f7f773ed2354eb2831d864fa0e2ca64c684f1b03ccf0c95f20b7d0537cb`
+- `POST /verify` — x402-protected Fact Lease issuance
+- `GET /lease/:id` — read a stored lease
+- `POST /lease/:id/reverify` — public manual reverification is disabled and returns `403`
+- `GET /monitor/status` — automatic monitoring status
 
-The local regression payer is intentionally testnet-only and stores its burner key in `.env.test-payer`, which is excluded from Git.
+Stored leases preserve both the original and current verdict:
 
-## API
+- `status` — legacy/original verdict
+- `issued_status` — explicit issuance verdict
+- `current_status` — latest observed verdict
+- `lease_state` — `ACTIVE`, `REVOKED`, or `EXPIRED`
 
-### `GET /health`
+When signing is configured, issuance also includes an immutable issuance attestation and Ed25519 signature envelope.
 
-Returns service status, protocol version, and whether storage, AI, and automatic monitoring are active.
+### Product assistant
 
-### `GET /.well-known/proofttl.json`
+- `POST /assistant/text`
+- `POST /assistant/voice`
+- `GET /assistant/usage`
+- `GET /.well-known/proofttl-assistant.json`
 
-Machine-readable ProofTTL discovery metadata, including current operational limits, payment terms, assistant capability, lease semantics, and signing capability.
+The free assistant is intentionally **ProofTTL-product scoped**, not general-purpose chat. It can answer about ProofTTL, Fact Leases, x402, monitoring, pricing, security, the API, and product navigation.
 
-### `GET /.well-known/proofttl-keys.json`
+Typed chat accepts an optional bounded context window:
 
-Publishes the active Ed25519 public verification key when Fact Lease signing is configured. The private key is never returned.
+- current message: max 1,200 characters
+- recent history: max 6 messages
+- each history message: max 600 characters
+- caller history roles: `user` or `assistant` only
 
-### `GET /.well-known/proofttl-assistant.json`
+Deterministic navigation commands do not invoke the text model or consume AI quota.
 
-Describes the rate-limited voice-in/text-out assistant contract, model path, retention posture, and fail-closed free-capacity behavior.
+A normal text AI request and a valid voice request share one daily allowance. The default free cap is 20 messages/day, UTC reset. Invalid voice bodies are rejected before daily quota is consumed.
 
-### `GET /.well-known/proofttl-auth.json`
+### Account entitlement foundation
 
-Describes the Better Auth runtime, database status, optional sign-in providers, passkeys, TOTP/recovery-code support, and auth boundary configuration.
+- `GET /account/entitlement` — credentialed, read-only account plan status
+- `/api/auth/*` — Better Auth surface
+- `GET /.well-known/proofttl-auth.json` — auth capability discovery
 
-### `/api/auth/*`
+The entitlement model is deliberately fail-safe:
 
-Better Auth request surface. The runtime requires D1 plus `BETTER_AUTH_SECRET`; actual customer sign-in methods depend on which optional provider/passkey configuration has been installed.
+- anonymous user → free allowance
+- authenticated user without an entitlement row → free allowance
+- expired/invalid member row → free allowance
+- DB entitlement lookup failure → free allowance
+- only an active, unexpired `member` entitlement can receive the configured higher assistant limit
 
-### `GET /openapi.json`
+The default future member allowance is currently configured as 200 messages/day, but **billing and self-service upgrades are not enabled**. There is no public endpoint that can grant itself membership.
 
-Machine-readable API description.
+### Machine-readable operations
 
-### `GET /pricing`
+- `GET /health`
+- `GET /readiness`
+- `GET /pricing`
+- `GET /openapi.json`
+- `GET /.well-known/proofttl.json`
+- `GET /.well-known/proofttl-keys.json`
 
-Returns current payment mode and x402 pricing metadata.
+`GET /readiness` checks the actual required testnet bindings and schemas, including storage, Workers AI, verification/assistant rate limiters, D1 monitoring, auth tables, assistant usage tables, account entitlement tables, payment facilitator credentials, signing, and auth runtime state.
 
-### `POST /verify`
+It intentionally reports production readiness separately and keeps it false until production-only work is actually complete.
 
-Issues a new Fact Lease after x402 payment verification and settlement succeed.
+## Monitoring architecture
 
-Current request controls:
-
-- request content type must be `application/json`
-- request body is limited to 16 KiB
-- unpaid challenge traffic uses a coarse outer rate-limit bucket
-- verified payers are subject to a separate payer-scoped rate limit before settlement/source/AI work
-- source text used by verification is bounded before normalization
-- paid request shape and source safety are validated before settlement
-
-Request:
-
-```json
-{
-  "claim": "Example Domain",
-  "source_url": "https://example.com",
-  "ttl_seconds": 300
-}
-```
-
-Example successful response:
-
-```json
-{
-  "lease_id": "ftl_...",
-  "protocol": "ProofTTL/0.3.1",
-  "claim": "Example Domain",
-  "status": "SUPPORTED",
-  "issued_status": "SUPPORTED",
-  "current_status": "SUPPORTED",
-  "source_url": "https://example.com/",
-  "evidence": "Example Domain",
-  "issued_at": "2026-08-17T23:56:32.459Z",
-  "expires_at": "2026-08-18T00:01:32.459Z",
-  "source_fingerprint": "sha256:...",
-  "confidence": 0.99,
-  "verifier": "deterministic-exact-match",
-  "proof_basis": "EXACT_TEXT",
-  "lease_state": "ACTIVE",
-  "verification_count": 1,
-  "monitor_interval_seconds": 100,
-  "next_check_at": "2026-08-17T23:58:12.459Z"
-}
-```
-
-When signing is enabled, issuance responses also include an immutable `issued_attestation` and Ed25519 `signature` envelope.
-
-### Lease verdict semantics
-
-ProofTTL preserves the original issuance verdict while also exposing the latest observed verdict:
-
-- `status` — legacy/original verdict retained for compatibility.
-- `issued_status` — verdict when the Fact Lease was issued.
-- `current_status` — latest observed verdict. Clients should prefer this field when deciding what the source supports now.
-- `lease_state` — lifecycle state such as `ACTIVE`, `REVOKED`, or `EXPIRED`.
-
-For example, a lease can legitimately contain `issued_status: SUPPORTED`, `current_status: CONTRADICTED`, and `lease_state: REVOKED` after automatic monitoring detects a source change.
-
-### `GET /lease/:id`
-
-Returns a persisted Fact Lease. An active lease becomes `EXPIRED` after its TTL elapses. Revoked leases remain `REVOKED`.
-
-### `POST /lease/:id/reverify`
-
-Public manual reverification is currently **disabled** and returns `403 manual_reverify_disabled`.
-
-Active leases are reverified automatically by the scheduled monitor. The public manual endpoint is intentionally blocked so callers cannot force unmetered source fetches or AI work.
-
-Automatic checks can record results including:
-
-- `UNCHANGED_SOURCE` — the source fingerprint is identical.
-- `SOURCE_CHANGED_STILL_CONSISTENT` — the page changed, but the original verdict is still supported.
-- `REVOKED` — the source changed and the original verdict can no longer be maintained before expiry.
-- `SOURCE_UNAVAILABLE` — ProofTTL could not fetch the source during the check.
-
-Each automatic check is appended to the lease history, capped to the latest 20 checks.
-
-### `GET /monitor/status`
-
-Returns automatic monitoring status.
-
-### `POST /assistant/voice`
-
-Accepts bounded audio input and returns text output through the ProofTTL assistant path. It is rate limited, keeps no audio by default, allows only allowlisted non-destructive navigation behavior, and does not silently fall back to a paid model when free capacity is unavailable.
-
-## Automatic monitoring and revocation
-
-ProofTTL keeps full Fact Lease payloads in Workers KV and uses D1 as a due-time index for automatic monitoring.
-
-A scheduled run asks D1 for leases that are due, then loads only those lease payloads from KV. A sharded reconciliation path repairs index drift without making D1 the source of truth.
-
-The monitor avoids unnecessary verifier work when the source fingerprint is unchanged. When a source changes, ProofTTL reverifies the original claim against the new source text. If the original supported verdict can no longer be maintained while the lease is active, the lease is automatically revoked.
-
-A controlled production test has already demonstrated this path: a source initially stating `BLUE` was changed to `RED`; ProofTTL detected the source change, determined that `RED` contradicted the original `BLUE` claim, and changed the lease state to `REVOKED` without a manual reverify request.
-
-## Architecture
+Workers KV remains the Fact Lease source of truth. D1 is a scheduling/index layer.
 
 ```text
-claim + source URL + TTL
-        |
-        v
-x402 payment verification
-        |
-        v
-paid-request validation + payer quota
-        |
-        v
-pre-handler settlement
-        |
-        v
-source fetch + normalization
-        |
-        v
-SHA-256 source fingerprint
-        |
-        +--> deterministic exact-match verifier
-        |
-        +--> conservative semantic verifier (Workers AI)
-        |
-        v
-SUPPORTED / CONTRADICTED / UNKNOWN
-        |
-        v
-Ed25519 issuance signature
-        |
-        v
-Fact Lease in Workers KV
-        |
-        +--> due time indexed in D1
-        |
-        v
-scheduled monitoring
-        |
-        +--> unchanged source -> keep lease
-        |
-        +--> changed source -> reverify
-                              |
-                              +--> maintain
-                              +--> revoke
+Fact Lease -> KV payload
+          -> D1 due-time row
+
+Cron -> D1 due IDs -> load only due KV leases -> check source
+                                           |
+                                           +-> unchanged: keep
+                                           +-> changed: reverify
+                                                        |
+                                                        +-> maintain
+                                                        +-> revoke
 ```
 
-## Current stack
+The KV binding used by scheduled monitoring intercepts lease listing and queries D1 for due lease IDs. A sharded reconciliation path periodically repairs D1 from KV metadata. If D1 is temporarily unavailable, a bounded compatibility fallback remains available.
 
-- Cloudflare Workers
-- Cloudflare Workers AI
-- Cloudflare Workers KV
-- Cloudflare D1
-- Cloudflare Cron Triggers
-- Cloudflare Worker rate-limit bindings
-- Better Auth
-- Ed25519 issuance signatures
-- SHA-256 source fingerprints
-- x402 v2
-- Base Sepolia testnet
-- USDC test payments
+## Safety properties
 
-## Safety and design choices
+- source URL scheme, credentials, port, hostname, IP, DNS resolution, and redirects are checked against SSRF rules
+- semantic verification is restricted to fetched source text
+- model evidence must appear verbatim in normalized source text or confidence is downgraded to `UNKNOWN`
+- exact matches avoid semantic AI when possible
+- unchanged fingerprints avoid repeat semantic verification
+- payment settlement happens before protected work
+- failed x402 settlement does not execute the protected verifier
+- public manual reverification is blocked to prevent unmetered source/AI work
+- assistant requests are rate limited and daily-quota limited
+- anonymous assistant accounting stores keyed pseudonymous identifiers rather than raw IP values
+- auth secrets, payment credentials, and private signing material are not committed
+- account membership is server-controlled and fails closed to free access
+- paid model fallback is not silently enabled
 
-- ProofTTL verifies support from the caller-supplied source rather than claiming universal truth.
-- Source URLs are checked for allowed schemes, credentials, ports, local hostnames, private/reserved IP literals, and DNS resolutions that point to non-public addresses.
-- Redirect targets are revalidated before they are followed.
-- Semantic verification may use only fetched source text, not outside knowledge.
-- AI-provided evidence must occur verbatim in the normalized source or the verdict is downgraded to `UNKNOWN`.
-- Source fetching has a timeout and bounded streaming text reads.
-- Verification request bodies are size-limited before expensive payment/verifier work.
-- Exact text matches bypass AI when possible.
-- Unchanged source fingerprints bypass repeated semantic verification.
-- ProofTTL prefers `UNKNOWN` to invented certainty.
-- Lease history is preserved instead of silently overwriting prior observations.
-- Issued and current verdicts are exposed separately so a revoked lease cannot be mistaken for a currently supported fact.
-- Public manual reverification is disabled; active leases are monitored automatically.
-- A verified payment is settled before protected source/AI/state work runs.
-- Failed settlement does not run the protected verification handler.
-- Testnet payment credentials and signing/auth secrets are never committed to the repository.
-- Auth uses secure HttpOnly cookies, trusted-origin controls, credentialed CORS rules, and a required server-side session secret.
-- x402 is currently testnet-only.
+## Regression and release gates
 
-## Regression coverage
-
-The repository includes automated checks for:
-
-- SSRF/source URL validation
-- request body and source-read limits
-- cost accounting and idle monitor cost guards
-- D1 monitor scheduling and reconciliation behavior
-- lease expiry behavior
-- revoked-state persistence
-- unchanged-source monitoring
-- automatic revocation after source changes
-- verification-history capping
-- Ed25519 signing, tamper detection, and public-key safety
-- browser x402 CORS
-- assistant guardrails/routing
-- Better Auth/MFA/CORS boundaries
-- Better Auth generated-schema drift
-- semantic benchmark fixture validity
-- hybrid model routing
-- pre-settlement payment behavior
-- CDP facilitator authentication
-- live unpaid x402 challenge metadata
-
-GitHub Actions runs deterministic code checks on pushes and pull requests. Live deployed-service smoke verification is kept separate so an old deployment cannot block the code change required to update it.
-
-## Known limitations before production mainnet
-
-- HTML extraction is still lightweight and can lose structure on complex pages.
-- D1 solves due-work selection, but monitoring still uses bounded batches and periodic reconciliation rather than a dedicated queue/workflow system.
-- Payer-aware request quotas exist, but account-scoped usage history, billing records, plan limits, and customer metering are not implemented yet.
-- The Better Auth runtime exists, but a production customer sign-in provider and public account UI are not enabled by default.
-- Fact Lease signing depends on the deployment having its signing secret installed; the guarded launcher verifies this for the testnet launch path.
-- Production pricing has not been finalized from measured compute and monitoring costs.
-- Mainnet settlement/facilitator configuration has not been validated end-to-end.
-
-## Local regression tests
-
-Run deterministic/local checks:
+Run the deterministic suite:
 
 ```powershell
-npm.cmd run test:local
+npm run test:local
 ```
 
-Run the live no-payment smoke test against the configured deployment:
+Run the live no-payment, no-AI-inference smoke suite:
 
 ```powershell
-npm.cmd run test:smoke
+npm run test:smoke
 ```
 
-Create a local burner payer for the optional paid test:
+The canonical local suite covers source/security limits, cost guards, monitor scheduling, lease state, signatures, CORS, assistant routing, contextual chat, assistant quota behavior, Better Auth boundaries/schema drift, model routing, payment-gate behavior, CDP authentication, and regression scenarios.
+
+GitHub Actions runs `npm run test:local` plus a Wrangler dry run on pushes and pull requests. A separate scheduled workflow runs the live smoke suite daily without authorizing payment or invoking AI inference.
+
+## Guarded testnet deployment
+
+See `LAUNCH-TESTNET.md` for details. The short path is:
 
 ```powershell
-npm.cmd run test:payer:create
+npm run launch:testnet
 ```
 
-Fund that address with **Base Sepolia test USDC only**, then run:
+A successful guarded launch requires:
 
-```powershell
-npm.cmd run test:payment
-```
+- D1 binding present
+- monitor/auth/assistant-usage/account-entitlement migrations applied
+- Better Auth secret present
+- signing key present
+- Worker dry run successful
+- deploy successful
+- live x402 challenge healthy
+- D1 assistant accounting active
+- `/readiness` testnet score = 100%
 
-The payment script performs an unpaid preflight and refuses to proceed unless the payment requirement matches the expected Base Sepolia network, exact scheme, ProofTTL receiver, and its hard test ceiling.
+If the launcher creates the D1 binding and modifies `wrangler.jsonc`, commit the real generated D1 binding ID afterward. Do not invent one manually.
 
-Never commit or share `.env.test-payer`, `.proofttl-signing-private.jwk`, or any Worker secret.
+## Intentionally unfinished production work
 
-## Next milestones
+These are real remaining blockers rather than hidden placeholders:
 
-1. Deploy and live-smoke-test the current D1/signing/auth hardening on the canonical testnet Worker.
-2. Configure one production-grade customer sign-in path and build the public account/session UI around the existing auth runtime.
-3. Add account-scoped usage accounting, billing history, plan limits, and a private operator/admin surface.
-4. Measure actual verification + monitoring resource usage and turn it into a defensible production price floor.
-5. Validate a production x402 facilitator/mainnet configuration with deliberately tiny limits before enabling Base mainnet.
-6. Improve structured HTML/content extraction for complex sources without weakening evidence grounding.
-7. Add Fact Half-Life estimation from historical source-change data.
+- configure and validate a real customer sign-in provider/passkey production path
+- cryptographically link payer wallets/transactions to customer accounts before exposing customer payment history or owned lease history
+- connect a real billing provider to the existing entitlement model
+- add recent-authentication flows for sensitive profile/account mutations
+- measure production verification + monitoring costs and finalize a defensible price floor
+- validate the production x402 facilitator and Base mainnet path with deliberately limited exposure
+- improve structured extraction for complex HTML while preserving source-grounding guarantees
+
+Until those are complete, ProofTTL should be described as a strongly hardened **testnet product**, not a finished mainnet billing platform.
 
 ## License
 
