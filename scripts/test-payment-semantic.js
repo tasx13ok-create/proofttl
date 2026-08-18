@@ -48,12 +48,9 @@ if (!paymentRequiredHeader) {
   process.exit(1);
 }
 
-let paymentRequired;
-try {
-  paymentRequired = JSON.parse(Buffer.from(paymentRequiredHeader, "base64").toString("utf8"));
-} catch (error) {
+const paymentRequired = decodePaymentRequired(paymentRequiredHeader);
+if (!paymentRequired) {
   console.error("Safety stop: could not decode PAYMENT-REQUIRED header.");
-  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
 
@@ -81,6 +78,7 @@ console.log(`  network: ${acceptable.network}`);
 console.log(`  scheme: ${acceptable.scheme}`);
 console.log(`  payTo: ${acceptable.payTo}`);
 console.log(`  amount atomic USDC: ${acceptable.amount}`);
+console.log(`  asset: ${acceptable.asset || "<missing>"}`);
 console.log("  hard client ceiling: 10000 atomic USDC ($0.01)");
 
 const client = new x402Client();
@@ -105,7 +103,10 @@ try {
 
 console.dir(parsed, { depth: null });
 
-if (!response.ok) process.exit(1);
+if (!response.ok) {
+  diagnosePaymentFailure(response);
+  process.exit(1);
+}
 
 if (!parsed || typeof parsed !== "object" || !parsed.lease_id) {
   console.error("Request succeeded but no ProofTTL lease_id was returned.");
@@ -126,3 +127,49 @@ console.log(`SUCCESS: paid semantic ProofTTL lease issued: ${parsed.lease_id}`);
 console.log(`Verdict: ${parsed.status}`);
 console.log(`Verifier: ${parsed.verifier}`);
 console.log(`Proof basis: ${parsed.proof_basis}`);
+
+function decodePaymentRequired(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(Buffer.from(value, "base64").toString("utf8"));
+  } catch {
+    try {
+      return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    } catch {
+      return null;
+    }
+  }
+}
+
+function diagnosePaymentFailure(response) {
+  console.error("\nx402 payment diagnostic:");
+  console.error(`  HTTP status: ${response.status} ${response.statusText || ""}`.trimEnd());
+
+  const header = response.headers.get("payment-required");
+  if (!header) {
+    console.error("  PAYMENT-REQUIRED header: missing");
+    console.error("  No facilitator error code was exposed by the resource server.");
+    return;
+  }
+
+  const decoded = decodePaymentRequired(header);
+  if (!decoded) {
+    console.error("  PAYMENT-REQUIRED header: present but could not be decoded");
+    return;
+  }
+
+  console.error(`  x402 error: ${decoded.error || "<none provided>"}`);
+  console.error(`  x402 version: ${decoded.x402Version ?? "<missing>"}`);
+
+  const option = Array.isArray(decoded.accepts)
+    ? decoded.accepts.find(item => item?.network === expectedNetwork && item?.scheme === "exact")
+    : null;
+
+  if (option) {
+    console.error(`  required amount: ${option.amount ?? "<missing>"} atomic USDC`);
+    console.error(`  required asset: ${option.asset || "<missing>"}`);
+    console.error(`  required payTo: ${option.payTo || "<missing>"}`);
+  }
+
+  console.error("  No private key or payment signature is printed by this diagnostic.");
+}
