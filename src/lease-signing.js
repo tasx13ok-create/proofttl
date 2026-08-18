@@ -59,7 +59,7 @@ export async function attachLeaseIssuanceSignature(
   lease,
   privateJwkInput,
   keyId = DEFAULT_SIGNING_KEY_ID,
-  signedAt = new Date().toISOString()
+  signedAt = null
 ) {
   const privateJwk = parsePrivateJwk(privateJwkInput);
   if (!privateJwk) return lease;
@@ -85,7 +85,7 @@ export async function attachLeaseIssuanceSignature(
     algorithm: "Ed25519",
     key_id: normalizeKeyId(keyId),
     signed_payload: "issued_attestation",
-    signed_at: signedAt,
+    signed_at: signedAt || attestation.issued_at,
     value: base64UrlEncode(new Uint8Array(signatureBytes))
   };
 
