@@ -12,10 +12,9 @@ async function run() {
   console.log("ProofTTL benchmark preview readiness regression test\n");
 
   const env = {
-    BENCHMARK_TOKEN: "test-benchmark-token-1234567890",
     AI: {
       async run() {
-        throw new Error("AI should not be called by readiness/auth regression test");
+        throw new Error("AI should not be called by readiness/request validation regression test");
       }
     }
   };
@@ -25,44 +24,36 @@ async function run() {
     env
   );
   const readyBody = await ready.json();
-  assert(ready.status === 200, "readiness endpoint is reachable without benchmark authentication");
+  assert(ready.status === 200, "readiness endpoint is reachable inside the preview session");
   assert(readyBody.preview_ready === true, "readiness endpoint explicitly reports preview_ready=true");
 
-  const noToken = await benchmarkWorker.fetch(
+  const wrongMethod = await benchmarkWorker.fetch(
+    new Request("https://preview.example/run"),
+    env
+  );
+  assert(wrongMethod.status === 404, "benchmark run only accepts POST requests");
+
+  const invalidJson = await benchmarkWorker.fetch(
     new Request("https://preview.example/run", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: "current70b", limit: 1 })
+      body: "not-json"
     }),
     env
   );
-  assert(noToken.status === 404, "benchmark run remains hidden without the one-run token");
+  assert(invalidJson.status === 400, "benchmark run rejects invalid JSON before AI invocation");
 
-  const wrongToken = await benchmarkWorker.fetch(
+  const unknownModel = await benchmarkWorker.fetch(
     new Request("https://preview.example/run", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-proofttl-benchmark-token": "wrong-token"
-      },
-      body: JSON.stringify({ model: "current70b", limit: 1 })
-    }),
-    env
-  );
-  assert(wrongToken.status === 404, "benchmark run rejects an incorrect one-run token");
-
-  const authenticated = await benchmarkWorker.fetch(
-    new Request("https://preview.example/run", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-proofttl-benchmark-token": env.BENCHMARK_TOKEN
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: "does-not-exist", limit: 1 })
     }),
     env
   );
-  assert(authenticated.status === 400, "authenticated benchmark request reaches normal request validation");
+  const unknownBody = await unknownModel.json();
+  assert(unknownModel.status === 400, "benchmark request reaches normal model validation");
+  assert(Array.isArray(unknownBody.allowed) && unknownBody.allowed.includes("current70b"), "unknown-model response advertises the benchmark model catalog");
 
   console.log(`\nSUCCESS: ${passed} ProofTTL benchmark preview checks passed.`);
 }
