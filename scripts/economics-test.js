@@ -48,9 +48,10 @@ async function run() {
     activeLeasesSharingMonitor: 1000,
     targetGrossMargin: 0.8
   });
-  const issueAi = (7500 * 0.293 + 100 * 2.253) / 1_000_000;
-  assert(approx(semantic.costs_usd.issuance_ai_primary, issueAi), "current production semantic issuance uses 70B token pricing");
-  assert(approx(semantic.costs_usd.issuance_ai, issueAi), "zero fallback rate preserves current issuance AI cost");
+  const issueAi = (7500 * 0.051 + 100 * 0.34) / 1_000_000;
+  assert(semantic.assumptions.ai_model === QWEN3_MODEL, "default production economics use Qwen as the primary AI model");
+  assert(approx(semantic.costs_usd.issuance_ai_primary, issueAi), "default semantic issuance uses Qwen token pricing");
+  assert(approx(semantic.costs_usd.issuance_ai, issueAi), "zero fallback rate preserves primary issuance AI cost");
   assert(semantic.operations.expected_monitor_checks === 2, "one-hour lease has two checks before expiry");
   assert(semantic.operations.expected_changed_source_checks === 0.5, "source-change rate drives expected semantic rechecks");
   assert(approx(semantic.costs_usd.expected_monitoring_ai, issueAi * 0.5), "monitoring AI cost is probability weighted");
