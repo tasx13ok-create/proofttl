@@ -5,4 +5,5 @@ node_modules/
 .env.test-payer
 .proofttl-signing-private.jwk
 .proofttl-signing-public.jwk
+generated-auth-schema.sql
 .DS_Store
