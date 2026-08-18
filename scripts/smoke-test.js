@@ -36,6 +36,23 @@ function headerIncludes(response, name, expected) {
     .includes(expected.toLowerCase());
 }
 
+function assertHttpStatus(result, expectedStatus, message) {
+  if (result.response.status !== expectedStatus) {
+    const errorCode =
+      result.body && typeof result.body?.error === "string"
+        ? `; error=${result.body.error}`
+        : "";
+    const detail =
+      result.body && typeof result.body?.message === "string"
+        ? `; message=${result.body.message}`
+        : "";
+    throw new Error(
+      `${message} (got HTTP ${result.response.status}${errorCode}${detail})`
+    );
+  }
+  assert(true, message);
+}
+
 async function run() {
   console.log(`ProofTTL smoke test: ${BASE_URL}`);
   console.log("No payment will be authorized and no voice AI inference will be invoked by this script.\n");
@@ -108,7 +125,7 @@ async function run() {
       ttl_seconds: 300
     })
   });
-  assert(unpaid.response.status === 402, "unpaid verify returns HTTP 402");
+  assertHttpStatus(unpaid, 402, "unpaid verify returns HTTP 402");
   assert(unpaid.response.headers.get("access-control-allow-origin") === "*", "402 is readable cross-origin");
   assert(headerIncludes(unpaid.response, "access-control-expose-headers", "payment-required"), "402 exposes PAYMENT-REQUIRED to browser clients");
   assert(headerIncludes(unpaid.response, "access-control-expose-headers", "payment-response"), "browser clients can read PAYMENT-RESPONSE after settlement");
