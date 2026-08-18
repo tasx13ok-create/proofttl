@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { buildWranglerDevLaunch } from "../benchmark/launcher.js";
 
 let passed = 0;
@@ -31,14 +32,25 @@ function run() {
     "Windows command uses the isolated benchmark Wrangler config"
   );
   assert(
-    windows.args.at(-1).includes("--port 8790 --local"),
-    "Windows command preserves the local benchmark port and mode"
+    windows.args.at(-1).includes("--port 8790"),
+    "Windows command preserves the local benchmark port"
+  );
+  assert(
+    !windows.args.at(-1).includes("--local"),
+    "Windows benchmark does not disable remote bindings with --local"
   );
 
   const posix = buildWranglerDevLaunch({ platform: "linux", port: 8791 });
   assert(posix.command === "npx", "POSIX launcher continues to invoke npx directly");
   assert(posix.args[0] === "wrangler" && posix.args[1] === "dev", "POSIX launcher invokes wrangler dev");
   assert(posix.args.includes("8791"), "POSIX launcher preserves the requested port");
+  assert(!posix.args.includes("--local"), "POSIX benchmark also preserves remote bindings");
+
+  const configText = fs.readFileSync("wrangler.model-eval.jsonc", "utf8");
+  const config = JSON.parse(configText);
+  assert(config.ai?.binding === "AI", "benchmark config binds Workers AI as AI");
+  assert(config.ai?.remote === true, "benchmark config explicitly proxies Workers AI remotely");
+  assert(config.workers_dev === false, "benchmark config remains non-deployable to workers.dev by default");
 
   let invalidPortRejected = false;
   try {
