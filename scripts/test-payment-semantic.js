@@ -9,6 +9,7 @@ const expectedNetwork = "eip155:84532";
 const expectedPayTo = "0x29949a066902bd329F74479c9AEBC448100955d8".toLowerCase();
 const baseSepoliaRpc = "https://sepolia.base.org";
 const maxAtomicUsdc = 10000n; // $0.01 with 6-decimal USDC
+const balanceOnly = process.argv.includes("--balance-only");
 
 if (!privateKey || !/^0x[0-9a-fA-F]{64}$/.test(privateKey)) {
   console.error("Missing PROOFTTL_TEST_PRIVATE_KEY. Use a burner Base Sepolia wallet only.");
@@ -50,7 +51,7 @@ if (!paymentRequiredHeader) {
   process.exit(1);
 }
 
-const paymentRequired = decodePaymentRequired(paymentRequiredHeader);
+const paymentRequired = decodeBase64Json(paymentRequiredHeader);
 if (!paymentRequired) {
   console.error("Safety stop: could not decode PAYMENT-REQUIRED header.");
   process.exit(1);
@@ -84,20 +85,25 @@ console.log(`  asset: ${acceptable.asset || "<missing>"}`);
 console.log("  hard client ceiling: 10000 atomic USDC ($0.01)");
 
 const requiredAmount = BigInt(acceptable.amount);
-const tokenBalance = await readErc20Balance({
+const tokenBalanceBefore = await readErc20Balance({
   token: acceptable.asset,
   account: signer.address
 });
 
-if (tokenBalance === null) {
+if (tokenBalanceBefore === null) {
   console.warn("Balance precheck: unavailable; continuing to facilitator diagnostics.");
 } else {
-  console.log(`Balance precheck: ${tokenBalance} atomic units available`);
-  if (tokenBalance < requiredAmount) {
-    console.error(`Safety stop: insufficient test token balance (${tokenBalance} < ${requiredAmount}).`);
+  console.log(`Balance precheck: ${tokenBalanceBefore} atomic units available`);
+  if (tokenBalanceBefore < requiredAmount) {
+    console.error(`Safety stop: insufficient test token balance (${tokenBalanceBefore} < ${requiredAmount}).`);
     console.error("Refill the burner wallet with the Base Sepolia token advertised by PAYMENT-REQUIRED, then rerun.");
     process.exit(1);
   }
+}
+
+if (balanceOnly) {
+  console.log("BALANCE-ONLY: no payment was signed or submitted.");
+  process.exit(0);
 }
 
 const client = new x402Client();
@@ -110,9 +116,24 @@ const response = await fetchWithPayment(endpoint, requestInit);
 const text = await response.text();
 
 console.log(`HTTP ${response.status}`);
-const paymentResponse = response.headers.get("payment-response") || response.headers.get("x-payment-response");
-if (paymentResponse) {
+const paymentResponseHeader =
+  response.headers.get("payment-response") ||
+  response.headers.get("x-payment-response");
+const settlement = decodeBase64Json(paymentResponseHeader);
+
+if (paymentResponseHeader) {
   console.log("Payment response header received: yes");
+  if (settlement) {
+    console.log("Settlement response:");
+    console.log(`  success: ${settlement.success ?? "<missing>"}`);
+    console.log(`  errorReason: ${settlement.errorReason || "<none>"}`);
+    console.log(`  transaction: ${settlement.transaction || "<none>"}`);
+    console.log(`  network: ${settlement.network || "<missing>"}`);
+    console.log(`  payer: ${settlement.payer || "<missing>"}`);
+    if (settlement.amount != null) console.log(`  amount: ${settlement.amount}`);
+  } else {
+    console.log("Settlement response: present but could not be decoded");
+  }
 }
 
 let parsed = text;
@@ -122,8 +143,18 @@ try {
 
 console.dir(parsed, { depth: null });
 
+const tokenBalanceAfter = await readErc20Balance({
+  token: acceptable.asset,
+  account: signer.address
+});
+if (tokenBalanceBefore !== null && tokenBalanceAfter !== null) {
+  const delta = tokenBalanceAfter - tokenBalanceBefore;
+  console.log(`Balance postcheck: ${tokenBalanceAfter} atomic units available`);
+  console.log(`Balance delta during this run: ${delta} atomic units`);
+}
+
 if (!response.ok) {
-  diagnosePaymentFailure(response);
+  diagnosePaymentFailure(response, settlement);
   process.exit(1);
 }
 
@@ -147,17 +178,14 @@ console.log(`Verdict: ${parsed.status}`);
 console.log(`Verifier: ${parsed.verifier}`);
 console.log(`Proof basis: ${parsed.proof_basis}`);
 
-function decodePaymentRequired(value) {
+function decodeBase64Json(value) {
   if (!value) return null;
-  try {
-    return JSON.parse(Buffer.from(value, "base64").toString("utf8"));
-  } catch {
+  for (const encoding of ["base64", "base64url"]) {
     try {
-      return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
-    } catch {
-      return null;
-    }
+      return JSON.parse(Buffer.from(value, encoding).toString("utf8"));
+    } catch {}
   }
+  return null;
 }
 
 async function readErc20Balance({ token, account }) {
@@ -188,34 +216,26 @@ async function readErc20Balance({ token, account }) {
   }
 }
 
-function diagnosePaymentFailure(response) {
+function diagnosePaymentFailure(response, settlement) {
   console.error("\nx402 payment diagnostic:");
   console.error(`  HTTP status: ${response.status} ${response.statusText || ""}`.trimEnd());
 
-  const header = response.headers.get("payment-required");
-  if (!header) {
-    console.error("  PAYMENT-REQUIRED header: missing");
-    console.error("  No facilitator error code was exposed by the resource server.");
+  if (settlement) {
+    console.error(`  settlement success: ${settlement.success ?? "<missing>"}`);
+    console.error(`  settlement errorReason: ${settlement.errorReason || "<none>"}`);
+    console.error(`  settlement transaction: ${settlement.transaction || "<none>"}`);
+    console.error(`  settlement network: ${settlement.network || "<missing>"}`);
+    console.error("  PAYMENT-RESPONSE is the authoritative settlement diagnostic for this response.");
+    console.error("  No private key or payment signature is printed by this diagnostic.");
     return;
   }
 
-  const decoded = decodePaymentRequired(header);
-  if (!decoded) {
-    console.error("  PAYMENT-REQUIRED header: present but could not be decoded");
-    return;
-  }
-
-  console.error(`  x402 error: ${decoded.error || "<none provided>"}`);
-  console.error(`  x402 version: ${decoded.x402Version ?? "<missing>"}`);
-
-  const option = Array.isArray(decoded.accepts)
-    ? decoded.accepts.find(item => item?.network === expectedNetwork && item?.scheme === "exact")
-    : null;
-
-  if (option) {
-    console.error(`  required amount: ${option.amount ?? "<missing>"} atomic USDC`);
-    console.error(`  required asset: ${option.asset || "<missing>"}`);
-    console.error(`  required payTo: ${option.payTo || "<missing>"}`);
+  const requiredHeader = response.headers.get("payment-required");
+  if (requiredHeader) {
+    const decoded = decodeBase64Json(requiredHeader);
+    console.error(`  PAYMENT-REQUIRED error: ${decoded?.error || "<none provided>"}`);
+  } else {
+    console.error("  No decodable PAYMENT-RESPONSE or PAYMENT-REQUIRED diagnostic was exposed.");
   }
 
   console.error("  No private key or payment signature is printed by this diagnostic.");
