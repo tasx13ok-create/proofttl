@@ -13,7 +13,9 @@ export const DISCOVERY = {
     "automatic_revocation",
     "source_fingerprinting",
     "x402_payments",
-    "voice_input_text_output_assistant"
+    "text_and_voice_product_assistant",
+    "assistant_daily_quota",
+    "deployment_readiness"
   ],
   verdicts: ["SUPPORTED", "CONTRADICTED", "UNKNOWN"],
   lease_states: ["ACTIVE", "REVOKED", "EXPIRED"],
@@ -29,10 +31,12 @@ export const DISCOVERY = {
     source_fetch_raw_prefix_multiplier: 3,
     automatic_checks_per_monitor_run: 10,
     assistant_audio_max_bytes: 524288,
-    assistant_input_content_type: "audio/*"
+    assistant_text_max_chars: 1200,
+    assistant_free_daily_messages_default: 20
   },
   endpoints: {
     health: { method: "GET", path: "/health" },
+    readiness: { method: "GET", path: "/readiness" },
     verify: { method: "POST", path: "/verify", payment_required: true },
     lease: { method: "GET", path: "/lease/{lease_id}" },
     reverify: {
@@ -50,16 +54,34 @@ export const DISCOVERY = {
       output: "application/json",
       payment_required: false
     },
+    assistant_text: {
+      method: "POST",
+      path: "/assistant/text",
+      input: "application/json",
+      output: "application/json",
+      payment_required: false
+    },
+    assistant_usage: {
+      method: "GET",
+      path: "/assistant/usage",
+      payment_required: false
+    },
     assistant_discovery: { method: "GET", path: "/.well-known/proofttl-assistant.json" },
     signing_keys: { method: "GET", path: "/.well-known/proofttl-keys.json" },
     openapi: { method: "GET", path: "/openapi.json" }
   },
   assistant: {
-    interaction: "voice_input_text_output",
+    interaction: "text_or_voice_input_text_output",
+    scope: "proofttl_product_only",
+    free_daily_messages_default: 20,
+    quota_shared_between_text_and_voice: true,
+    quota_reset: "daily_utc",
+    durable_usage_accounting: "D1_with_hashed_anonymous_subject",
     audio_retention: "none_by_default",
     navigation: "allowlisted_non_destructive_only",
     persistent_actions: "explicit_user_confirmation_required",
-    capacity_behavior: "fail_closed_no_paid_fallback"
+    capacity_behavior: "fail_closed_no_paid_fallback",
+    paid_membership_enabled: false
   },
   payments: {
     protocol: "x402",
@@ -92,7 +114,10 @@ export const PRICING = {
   assistant: {
     price: "$0",
     payment_required: false,
+    free_daily_messages_default: 20,
+    shared_between_text_and_voice: true,
     capacity: "free_allocation_only",
+    paid_membership_enabled: false,
     paid_fallback: false
   },
   production_network: "eip155:8453",
@@ -104,7 +129,7 @@ export const OPENAPI = {
   info: {
     title: "ProofTTL API",
     version: "0.3.1",
-    description: "Issue and monitor expiring, source-backed fact leases. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is currently protected by an x402 v2 Base Sepolia test payment. Active leases are automatically reverified; public manual reverification is disabled. Stored leases expose issued_status and current_status so the original verdict is preserved without hiding later changes. When Ed25519 signing is configured, issued leases also include an immutable issuance attestation and signature verifiable with the public key discovery endpoint. ProofTTL also exposes a bounded, rate-limited voice-input/text-output product assistant that performs allowlisted navigation and short ProofTTL help responses without a paid-model fallback."
+    description: "Issue and monitor expiring, source-backed fact leases. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is protected by an x402 v2 Base Sepolia test payment. Active leases are automatically reverified; public manual reverification is disabled. Stored leases expose issued_status and current_status so the original verdict is preserved without hiding later changes. When Ed25519 signing is configured, issued leases include an immutable issuance attestation and signature verifiable with public-key discovery. ProofTTL also exposes a bounded product-only AI assistant with text or voice input, text output, a shared daily free quota, allowlisted navigation, and no paid-model fallback."
   },
   servers: [{ url: BASE_URL }],
   paths: {
@@ -112,6 +137,13 @@ export const OPENAPI = {
       get: {
         summary: "Service health",
         responses: { "200": { description: "Health status" } }
+      }
+    },
+    "/readiness": {
+      get: {
+        summary: "Deployment readiness",
+        description: "Reports testnet subsystem readiness and intentionally separate production blockers without exposing secret values.",
+        responses: { "200": { description: "Deployment readiness checks and score" } }
       }
     },
     "/verify": {
@@ -147,27 +179,55 @@ export const OPENAPI = {
     "/assistant/voice": {
       post: {
         summary: "Ask the ProofTTL product assistant by voice",
-        description: "Accepts a short audio recording, transcribes it, and returns a text response. Common product-navigation requests are routed deterministically before text-model inference. Navigation actions are restricted to allowlisted ProofTTL routes and sections. Audio is not stored by this endpoint. The assistant fails closed when its configured free AI capacity is unavailable and does not fall back to a paid provider.",
+        description: "Accepts a short audio recording and returns text. Voice and text share one free daily assistant allowance. Common product-navigation requests are routed deterministically. Navigation is restricted to allowlisted ProofTTL routes. Audio is not stored. The assistant fails closed when free AI capacity is unavailable.",
         requestBody: {
           required: true,
           content: {
             "audio/*": {
+              schema: { type: "string", format: "binary", maxLength: 524288 }
+            }
+          }
+        },
+        responses: {
+          "200": { description: "Transcript, text response, and optional navigation action" },
+          "413": { description: "Audio body exceeds the configured maximum" },
+          "415": { description: "Request body is not audio/*" },
+          "422": { description: "Speech was not recognized" },
+          "429": { description: "Assistant rate or daily free quota exceeded" },
+          "503": { description: "Assistant safety binding or free AI capacity unavailable" }
+        }
+      }
+    },
+    "/assistant/text": {
+      post: {
+        summary: "Ask the ProofTTL product assistant by text",
+        description: "Accepts a ProofTTL product question. General-purpose chat is intentionally out of scope. Text and voice consume the same daily free assistant allowance.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
               schema: {
-                type: "string",
-                format: "binary",
-                maxLength: 524288
+                type: "object",
+                required: ["message"],
+                properties: { message: { type: "string", maxLength: 1200 } }
               }
             }
           }
         },
         responses: {
-          "200": { description: "Recognized transcript, text response, and optional allowlisted navigation action" },
-          "413": { description: "Audio body exceeds the configured maximum" },
-          "415": { description: "Request body is not audio/*" },
-          "422": { description: "Speech was not recognized" },
-          "429": { description: "Assistant rate limit exceeded" },
+          "200": { description: "Text response, optional navigation action, and quota state" },
+          "400": { description: "Invalid or empty message" },
+          "415": { description: "Request body is not application/json" },
+          "429": { description: "Assistant rate or daily free quota exceeded" },
           "503": { description: "Assistant safety binding or free AI capacity unavailable" }
         }
+      }
+    },
+    "/assistant/usage": {
+      get: {
+        summary: "Read current free assistant quota",
+        description: "Returns the current anonymous client's daily free assistant usage without invoking AI inference.",
+        responses: { "200": { description: "Assistant quota and membership availability" } }
       }
     },
     "/lease/{lease_id}": {
@@ -195,13 +255,13 @@ export const OPENAPI = {
     "/.well-known/proofttl.json": {
       get: {
         summary: "Machine-readable ProofTTL discovery document",
-        responses: { "200": { description: "Discovery metadata including current signing capability status" } }
+        responses: { "200": { description: "Discovery metadata including current capabilities and payment terms" } }
       }
     },
     "/.well-known/proofttl-assistant.json": {
       get: {
         summary: "Machine-readable ProofTTL Assistant contract",
-        responses: { "200": { description: "Assistant interaction, limits, model, retention, and navigation metadata" } }
+        responses: { "200": { description: "Assistant interaction, quota, model, retention, and navigation metadata" } }
       }
     },
     "/.well-known/proofttl-keys.json": {
