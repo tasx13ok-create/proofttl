@@ -1,5 +1,6 @@
 import entry from "./entry.js";
 import { handleVoiceAssistant, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
+import { handleTextAssistant } from "./assistant-text.js";
 import {
   AUTH_PATH_PREFIX,
   authRuntimeStatus,
@@ -15,7 +16,8 @@ import {
 } from "./http-cors.js";
 import { renderLandingPage } from "./site.js";
 
-const ASSISTANT_PATH = "/assistant/voice";
+const ASSISTANT_VOICE_PATH = "/assistant/voice";
+const ASSISTANT_TEXT_PATH = "/assistant/text";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 
 function isAuthPath(pathname) {
@@ -74,8 +76,13 @@ export default {
       );
     }
 
-    if (pathname === ASSISTANT_PATH) {
+    if (pathname === ASSISTANT_VOICE_PATH) {
       const response = await handleVoiceAssistant(request, env);
+      return applyApiCors(response);
+    }
+
+    if (pathname === ASSISTANT_TEXT_PATH) {
+      const response = await handleTextAssistant(request, env);
       return applyApiCors(response);
     }
 
@@ -84,11 +91,16 @@ export default {
         Response.json(
           {
             service: "ProofTTL Assistant",
-            interaction: "voice_input_text_output",
-            endpoint: ASSISTANT_PATH,
+            interaction: "text_or_voice_input_text_output",
+            endpoints: {
+              voice: ASSISTANT_VOICE_PATH,
+              text: ASSISTANT_TEXT_PATH
+            },
+            endpoint: ASSISTANT_VOICE_PATH,
             input: {
-              content_type: "audio/*",
-              max_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes
+              voice_content_type: "audio/*",
+              text_content_type: "application/json",
+              max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes
             },
             models: ASSISTANT_MODELS,
             navigation: "allowlisted_non_destructive_only",
