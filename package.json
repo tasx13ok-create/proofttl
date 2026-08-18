@@ -39,6 +39,7 @@
     "test:payment:semantic": "node --env-file=.env.test-payer scripts/test-payment-semantic.js"
   },
   "dependencies": {
+    "@better-auth/core": "1.6.25",
     "@better-auth/passkey": "1.6.25",
     "@x402/core": "2.20.0",
     "@x402/evm": "2.20.0",
