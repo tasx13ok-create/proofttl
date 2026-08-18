@@ -8,14 +8,16 @@ export function buildWranglerDevLaunch({
     throw new Error("invalid benchmark port");
   }
 
+  // Do not pass --local here. The benchmark Worker still executes locally by
+  // default, while wrangler.model-eval.jsonc marks only the AI binding as
+  // remote. Cloudflare's --local flag disables remote bindings entirely.
   const wranglerArgs = [
     "wrangler",
     "dev",
     "--config",
     "wrangler.model-eval.jsonc",
     "--port",
-    String(safePort),
-    "--local"
+    String(safePort)
   ];
 
   if (platform === "win32") {
