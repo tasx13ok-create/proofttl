@@ -1,4 +1,9 @@
 import {
+  LLAMA_70B_MODEL,
+  MODEL_PRICING,
+  QWEN3_MODEL
+} from "../src/costs.js";
+import {
   CLOUDFLARE_MARGINAL_PRICING,
   defaultMonitorIntervalSeconds,
   estimateLeaseEconomics
@@ -44,10 +49,34 @@ async function run() {
     targetGrossMargin: 0.8
   });
   const issueAi = (7500 * 0.293 + 100 * 2.253) / 1_000_000;
-  assert(approx(semantic.costs_usd.issuance_ai, issueAi), "semantic issuance uses the configured AI token price");
+  assert(approx(semantic.costs_usd.issuance_ai_primary, issueAi), "current production semantic issuance uses 70B token pricing");
+  assert(approx(semantic.costs_usd.issuance_ai, issueAi), "zero fallback rate preserves current issuance AI cost");
   assert(semantic.operations.expected_monitor_checks === 2, "one-hour lease has two checks before expiry");
   assert(semantic.operations.expected_changed_source_checks === 0.5, "source-change rate drives expected semantic rechecks");
   assert(approx(semantic.costs_usd.expected_monitoring_ai, issueAi * 0.5), "monitoring AI cost is probability weighted");
+
+  const qwenHybrid = estimateLeaseEconomics({
+    promptTokens: 7000,
+    completionTokens: 320,
+    aiPricing: MODEL_PRICING[QWEN3_MODEL],
+    fallbackRatePerSemanticVerification: 0.03,
+    fallbackPromptTokens: 7000,
+    fallbackCompletionTokens: 60,
+    fallbackAiPricing: MODEL_PRICING[LLAMA_70B_MODEL],
+    ttlSeconds: 3600,
+    sourceChangeRatePerCheck: 0.25,
+    activeLeasesSharingMonitor: 1000,
+    targetGrossMargin: 0.8
+  });
+  const qwenPrimary = (7000 * 0.051 + 320 * 0.34) / 1_000_000;
+  const fallbackWhenInvoked = (7000 * 0.293 + 60 * 2.253) / 1_000_000;
+  const expectedFallback = fallbackWhenInvoked * 0.03;
+  assert(qwenHybrid.assumptions.ai_model === QWEN3_MODEL, "economics records the configured primary AI model");
+  assert(qwenHybrid.assumptions.fallback_ai_model === LLAMA_70B_MODEL, "economics records the configured fallback AI model");
+  assert(approx(qwenHybrid.costs_usd.issuance_ai_primary, qwenPrimary), "Qwen primary issuance uses Qwen pricing");
+  assert(approx(qwenHybrid.costs_usd.issuance_ai_fallback_expected, expectedFallback), "fallback AI cost is probability weighted");
+  assert(approx(qwenHybrid.costs_usd.issuance_ai, qwenPrimary + expectedFallback), "hybrid issuance sums primary and expected fallback cost");
+  assert(approx(qwenHybrid.operations.expected_fallback_calls_at_issuance, 0.03), "economics exposes expected issuance fallback calls");
 
   const lowScale = estimateLeaseEconomics({ ttlSeconds: 3600, activeLeasesSharingMonitor: 1 });
   const highScale = estimateLeaseEconomics({ ttlSeconds: 3600, activeLeasesSharingMonitor: 1000 });
