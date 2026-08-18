@@ -1,0 +1,187 @@
+import assert from "node:assert/strict";
+import {
+  ASSISTANT_MODELS,
+  assistantSystemPrompt,
+  handleVoiceAssistant,
+  matchAssistantNavigation
+} from "../src/assistant.js";
+
+let checks = 0;
+function check(name, fn) {
+  fn();
+  checks += 1;
+  console.log(`ok ${checks} - ${name}`);
+}
+
+function audioRequest(body = new Uint8Array([1, 2, 3]), headers = {}) {
+  return new Request("https://proofttl.test/assistant/voice", {
+    method: "POST",
+    headers: {
+      "content-type": "audio/webm;codecs=opus",
+      "cf-connecting-ip": "203.0.113.5",
+      ...headers
+    },
+    body
+  });
+}
+
+function limiter(success = true) {
+  return {
+    calls: [],
+    async limit(input) {
+      this.calls.push(input);
+      return { success };
+    }
+  };
+}
+
+check("navigation requires a navigation verb", () => {
+  assert.equal(matchAssistantNavigation("what are payments"), null);
+});
+
+check("payments navigation is allowlisted", () => {
+  assert.deepEqual(matchAssistantNavigation("take me to payments"), {
+    section: "payments",
+    route: "/console/",
+    label: "Payments"
+  });
+});
+
+check("security navigation is allowlisted", () => {
+  assert.deepEqual(matchAssistantNavigation("open my security settings"), {
+    section: "security",
+    route: "/console/",
+    label: "Security"
+  });
+});
+
+check("arbitrary navigation target is rejected", () => {
+  assert.equal(matchAssistantNavigation("open javascript alert dot com"), null);
+});
+
+check("assistant prompt forbids fabricated account state", () => {
+  assert.match(assistantSystemPrompt(), /Never invent account data/i);
+});
+
+{
+  let aiCalls = 0;
+  const response = await handleVoiceAssistant(audioRequest(), {
+    AI: {
+      async run(model) {
+        aiCalls += 1;
+        assert.equal(model, ASSISTANT_MODELS.transcription);
+        return { text: "Take me to payments" };
+      }
+    },
+    ASSISTANT_RATE_LIMITER: limiter()
+  });
+  const body = await response.json();
+
+  check("deterministic navigation returns HTTP 200", () => assert.equal(response.status, 200));
+  check("deterministic navigation skips text LLM", () => assert.equal(aiCalls, 1));
+  check("deterministic navigation returns structured action", () => {
+    assert.deepEqual(body.action, {
+      type: "navigate",
+      route: "/console/",
+      section: "payments"
+    });
+  });
+  check("deterministic navigation preserves transcript", () => {
+    assert.equal(body.transcript, "Take me to payments");
+  });
+}
+
+{
+  const models = [];
+  const response = await handleVoiceAssistant(audioRequest(), {
+    AI: {
+      async run(model) {
+        models.push(model);
+        if (model === ASSISTANT_MODELS.transcription) {
+          return { text: "What does revoked mean?" };
+        }
+        return { response: "REVOKED means an active Fact Lease can no longer maintain its issued verdict from the monitored evidence." };
+      }
+    },
+    ASSISTANT_RATE_LIMITER: limiter()
+  });
+  const body = await response.json();
+
+  check("product question uses transcription then micro model", () => {
+    assert.deepEqual(models, [ASSISTANT_MODELS.transcription, ASSISTANT_MODELS.response]);
+  });
+  check("product question returns text with no navigation action", () => {
+    assert.equal(response.status, 200);
+    assert.equal(body.action, null);
+    assert.match(body.response, /REVOKED/);
+  });
+}
+
+{
+  let aiCalls = 0;
+  const response = await handleVoiceAssistant(audioRequest(), {
+    AI: { async run() { aiCalls += 1; return { text: "hello" }; } },
+    ASSISTANT_RATE_LIMITER: limiter(false)
+  });
+
+  check("rate limiting happens before AI inference", () => {
+    assert.equal(response.status, 429);
+    assert.equal(aiCalls, 0);
+    assert.equal(response.headers.get("retry-after"), "60");
+  });
+}
+
+{
+  const response = await handleVoiceAssistant(audioRequest(), {
+    AI: { async run() { return { text: "hello" }; } }
+  });
+  check("missing assistant limiter fails closed", () => assert.equal(response.status, 503));
+}
+
+{
+  const response = await handleVoiceAssistant(
+    audioRequest(new Uint8Array([1]), { "content-type": "application/json" }),
+    {
+      AI: { async run() { throw new Error("should not run"); } },
+      ASSISTANT_RATE_LIMITER: limiter()
+    }
+  );
+  check("non-audio request is rejected", () => assert.equal(response.status, 415));
+}
+
+{
+  let aiCalls = 0;
+  const response = await handleVoiceAssistant(
+    audioRequest(new Uint8Array([1]), { "content-length": "600000" }),
+    {
+      AI: { async run() { aiCalls += 1; return { text: "hello" }; } },
+      ASSISTANT_RATE_LIMITER: limiter()
+    }
+  );
+  check("declared oversized audio is rejected before AI", () => {
+    assert.equal(response.status, 413);
+    assert.equal(aiCalls, 0);
+  });
+}
+
+{
+  const response = await handleVoiceAssistant(audioRequest(), {
+    AI: { async run() { return { text: "   " }; } },
+    ASSISTANT_RATE_LIMITER: limiter()
+  });
+  check("empty transcription asks user to retry", () => assert.equal(response.status, 422));
+}
+
+{
+  const response = await handleVoiceAssistant(audioRequest(), {
+    AI: { async run() { throw Object.assign(new Error("quota"), { name: "AiError" }); } },
+    ASSISTANT_RATE_LIMITER: limiter()
+  });
+  const body = await response.json();
+  check("AI quota/model failure degrades without paid fallback", () => {
+    assert.equal(response.status, 503);
+    assert.equal(body.error, "assistant_capacity_unavailable");
+  });
+}
+
+console.log(`\n${checks} assistant checks passed.`);
