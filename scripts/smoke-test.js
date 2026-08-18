@@ -96,7 +96,12 @@ async function run() {
 
   const assistant = await json(`${BASE_URL}/.well-known/proofttl-assistant.json`);
   assert(assistant.response.status === 200, "assistant discovery returns HTTP 200");
-  assert(assistant.body?.interaction === "text_or_voice_input_text_output", "assistant discovery reports text/voice input with text output");
+  assert(
+    assistant.body?.interaction === "text_or_voice_input_text_and_optional_voice_output",
+    "assistant discovery reports text/voice input with text and optional voice output"
+  );
+  assert(assistant.body?.output?.text === true, "assistant discovery confirms text output");
+  assert(assistant.body?.output?.voice === true, "assistant discovery confirms optional voice output");
   assert(assistant.body?.endpoints?.voice === "/assistant/voice", "assistant discovery reports voice endpoint");
   assert(assistant.body?.endpoints?.text === "/assistant/text", "assistant discovery reports text endpoint");
   assert(assistant.body?.endpoints?.usage === "/assistant/usage", "assistant discovery reports usage endpoint");
