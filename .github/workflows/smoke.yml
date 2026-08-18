@@ -3,6 +3,8 @@ name: ProofTTL Smoke Test
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +29,9 @@ jobs:
 
       - name: Run request/source limit regression checks
         run: npm run test:limits
+
+      - name: Run cost accounting regression checks
+        run: npm run test:costs
 
       - name: Run lease lifecycle regression checks
         run: npm run test:regression
