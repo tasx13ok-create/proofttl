@@ -21,6 +21,10 @@ import {
   createLeaseStoreBinding,
   reconcileMonitorScheduleFromKv
 } from "./lease-store.js";
+import {
+  attachLeaseIssuanceSignature,
+  publicSigningJwk
+} from "./lease-signing.js";
 
 const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
 const X402_NETWORK = "eip155:84532";
@@ -125,7 +129,8 @@ app.use("/verify", async (c, next) => {
   return paymentMiddleware(c, next);
 });
 
-app.get("/.well-known/proofttl.json", (c) => machineJson(c, DISCOVERY));
+app.get("/.well-known/proofttl.json", (c) => machineJson(c, discoveryForEnv(c.env)));
+app.get("/.well-known/proofttl-keys.json", (c) => machineJson(c, signingKeysForEnv(c.env)));
 app.get("/openapi.json", (c) => machineJson(c, OPENAPI));
 app.get("/pricing", (c) => machineJson(c, PRICING));
 
@@ -149,7 +154,7 @@ app.all("*", async (c) => {
   const isLeaseRead = c.req.method === "GET" && /^\/lease\/[^/]+$/.test(pathname);
 
   if (!isVerifyResponse && !isLeaseRead) return response;
-  return enrichLeaseVerdictSemantics(response);
+  return enrichLeaseVerdictSemantics(response, isVerifyResponse ? c.env : null);
 });
 
 export default {
@@ -273,7 +278,7 @@ function envForCore(env, monitorNow = null) {
   if (!env) return env;
 
   // Keep Hono/x402 on the original environment. Core receives wrappers only
-  // for bindings that need ProofTTL-specific routing/index behavior.
+  // for bindings that need ProofTTL-specific routing/index/signing behavior.
   const routed = Object.create(env);
 
   if (env.AI) {
@@ -287,7 +292,11 @@ function envForCore(env, monitorNow = null) {
 
   if (env.LEASES) {
     Object.defineProperty(routed, "LEASES", {
-      value: createLeaseStoreBinding(env.LEASES, env.MONITOR_DB, { monitorNow }),
+      value: createLeaseStoreBinding(env.LEASES, env.MONITOR_DB, {
+        monitorNow,
+        signingPrivateJwk: env.PROOFTTL_SIGNING_PRIVATE_JWK,
+        signingKeyId: env.PROOFTTL_SIGNING_KEY_ID
+      }),
       enumerable: true,
       configurable: false,
       writable: false
@@ -303,7 +312,52 @@ function machineJson(c, value) {
   return c.json(value);
 }
 
-async function enrichLeaseVerdictSemantics(response) {
+function signingKeysForEnv(env) {
+  try {
+    const key = publicSigningJwk(
+      env?.PROOFTTL_SIGNING_PRIVATE_JWK,
+      env?.PROOFTTL_SIGNING_KEY_ID
+    );
+    return {
+      service: "ProofTTL",
+      signing_enabled: Boolean(key),
+      signature_version: "proofttl-ed25519-v1",
+      attestation_version: "proofttl-issuance-v1",
+      keys: key ? [key] : []
+    };
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "lease_signing_key_discovery_failed",
+      error: error?.message || String(error)
+    }));
+    return {
+      service: "ProofTTL",
+      signing_enabled: false,
+      signature_version: "proofttl-ed25519-v1",
+      attestation_version: "proofttl-issuance-v1",
+      keys: []
+    };
+  }
+}
+
+function discoveryForEnv(env) {
+  const signing = signingKeysForEnv(env);
+  return {
+    ...DISCOVERY,
+    capabilities: signing.signing_enabled
+      ? [...DISCOVERY.capabilities, "ed25519_issuance_signatures"]
+      : DISCOVERY.capabilities,
+    signing: {
+      enabled: signing.signing_enabled,
+      algorithm: signing.signing_enabled ? "Ed25519" : null,
+      signature_version: signing.signature_version,
+      attestation_version: signing.attestation_version,
+      keys_endpoint: "/.well-known/proofttl-keys.json"
+    }
+  };
+}
+
+async function enrichLeaseVerdictSemantics(response, signingEnv = null) {
   if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
     return response;
   }
@@ -329,6 +383,22 @@ async function enrichLeaseVerdictSemantics(response) {
     issued_status: issuedStatus,
     current_status: currentStatus
   };
+
+  if (signingEnv?.PROOFTTL_SIGNING_PRIVATE_JWK && !enriched.signature) {
+    try {
+      await attachLeaseIssuanceSignature(
+        enriched,
+        signingEnv.PROOFTTL_SIGNING_PRIVATE_JWK,
+        signingEnv.PROOFTTL_SIGNING_KEY_ID
+      );
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "lease_response_signing_failed",
+        lease_id: enriched.lease_id,
+        error: error?.message || String(error)
+      }));
+    }
+  }
 
   return new Response(JSON.stringify(enriched, null, 2), {
     status: response.status,
