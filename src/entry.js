@@ -78,6 +78,19 @@ app.get("/.well-known/proofttl.json", (c) => machineJson(c, DISCOVERY));
 app.get("/openapi.json", (c) => machineJson(c, OPENAPI));
 app.get("/pricing", (c) => machineJson(c, PRICING));
 
+// Manual reverification is intentionally disabled on the public surface for
+// now. Automatic scheduled monitoring remains active inside core.scheduled.
+// This prevents free callers from forcing repeated source fetches / AI work.
+app.post("/lease/:id/reverify", (c) =>
+  c.json(
+    {
+      error: "manual_reverify_disabled",
+      message: "ProofTTL leases are reverified automatically while active."
+    },
+    403
+  )
+);
+
 app.all("*", async (c) => core.fetch(c.req.raw, c.env));
 
 export default {
