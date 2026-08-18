@@ -1,0 +1,121 @@
+const CLAIM_BUCKETS = new Set(['10-15', '16-25', '25+']);
+const WINDOW_MS = 10 * 60 * 1000;
+const MAX_PER_WINDOW = 3;
+
+export async function handleAuditIntake(request, env) {
+  if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  if (!env?.MONITOR_DB) return json({ error: 'audit_intake_storage_unavailable' }, 503);
+
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    return json({ error: 'content_type_must_be_application_json' }, 415);
+  }
+
+  let body;
+  try {
+    const raw = await request.text();
+    if (raw.length > 12000) return json({ error: 'request_too_large' }, 413);
+    body = JSON.parse(raw);
+  } catch {
+    return json({ error: 'invalid_json' }, 400);
+  }
+
+  // Honeypot field. Real users never see or fill this.
+  if (typeof body?.company_site === 'string' && body.company_site.trim()) {
+    return json({ ok: true, status: 'received' });
+  }
+
+  const email = clean(body?.email, 254).toLowerCase();
+  const companyOrProject = clean(body?.company_or_project, 160);
+  const websiteUrl = clean(body?.website_url, 600);
+  const claimScope = clean(body?.claim_scope, 4000);
+  const approximateClaims = clean(body?.approximate_claims, 20);
+  const whyItMatters = clean(body?.why_it_matters, 2500);
+  const deadline = clean(body?.deadline, 120);
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return json({ error: 'valid_email_required' }, 400);
+  }
+  if (!companyOrProject) return json({ error: 'company_or_project_required' }, 400);
+  if (!claimScope) return json({ error: 'claim_scope_required' }, 400);
+  if (!whyItMatters) return json({ error: 'why_it_matters_required' }, 400);
+  if (!CLAIM_BUCKETS.has(approximateClaims)) return json({ error: 'invalid_claim_count' }, 400);
+
+  if (websiteUrl) {
+    try {
+      const parsed = new URL(websiteUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('bad protocol');
+    } catch {
+      return json({ error: 'invalid_website_url' }, 400);
+    }
+  }
+
+  const now = Date.now();
+  const fingerprint = await requestFingerprint(request);
+  const recent = await env.MONITOR_DB.prepare(
+    'SELECT COUNT(*) AS count FROM audit_intakes WHERE request_fingerprint = ? AND created_at_ms >= ?'
+  ).bind(fingerprint, now - WINDOW_MS).first();
+
+  if (Number(recent?.count || 0) >= MAX_PER_WINDOW) {
+    return json({ error: 'audit_intake_rate_limited', retry_after_seconds: 600 }, 429, {
+      'retry-after': '600'
+    });
+  }
+
+  const id = `ati_${crypto.randomUUID().replaceAll('-', '')}`;
+  await env.MONITOR_DB.prepare(
+    `INSERT INTO audit_intakes (
+      id, created_at_ms, status, email, company_or_project, website_url,
+      claim_scope, approximate_claims, why_it_matters, deadline, request_fingerprint
+    ) VALUES (?, ?, 'received', ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    id,
+    now,
+    email,
+    companyOrProject,
+    websiteUrl || null,
+    claimScope,
+    approximateClaims,
+    whyItMatters,
+    deadline || null,
+    fingerprint
+  ).run();
+
+  return json({
+    ok: true,
+    audit_intake_id: id,
+    status: 'received',
+    offer: {
+      name: 'ProofTTL Verification Audit',
+      price_usd: 500,
+      included_claims: '10-25',
+      monitoring_days: 7
+    },
+    payment: {
+      required_now: false,
+      state: 'scope_review_before_payment'
+    },
+    next_step: 'ProofTTL reviews the submitted scope before payment is requested.'
+  }, 201);
+}
+
+function clean(value, max) {
+  return typeof value === 'string' ? value.trim().slice(0, max) : '';
+}
+
+async function requestFingerprint(request) {
+  const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown';
+  const ua = request.headers.get('user-agent') || 'unknown';
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${ip}|${ua}`));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function json(data, status = 200, extraHeaders = {}) {
+  return Response.json(data, {
+    status,
+    headers: {
+      'cache-control': 'no-store',
+      ...extraHeaders
+    }
+  });
+}
