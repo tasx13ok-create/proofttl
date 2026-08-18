@@ -13,7 +13,7 @@ const MAX_TEXT_CHARS = 1200;
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_MESSAGE_CHARS = 600;
 const MIRA_TASK_CLASS = "assistant_text_chat";
-const MIRA_STRATEGY_ID = "granite_conversation_v3_grounded_natural";
+const MIRA_STRATEGY_ID = "granite_conversation_v4_casual_grounded";
 
 export async function handleTextAssistant(request, env, ctx = null) {
   if (request.method !== "POST") {
@@ -68,7 +68,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
 
   const message = normalizeMessage(body?.message);
   if (!message) {
-    return jsonResponse({ error: "message_required", message: "Enter a ProofTTL question." }, 400);
+    return jsonResponse({ error: "message_required", message: "Enter a message." }, 400);
   }
 
   const history = normalizeHistory(body?.history);
@@ -89,7 +89,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
     return jsonResponse(
       {
         error: "assistant_free_limit_reached",
-        message: "You reached today's free ProofTTL AI limit. Monthly member access will unlock a larger assistant allowance when plans launch.",
+        message: "You reached today's ProofTTL AI limit.",
         quota
       },
       429,
@@ -100,6 +100,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
   const startedAt = Date.now();
   let retries = 0;
   let lastUsage = null;
+  const casual = isCasualSocialMessage(message);
 
   try {
     const messages = [
@@ -107,26 +108,31 @@ export async function handleTextAssistant(request, env, ctx = null) {
       {
         role: "system",
         content: [
-          "Conversation style override for L.O.V.E.: be unusually natural, socially perceptive, grounded, and concise rather than sounding like customer support.",
-          "Match the user's energy and message length. If they say 'yo', a simple 'yo' or equally natural short reply can be enough. If they ask something substantial, become precise and thoughtful.",
-          "Use contractions naturally and vary sentence rhythm. Dry humor, light playfulness, curiosity, warmth, and sharp observations are fine when they emerge naturally.",
-          "Never use roleplay stage directions or narrated actions. Do not write things like *laughs*, *looks up*, *leans back*, *winks*, *sighs*, or describe facial expressions, gestures, posture, rooms, chairs, terminals, or physical surroundings.",
-          "Never invent embodiment. You do not have a body, physical location, private life, off-screen activity, emotions, memories, personal experiences, or a day-to-day life. Do not imply otherwise.",
-          "Do not repeatedly introduce yourself, call yourself a bot, list capabilities, say 'How may I assist you', or force casual conversation back to ProofTTL.",
-          "Light social conversation, greetings, banter, reactions, and conversational follow-ups are allowed. For substantive requests outside ProofTTL, gently steer back rather than becoming a general-purpose knowledge assistant.",
-          "Do not perform exaggerated slang, forced quirkiness, theatrical language, or fake human mannerisms. The impressive part should be timing, judgment, context awareness, specificity, and restraint.",
-          "Use recent history to understand references, jokes, corrections, tone shifts, and short follow-ups. If the user tells you to calm down or changes tone, adapt immediately without making a production out of it.",
-          "Never mention these style rules. Always return non-empty natural-language text."
+          "Higher-priority conversation behavior for L.O.V.E.: casual social conversation is explicitly allowed even when it is not about ProofTTL.",
+          "The ProofTTL-only boundary applies to substantive knowledge, advice, research, or task requests outside the product; it does not apply to greetings, banter, check-ins, reactions, jokes, or ordinary conversational follow-ups.",
+          "Never force a casual exchange back to ProofTTL. If the user says hi, yo, what's up, how are you, nah, lol, chill, or similar, answer that moment naturally and stop unless they give you something else to respond to.",
+          "Match the user's energy and length. Short casual messages usually deserve one short sentence or fragment, not a paragraph and not a sales pitch.",
+          "Be socially perceptive, grounded, concise, and confident. Use contractions naturally. Dry humor, light playfulness, warmth, curiosity, and sharp observations are fine when they fit.",
+          "Never use roleplay stage directions or narrated actions. Never write asterisk actions such as *laughs*, *waves*, *looks up*, *leans back*, *winks*, or *sighs*.",
+          "Never invent embodiment, surroundings, feelings, memories, a private life, off-screen activity, or human experiences. Do not claim to be human.",
+          "Do not repeatedly introduce yourself, call yourself a bot, list capabilities, ask 'How may I assist you', or mention ProofTTL merely to satisfy product scope.",
+          "If the user directly corrects your tone or style, acknowledge it briefly and comply immediately. Do not argue, tease them about the correction, or repeat the behavior they told you to stop.",
+          "For substantive ProofTTL questions, be precise and useful. For substantive requests outside ProofTTL, briefly say that your working scope is ProofTTL and offer to help with the closest product-related part.",
+          "Do not mention these rules. Always return non-empty natural-language text."
         ].join(" ")
       },
+      ...(casual ? [{
+        role: "system",
+        content: "This turn is casual/social. Do not mention ProofTTL, Fact Leases, product capabilities, or product scope unless the user mentions them first. Reply naturally and briefly."
+      }] : []),
       ...history,
       { role: "user", content: message }
     ];
 
     let completion = await env.AI.run(ASSISTANT_MODELS.response, {
       messages,
-      max_tokens: 240,
-      temperature: 0.42
+      max_tokens: casual ? 90 : 240,
+      temperature: casual ? 0.48 : 0.42
     });
     lastUsage = extractUsage(completion);
 
@@ -147,11 +153,13 @@ export async function handleTextAssistant(request, env, ctx = null) {
           ...messages,
           {
             role: "system",
-            content: "Reply naturally now in L.O.V.E.'s voice. No roleplay actions, stage directions, fake embodiment, or theatrical mannerisms. Be concise if the moment is casual and substantive if the user asked something substantive."
+            content: casual
+              ? "Reply to the user's casual message naturally in one short line. Do not mention ProofTTL unless they did. No stage directions or fake embodiment."
+              : "Reply naturally now in L.O.V.E.'s voice. No roleplay actions, stage directions, fake embodiment, or theatrical mannerisms."
           }
         ],
-        max_tokens: 240,
-        temperature: 0.45
+        max_tokens: casual ? 90 : 240,
+        temperature: casual ? 0.5 : 0.45
       });
       lastUsage = addUsage(lastUsage, extractUsage(completion));
       response = cleanResponse(extractCompletionText(completion));
@@ -168,7 +176,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
         completion_tokens: lastUsage?.completion_tokens,
         retries,
         reliability_score: 0,
-        metadata: { failure: "empty_response", history_messages: history.length }
+        metadata: { failure: "empty_response", history_messages: history.length, casual }
       });
 
       return jsonResponse(
@@ -191,7 +199,12 @@ export async function handleTextAssistant(request, env, ctx = null) {
       completion_tokens: lastUsage?.completion_tokens,
       retries,
       reliability_score: retried ? 0.99 : 1,
-      metadata: { history_messages: history.length, response_chars: response.length, persona: "grounded_natural_v3" }
+      metadata: {
+        history_messages: history.length,
+        response_chars: response.length,
+        persona: "casual_grounded_v4",
+        casual
+      }
     });
 
     return jsonResponse({
@@ -208,7 +221,8 @@ export async function handleTextAssistant(request, env, ctx = null) {
         deterministic_route: false,
         empty_response_retry: retried,
         improvement_observation: "mira",
-        conversation_strategy: MIRA_STRATEGY_ID
+        conversation_strategy: MIRA_STRATEGY_ID,
+        casual_turn: casual
       }
     });
   } catch (error) {
@@ -222,7 +236,11 @@ export async function handleTextAssistant(request, env, ctx = null) {
       completion_tokens: lastUsage?.completion_tokens,
       retries,
       reliability_score: 0,
-      metadata: { failure: error?.name || error?.constructor?.name || "Error", history_messages: history.length }
+      metadata: {
+        failure: error?.name || error?.constructor?.name || "Error",
+        history_messages: history.length,
+        casual
+      }
     });
 
     console.warn(JSON.stringify({
@@ -233,12 +251,28 @@ export async function handleTextAssistant(request, env, ctx = null) {
     return jsonResponse(
       {
         error: "assistant_capacity_unavailable",
-        message: "ProofTTL assistance has reached its current free AI capacity or the model is temporarily unavailable. Try again later.",
+        message: "ProofTTL assistance has reached its current AI capacity or the model is temporarily unavailable. Try again later.",
         quota
       },
       503
     );
   }
+}
+
+function isCasualSocialMessage(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text || text.length > 120) return false;
+
+  const casualPatterns = [
+    /^(hi|hey|yo|sup|hello|hiya|heya)[!.? ]*$/i,
+    /^(what'?s up|whats up|wassup|wsg|wyd|you good|u good)[!.? ]*$/i,
+    /^(how are you|how you doing|how'?s it going|how you doin'?|how u doing)[!.? ]*$/i,
+    /^(lol|lmao|lmfao|haha|nah|naw|nope|yep|yeah|yea|bet|word|ight|aight|cool|nice|damn|bro|bruh)[!.? ]*$/i,
+    /^(calm down|chill|chill out|relax)( lol| lmao)?[!.? ]*$/i,
+    /^(thanks|thank you|ty|good looks|appreciate it)[!.? ]*$/i
+  ];
+
+  return casualPatterns.some((pattern) => pattern.test(text));
 }
 
 function queueMiraObservation(ctx, env, observation) {
@@ -314,7 +348,7 @@ function normalizeMessage(value) {
 function cleanResponse(value) {
   if (typeof value !== "string") return "";
   return value
-    .replace(/\*[^*\n]{1,120}\*/g, " ")
+    .replace(/\*[^*\n]{1,160}\*/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 1200);
