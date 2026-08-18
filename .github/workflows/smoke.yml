@@ -36,6 +36,9 @@ jobs:
       - name: Run lease economics regression checks
         run: npm run test:economics
 
+      - name: Validate semantic benchmark fixtures
+        run: npm run test:model-fixtures
+
       - name: Run lease lifecycle regression checks
         run: npm run test:regression
 
