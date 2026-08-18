@@ -150,6 +150,7 @@ async function runBenchmark(auth, key, modelConfig, fixtureLimit) {
       completion_tokens: completionTokens,
       cases_missing_usage: usageMissing
     },
+    retry_count: cases.filter((item) => item.retried_for_length).length,
     estimated_ai_cost_usd: estimatedCostUsd,
     elapsed_ms: Date.now() - startedAt,
     cases
@@ -185,58 +186,76 @@ async function runFixture(auth, modelConfig, fixture) {
     { role: "user", content: `CLAIM:\n${fixture.claim}\n\nSOURCE TEXT:\n${fixture.source}` }
   ];
 
-  const aiRequest = {
-    messages,
-    max_tokens: Number(modelConfig.maxTokens || 300),
-    temperature: 0
-  };
-
-  if (modelConfig.jsonSchema) {
-    aiRequest.response_format = {
-      type: "json_schema",
-      json_schema: {
-        name: "proofttl_benchmark_verdict",
-        strict: true,
-        schema
-      }
-    };
-  } else {
+  if (!modelConfig.jsonSchema) {
     messages[0].content += " Return ONLY one JSON object with keys status, evidence, reason, confidence. No markdown.";
   }
 
-  try {
-    const endpoint = `https://api.cloudflare.com/client/v4/accounts/${auth.accountId}/ai/run/${modelConfig.id}`;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        ...auth.headers,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(aiRequest)
-    });
+  const primaryMaxTokens = Number(modelConfig.maxTokens || 300);
+  const primaryRequest = buildAiRequest(messages, schema, modelConfig, primaryMaxTokens);
 
-    const envelope = await response.json().catch(() => null);
-    if (!response.ok || envelope?.success === false) {
-      const apiError = envelope?.errors?.[0]?.message || envelope?.messages?.[0]?.message || `HTTP ${response.status}`;
-      return failure(fixture, "ERROR", `workers_ai_api_error: ${apiError}`, null);
+  try {
+    const primary = await callWorkersAi(auth, modelConfig, primaryRequest);
+    if (!primary.ok) {
+      return failure(
+        fixture,
+        "ERROR",
+        `workers_ai_api_error: ${primary.error}`,
+        primary.usage,
+        { attempts: 1, retriedForLength: false }
+      );
     }
 
-    const raw = envelope?.result ?? envelope;
-    const usage = normalizeAiUsage(raw?.usage ?? raw?.result?.usage ?? envelope?.usage);
-    const parsed = parseModelResponse(raw);
+    let raw = primary.raw;
+    let usage = primary.usage;
+    let parsed = parseModelResponse(raw);
+    let attempts = 1;
+    let retriedForLength = false;
 
-    if (!parsed || !["SUPPORTED", "CONTRADICTED", "UNKNOWN"].includes(parsed.status)) {
+    const retryMaxTokens = Number(modelConfig.retryMaxTokens || 0);
+    if (
+      !isValidVerdict(parsed) &&
+      isLengthTruncated(raw) &&
+      retryMaxTokens > primaryMaxTokens
+    ) {
+      retriedForLength = true;
+      attempts = 2;
+      const retryRequest = buildAiRequest(messages, schema, modelConfig, retryMaxTokens);
+      const retry = await callWorkersAi(auth, modelConfig, retryRequest);
+      usage = mergeUsage(usage, retry.usage);
+
+      if (!retry.ok) {
+        return failure(
+          fixture,
+          "ERROR",
+          `workers_ai_retry_error: ${retry.error}`,
+          usage,
+          { attempts, retriedForLength }
+        );
+      }
+
+      raw = retry.raw;
+      parsed = parseModelResponse(raw);
+    }
+
+    if (!isValidVerdict(parsed)) {
       return failure(
         fixture,
         "ERROR",
         `invalid_model_output: ${modelOutputExcerpt(raw)}`,
-        usage
+        usage,
+        { attempts, retriedForLength }
       );
     }
 
     const evidence = typeof parsed.evidence === "string" ? parsed.evidence.trim() : null;
     if (evidence && !fixture.source.includes(evidence)) {
-      return failure(fixture, "ERROR", "non_verbatim_evidence", usage);
+      return failure(
+        fixture,
+        "ERROR",
+        "non_verbatim_evidence",
+        usage,
+        { attempts, retriedForLength }
+      );
     }
 
     return {
@@ -247,19 +266,72 @@ async function runFixture(auth, modelConfig, fixture) {
       evidence,
       reason: String(parsed.reason || ""),
       confidence: Number(parsed.confidence) || 0,
-      usage
+      usage,
+      attempts,
+      retried_for_length: retriedForLength
     };
   } catch (error) {
     return failure(
       fixture,
       "ERROR",
       error instanceof Error ? error.message : String(error),
-      null
+      null,
+      { attempts: 1, retriedForLength: false }
     );
   }
 }
 
-function failure(fixture, actual, reason, usage) {
+function buildAiRequest(messages, schema, modelConfig, maxTokens) {
+  const request = {
+    messages,
+    max_tokens: maxTokens,
+    temperature: 0
+  };
+
+  if (modelConfig.jsonSchema) {
+    request.response_format = {
+      type: "json_schema",
+      json_schema: {
+        name: "proofttl_benchmark_verdict",
+        strict: true,
+        schema
+      }
+    };
+  }
+
+  return request;
+}
+
+async function callWorkersAi(auth, modelConfig, aiRequest) {
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${auth.accountId}/ai/run/${modelConfig.id}`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      ...auth.headers,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(aiRequest)
+  });
+
+  const envelope = await response.json().catch(() => null);
+  const raw = envelope?.result ?? envelope;
+  const usage = normalizeAiUsage(raw?.usage ?? raw?.result?.usage ?? envelope?.usage);
+
+  if (!response.ok || envelope?.success === false) {
+    const apiError = envelope?.errors?.[0]?.message || envelope?.messages?.[0]?.message || `HTTP ${response.status}`;
+    return { ok: false, error: apiError, raw, usage };
+  }
+
+  return { ok: true, raw, usage };
+}
+
+function failure(
+  fixture,
+  actual,
+  reason,
+  usage,
+  { attempts = 1, retriedForLength = false } = {}
+) {
   return {
     id: fixture.id,
     expected: fixture.expected,
@@ -268,38 +340,101 @@ function failure(fixture, actual, reason, usage) {
     evidence: null,
     reason,
     confidence: 0,
-    usage
+    usage,
+    attempts,
+    retried_for_length: retriedForLength
   };
+}
+
+function isValidVerdict(parsed) {
+  return Boolean(
+    parsed && ["SUPPORTED", "CONTRADICTED", "UNKNOWN"].includes(parsed.status)
+  );
 }
 
 function parseModelResponse(result) {
   if (!result) return null;
-  if (typeof result === "object" && result.status) return result;
-  const candidate = result.response ?? result.result ?? result.output_text ?? result;
+
+  const candidates = [
+    result,
+    result?.response,
+    result?.result,
+    result?.output_text,
+    result?.choices?.[0]?.message?.content,
+    result?.choices?.[0]?.text
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = parseCandidate(candidate);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+function parseCandidate(candidate) {
+  if (!candidate) return null;
   if (typeof candidate === "object" && candidate.status) return candidate;
   if (typeof candidate !== "string") return null;
 
   try {
-    return JSON.parse(candidate);
+    const parsed = JSON.parse(candidate);
+    if (parsed && typeof parsed === "object") return parsed;
   } catch {
     const match = candidate.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try {
-      return JSON.parse(match[0]);
+      const parsed = JSON.parse(match[0]);
+      return parsed && typeof parsed === "object" ? parsed : null;
     } catch {
       return null;
     }
   }
+
+  return null;
+}
+
+function isLengthTruncated(result) {
+  if (!result || typeof result !== "object") return false;
+  if (result.finish_reason === "length") return true;
+  return Array.isArray(result.choices)
+    ? result.choices.some((choice) => choice?.finish_reason === "length")
+    : false;
+}
+
+function mergeUsage(first, second) {
+  const a = normalizeAiUsage(first);
+  const b = normalizeAiUsage(second);
+  if (!a && !b) return null;
+
+  const merged = {
+    prompt_tokens: Number(a?.prompt_tokens || 0) + Number(b?.prompt_tokens || 0),
+    completion_tokens: Number(a?.completion_tokens || 0) + Number(b?.completion_tokens || 0)
+  };
+
+  if (a?.total_tokens !== undefined || b?.total_tokens !== undefined) {
+    merged.total_tokens = Number(a?.total_tokens || 0) + Number(b?.total_tokens || 0);
+  }
+
+  return merged;
 }
 
 function modelOutputExcerpt(result) {
-  const candidate = result?.response ?? result?.result ?? result?.output_text ?? result;
+  const candidate =
+    result?.choices?.[0]?.message?.content ??
+    result?.choices?.[0]?.message?.reasoning ??
+    result?.response ??
+    result?.result ??
+    result?.output_text ??
+    result;
+
   let text;
   try {
     text = typeof candidate === "string" ? candidate : JSON.stringify(candidate);
   } catch {
     text = String(candidate);
   }
+
   return String(text || "<empty>")
     .replace(/\s+/g, " ")
     .trim()
@@ -319,6 +454,7 @@ function printReport(report) {
   console.log(`Prompt tokens: ${Number(report.usage?.prompt_tokens || 0).toLocaleString()}`);
   console.log(`Completion tokens: ${Number(report.usage?.completion_tokens || 0).toLocaleString()}`);
   console.log(`Cases missing usage: ${report.usage?.cases_missing_usage || 0}`);
+  console.log(`Length-truncation retries: ${Number(report.retry_count || 0)}`);
   console.log(`Estimated benchmark AI cost: ${report.estimated_ai_cost_usd === null ? "unknown" : `$${Number(report.estimated_ai_cost_usd).toFixed(8)}`}`);
   console.log(`Elapsed: ${report.elapsed_ms}ms`);
 
@@ -340,6 +476,9 @@ function printReport(report) {
     for (const item of failures) {
       console.log(`- ${item.id}: expected ${item.expected}, got ${item.actual}`);
       console.log(`  reason: ${item.reason}`);
+      if (item.retried_for_length) {
+        console.log(`  attempts: ${item.attempts} (retried after length truncation)`);
+      }
     }
   }
 
