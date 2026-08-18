@@ -40,6 +40,7 @@ export const DISCOVERY = {
     },
     monitor: { method: "GET", path: "/monitor/status" },
     pricing: { method: "GET", path: "/pricing" },
+    signing_keys: { method: "GET", path: "/.well-known/proofttl-keys.json" },
     openapi: { method: "GET", path: "/openapi.json" }
   },
   payments: {
@@ -79,7 +80,7 @@ export const OPENAPI = {
   info: {
     title: "ProofTTL API",
     version: "0.3.1",
-    description: "Issue and monitor expiring, source-backed fact leases. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is currently protected by an x402 v2 Base Sepolia test payment. Active leases are automatically reverified; public manual reverification is disabled. Stored leases expose issued_status and current_status so the original verdict is preserved without hiding later changes."
+    description: "Issue and monitor expiring, source-backed fact leases. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is currently protected by an x402 v2 Base Sepolia test payment. Active leases are automatically reverified; public manual reverification is disabled. Stored leases expose issued_status and current_status so the original verdict is preserved without hiding later changes. When Ed25519 signing is configured, issued leases also include an immutable issuance attestation and signature verifiable with the public key discovery endpoint."
   },
   servers: [{ url: BASE_URL }],
   paths: {
@@ -92,7 +93,7 @@ export const OPENAPI = {
     "/verify": {
       post: {
         summary: "Issue a fact lease",
-        description: "Requires an x402 v2 payment on Base Sepolia during testnet validation. Requests must be application/json and are limited to 16384 bytes. New leases return issued_status and current_status equal to the issued verdict.",
+        description: "Requires an x402 v2 payment on Base Sepolia during testnet validation. Requests must be application/json and are limited to 16384 bytes. New leases return issued_status and current_status equal to the issued verdict. If signing is configured, the response also includes issued_attestation and an Ed25519 signature envelope.",
         requestBody: {
           required: true,
           content: {
@@ -122,9 +123,9 @@ export const OPENAPI = {
     "/lease/{lease_id}": {
       get: {
         summary: "Read a stored fact lease",
-        description: "issued_status preserves the verdict at issuance. current_status is the latest observed verdict and should be preferred when evaluating the lease now. The legacy status field remains the original issued verdict for compatibility.",
+        description: "issued_status preserves the verdict at issuance. current_status is the latest observed verdict and should be preferred when evaluating the lease now. The legacy status field remains the original issued verdict for compatibility. Signed leases retain their immutable issuance attestation while monitoring state can evolve independently.",
         parameters: [{ name: "lease_id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Stored fact lease including issued_status, current_status, and lease_state" }, "404": { description: "Lease not found" } }
+        responses: { "200": { description: "Stored fact lease including issued_status, current_status, lease_state, and signature fields when signing was enabled at issuance" }, "404": { description: "Lease not found" } }
       }
     },
     "/lease/{lease_id}/reverify": {
@@ -144,7 +145,14 @@ export const OPENAPI = {
     "/.well-known/proofttl.json": {
       get: {
         summary: "Machine-readable ProofTTL discovery document",
-        responses: { "200": { description: "Discovery metadata" } }
+        responses: { "200": { description: "Discovery metadata including current signing capability status" } }
+      }
+    },
+    "/.well-known/proofttl-keys.json": {
+      get: {
+        summary: "Public Fact Lease verification keys",
+        description: "Returns the active public Ed25519 verification key when issuance signing is configured. Never exposes the private signing key.",
+        responses: { "200": { description: "Public signing-key metadata" } }
       }
     },
     "/pricing": {
