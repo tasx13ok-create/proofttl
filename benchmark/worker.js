@@ -76,7 +76,8 @@ export default {
     const estimatedCostUsd = estimateBenchmarkCost(
       model,
       promptTokens,
-      completionTokens
+      completionTokens,
+      usageMissing
     );
 
     return Response.json({
@@ -213,9 +214,10 @@ function parseModelResponse(result) {
   }
 }
 
-function estimateBenchmarkCost(model, promptTokens, completionTokens) {
+function estimateBenchmarkCost(model, promptTokens, completionTokens, usageMissing) {
   const inputRate = Number(model.inputUsdPerMillionTokens);
   const outputRate = Number(model.outputUsdPerMillionTokens);
+  if (usageMissing > 0) return null;
   if (!Number.isFinite(inputRate) || !Number.isFinite(outputRate)) return null;
 
   return (
