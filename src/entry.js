@@ -11,7 +11,7 @@ import {
 import { DISCOVERY, OPENAPI, PRICING } from "./discovery.js";
 import {
   DEFAULT_MAX_VERIFY_REQUEST_BYTES,
-  getVerifiedPayerRateLimitKey,
+  enforceVerifiedPayerRateLimit,
   getVerifyRateLimitKey,
   validateVerifyRequest
 } from "./limits.js";
@@ -212,45 +212,32 @@ async function validatePaidVerifyRequest(c, paymentResult) {
     return c.json({ error: "invalid_source_url" }, 400);
   }
 
-  const payerRateLimitKey = getVerifiedPayerRateLimitKey(paymentResult);
-  if (!payerRateLimitKey) {
-    console.error("Verified x402 payment did not expose a valid EVM payer identity.");
-    return c.json(
-      {
-        error: "verified_payer_identity_missing",
-        message: "The verified payment could not be attributed safely."
-      },
-      502
-    );
-  }
+  const payerGuard = await enforceVerifiedPayerRateLimit(
+    c.env.PAYER_VERIFY_RATE_LIMITER,
+    paymentResult
+  );
+  if (!payerGuard.ok) {
+    if (payerGuard.status === 429) {
+      console.warn(JSON.stringify({
+        event: "payer_verify_rate_limited",
+        payer: payerGuard.payer
+      }));
+    } else {
+      console.error(JSON.stringify({
+        event: "payer_verify_guard_failed",
+        error: payerGuard.error
+      }));
+    }
 
-  if (!c.env.PAYER_VERIFY_RATE_LIMITER) {
-    console.error("PAYER_VERIFY_RATE_LIMITER binding is missing.");
+    if (payerGuard.retry_after_seconds) {
+      c.header("retry-after", String(payerGuard.retry_after_seconds));
+    }
     return c.json(
       {
-        error: "payer_rate_limiter_unavailable",
-        message: "Paid verification protection is not configured correctly."
+        error: payerGuard.error,
+        message: payerGuard.message
       },
-      503
-    );
-  }
-
-  const payerLimit = await c.env.PAYER_VERIFY_RATE_LIMITER.limit({
-    key: payerRateLimitKey
-  });
-  if (!payerLimit.success) {
-    const payer = payerRateLimitKey.slice("verify:payer:".length);
-    console.warn(JSON.stringify({
-      event: "payer_verify_rate_limited",
-      payer
-    }));
-    c.header("retry-after", "60");
-    return c.json(
-      {
-        error: "payer_rate_limit_exceeded",
-        message: "This payer has made too many verification requests. Try again shortly."
-      },
-      429
+      payerGuard.status
     );
   }
 
