@@ -108,6 +108,26 @@ export function createProofTTLAuth(env, request) {
   });
 }
 
+export async function getOptionalProofTTLSession(request, env) {
+  const cookie = request.headers.get("cookie") || "";
+  const authorization = request.headers.get("authorization") || "";
+  const mayHaveSession = /proofttl/i.test(cookie) || /^Bearer\s+/i.test(authorization);
+  if (!mayHaveSession) return null;
+
+  const auth = createProofTTLAuth(env, request);
+  if (!auth) return null;
+
+  try {
+    return await auth.api.getSession({ headers: request.headers });
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "auth_optional_session_lookup_failed",
+      error: error?.name || error?.constructor?.name || "Error"
+    }));
+    return null;
+  }
+}
+
 export async function handleProofTTLAuth(request, env) {
   const auth = createProofTTLAuth(env, request);
   if (!auth) {
