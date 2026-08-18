@@ -20,6 +20,16 @@
   "ai": {
     "binding": "AI"
   },
+  "ratelimits": [
+    {
+      "name": "VERIFY_RATE_LIMITER",
+      "namespace_id": "24081701",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    }
+  ],
   "vars": {
     "PROOFTTL_MAX_TTL_SECONDS": "604800",
     "PROOFTTL_MAX_SOURCE_CHARS": "30000"
