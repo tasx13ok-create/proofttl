@@ -4,6 +4,10 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import core from "./index.js";
 import { createHybridAiBinding } from "./ai-router.js";
+import {
+  CDP_FACILITATOR_URL,
+  createCdpFacilitatorAuthHeaders
+} from "./cdp-auth.js";
 import { DISCOVERY, OPENAPI, PRICING } from "./discovery.js";
 import {
   DEFAULT_MAX_VERIFY_REQUEST_BYTES,
@@ -16,11 +20,6 @@ import { createPreSettledX402Middleware } from "./x402-gate.js";
 const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
 const X402_NETWORK = "eip155:84532";
 const X402_PRICE = "$0.001";
-const X402_FACILITATOR = "https://x402.org/facilitator";
-
-const facilitatorClient = new HTTPFacilitatorClient({ url: X402_FACILITATOR });
-const resourceServer = new x402ResourceServer(facilitatorClient)
-  .register(X402_NETWORK, new ExactEvmScheme());
 
 const x402Routes = {
   "POST /verify": {
@@ -44,11 +43,11 @@ const x402Routes = {
   }
 };
 
-const x402HttpServer = new x402HTTPResourceServer(resourceServer, x402Routes);
-const x402Middleware = createPreSettledX402Middleware({
-  httpServer: x402HttpServer,
-  prevalidatePaidRequest: validatePaidVerifyRequest
-});
+// This is immutable service configuration, not request state. A Worker version
+// gets one CDP-authenticated x402 runtime lazily on its first protected request.
+// Secret rotation creates a new Worker version, so old credentials do not need
+// to be mutated inside a live isolate.
+let x402Middleware = null;
 
 const app = new Hono();
 
@@ -104,7 +103,21 @@ app.use("/verify", async (c, next) => {
     );
   }
 
-  return x402Middleware(c, next);
+  let paymentMiddleware;
+  try {
+    paymentMiddleware = getX402Middleware(c.env);
+  } catch (error) {
+    console.error("CDP x402 configuration failed", error);
+    return c.json(
+      {
+        error: "x402_facilitator_configuration_failed",
+        message: "ProofTTL payment authentication is not configured correctly."
+      },
+      502
+    );
+  }
+
+  return paymentMiddleware(c, next);
 });
 
 app.get("/.well-known/proofttl.json", (c) => machineJson(c, DISCOVERY));
@@ -145,6 +158,33 @@ export default {
     }
   }
 };
+
+function getX402Middleware(env) {
+  if (x402Middleware) return x402Middleware;
+
+  const apiKeyId = typeof env?.CDP_API_KEY_ID === "string" ? env.CDP_API_KEY_ID : "";
+  const apiKeySecret = typeof env?.CDP_API_KEY_SECRET === "string" ? env.CDP_API_KEY_SECRET : "";
+  if (!apiKeyId.trim() || !apiKeySecret.trim()) {
+    throw new Error("Missing CDP_API_KEY_ID or CDP_API_KEY_SECRET Worker secret binding.");
+  }
+
+  const facilitatorClient = new HTTPFacilitatorClient({
+    url: CDP_FACILITATOR_URL,
+    createAuthHeaders: createCdpFacilitatorAuthHeaders({
+      apiKeyId,
+      apiKeySecret
+    })
+  });
+  const resourceServer = new x402ResourceServer(facilitatorClient)
+    .register(X402_NETWORK, new ExactEvmScheme());
+  const httpServer = new x402HTTPResourceServer(resourceServer, x402Routes);
+
+  x402Middleware = createPreSettledX402Middleware({
+    httpServer,
+    prevalidatePaidRequest: validatePaidVerifyRequest
+  });
+  return x402Middleware;
+}
 
 async function validatePaidVerifyRequest(c) {
   let body;
