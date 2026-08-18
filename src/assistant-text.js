@@ -12,6 +12,25 @@ const MAX_TEXT_CHARS = 1200;
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_MESSAGE_CHARS = 600;
 
+const PRODUCT_KNOWLEDGE = [
+  {
+    patterns: [/\bwhat(?:'s| is) proofttl\b/i, /\bwhat does proofttl do\b/i, /\bexplain proofttl\b/i, /^proofttl\??$/i],
+    response: "ProofTTL is a verification system for facts that can change over time. It turns a precise claim plus a source into a source-backed Fact Lease with a verdict, evidence, fingerprint, confidence, expiry, and ongoing monitoring. Instead of treating a fact as permanently true, ProofTTL can re-check the source and revoke the lease if the evidence no longer supports the original verdict."
+  },
+  {
+    patterns: [/\bwhat(?:'s| is) (?:a )?fact lease\b/i, /\bexplain (?:a )?fact lease\b/i, /\bhow do fact leases work\b/i],
+    response: "A Fact Lease is a time-bounded verification object for one claim. It records the claim, source, evidence, verdict, source fingerprint, confidence, issue time, expiry, and current lease state. While active, ProofTTL can monitor the source and revoke the lease if the original verdict can no longer be maintained."
+  },
+  {
+    patterns: [/\bwhat (?:are|do) (?:the )?(?:verdicts|statuses)\b/i, /\bsupported contradicted unknown\b/i],
+    response: "ProofTTL verdicts are SUPPORTED, CONTRADICTED, and UNKNOWN. SUPPORTED means the source supports the claim, CONTRADICTED means the source conflicts with it, and UNKNOWN means the available source does not justify either conclusion. Lease states are separate: ACTIVE, REVOKED, or EXPIRED."
+  },
+  {
+    patterns: [/\bhow (?:does|do) (?:the )?monitor(?:ing)? work\b/i, /\bwhat happens (?:if|when) (?:a |the )?source changes\b/i, /\bautomatic monitoring\b/i],
+    response: "ProofTTL automatically re-checks active Fact Leases on a schedule. If the source is unchanged, the lease can remain active. If the source changes, ProofTTL re-verifies the claim; when the original verdict can no longer be maintained before expiry, the lease can be REVOKED and the change is recorded in its history."
+  }
+];
+
 export async function handleTextAssistant(request, env) {
   if (request.method !== "POST") {
     return jsonResponse(
@@ -81,6 +100,26 @@ export async function handleTextAssistant(request, env) {
     });
   }
 
+  const productAnswer = matchProductKnowledge(message);
+  if (productAnswer) {
+    const quota = await getAssistantQuota(request, env);
+    return jsonResponse({
+      message,
+      response: productAnswer,
+      action: null,
+      quota,
+      context: {
+        history_messages_used: history.length,
+        max_history_messages: MAX_HISTORY_MESSAGES
+      },
+      inference: {
+        response_model: null,
+        deterministic_route: true,
+        knowledge_route: true
+      }
+    });
+  }
+
   const quota = await consumeAssistantQuota(request, env);
   if (!quota.allowed) {
     return jsonResponse(
@@ -105,10 +144,10 @@ export async function handleTextAssistant(request, env) {
       temperature: 0.2
     });
 
+    const response = cleanResponse(extractCompletionText(completion));
     return jsonResponse({
       message,
-      response: cleanResponse(completion?.response) ||
-        "I can help with ProofTTL, Fact Leases, the API, x402, monitoring, payments, and product navigation.",
+      response: response || "I can help with ProofTTL, Fact Leases, the API, x402, monitoring, payments, and product navigation.",
       action: null,
       quota,
       context: {
@@ -135,6 +174,20 @@ export async function handleTextAssistant(request, env) {
       503
     );
   }
+}
+
+function matchProductKnowledge(message) {
+  for (const item of PRODUCT_KNOWLEDGE) {
+    if (item.patterns.some((pattern) => pattern.test(message))) return item.response;
+  }
+  return null;
+}
+
+function extractCompletionText(completion) {
+  if (typeof completion?.response === "string") return completion.response;
+  if (typeof completion?.result?.response === "string") return completion.result.response;
+  if (typeof completion?.text === "string") return completion.text;
+  return "";
 }
 
 function normalizeHistory(value) {
