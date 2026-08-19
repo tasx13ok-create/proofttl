@@ -12,7 +12,8 @@ export async function handleAuditStatus(request, env) {
 
   const row = await env.MONITOR_DB.prepare(
     `SELECT id, status, offer_type, scoped_price_usd, scope_summary, scope_turnaround,
-            payment_url, payment_state, created_at_ms, scoped_at_ms, paid_at_ms, fulfilled_at_ms
+            payment_url, payment_state, payment_provider, amount_due_usd, prior_credit_usd,
+            created_at_ms, scoped_at_ms, paid_at_ms, fulfilled_at_ms
        FROM audit_intakes WHERE id = ? AND lower(email) = ? LIMIT 1`
   ).bind(id, email).first();
 
@@ -25,11 +26,15 @@ export async function handleAuditStatus(request, env) {
     scope: row.scope_summary ? {
       summary: row.scope_summary,
       price_usd: row.scoped_price_usd,
+      prior_credit_usd: row.prior_credit_usd || 0,
+      amount_due_usd: row.amount_due_usd ?? row.scoped_price_usd,
       turnaround: row.scope_turnaround,
       scoped_at_ms: row.scoped_at_ms
     } : null,
     payment: {
+      provider: row.payment_provider || null,
       state: row.payment_state,
+      amount_due_usd: row.amount_due_usd ?? null,
       url: row.payment_state === 'ready' ? row.payment_url : null,
       paid_at_ms: row.paid_at_ms
     },
@@ -49,18 +54,20 @@ export async function handleAuditAdmin(request, env, pathname) {
     const result = await env.MONITOR_DB.prepare(
       `SELECT id, created_at_ms, status, offer_type, email, company_or_project, website_url,
               claim_scope, approximate_claims, why_it_matters, deadline, scoped_price_usd,
-              scope_summary, scope_turnaround, payment_state, payment_url, paid_at_ms, fulfilled_at_ms
+              prior_credit_usd, amount_due_usd, scope_summary, scope_turnaround,
+              payment_state, payment_provider, payment_url, paid_at_ms, fulfilled_at_ms
          FROM audit_intakes WHERE status = ? ORDER BY created_at_ms ASC LIMIT ?`
     ).bind(status, limit).all();
     return json({ ok: true, status, intakes: result?.results || [] });
   }
 
-  const match = pathname.match(/^\/admin\/audit\/intakes\/(ati_[a-f0-9]{32})\/(scope|mark-paid|fulfill|cancel)$/);
+  const match = pathname.match(/^\/admin\/audit\/intakes\/(ati_[a-f0-9]{32})\/(scope|upgrade|mark-paid|fulfill|cancel)$/);
   if (!match || request.method !== 'POST') return json({ error: 'not_found' }, 404);
   const [, id, action] = match;
 
   const existing = await env.MONITOR_DB.prepare(
-    'SELECT id, status, offer_type, approximate_claims FROM audit_intakes WHERE id = ? LIMIT 1'
+    `SELECT id, status, offer_type, approximate_claims, scoped_price_usd, prior_credit_usd
+       FROM audit_intakes WHERE id = ? LIMIT 1`
   ).bind(id).first();
   if (!existing) return json({ error: 'audit_intake_not_found' }, 404);
 
@@ -70,7 +77,6 @@ export async function handleAuditAdmin(request, env, pathname) {
     try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
     const summary = clean(body?.scope_summary, 5000);
     const turnaround = clean(body?.scope_turnaround, 180);
-    const paymentUrl = clean(body?.payment_url, 1000);
     const price = Number(body?.price_usd);
     if (!summary || !turnaround || !Number.isInteger(price) || price < 1 || price > 100000) {
       return json({ error: 'invalid_scope' }, 400);
@@ -79,14 +85,29 @@ export async function handleAuditAdmin(request, env, pathname) {
     if (existing.offer_type === 'full_audit' && existing.approximate_claims !== '25+' && price !== 500) {
       return json({ error: 'full_audit_price_must_be_500' }, 400);
     }
-    if (paymentUrl && !isHttps(paymentUrl)) return json({ error: 'payment_url_must_be_https' }, 400);
-    const status = paymentUrl ? 'payment_ready' : 'scoped';
-    const paymentState = paymentUrl ? 'ready' : 'not_requested';
+    const credit = Number(existing.prior_credit_usd || 0);
+    const amountDue = price - credit;
+    if (amountDue <= 0) return json({ error: 'invalid_amount_due' }, 409);
     await env.MONITOR_DB.prepare(
-      `UPDATE audit_intakes SET status = ?, scope_summary = ?, scoped_price_usd = ?,
-       scope_turnaround = ?, scoped_at_ms = ?, payment_url = ?, payment_state = ? WHERE id = ?`
-    ).bind(status, summary, price, turnaround, now, paymentUrl || null, paymentState, id).run();
-    return json({ ok: true, audit_intake_id: id, status, payment_state: paymentState });
+      `UPDATE audit_intakes SET status = 'scoped', scope_summary = ?, scoped_price_usd = ?,
+       amount_due_usd = ?, scope_turnaround = ?, scoped_at_ms = ?, payment_url = NULL,
+       payment_provider = NULL, payment_state = 'not_requested' WHERE id = ?`
+    ).bind(summary, price, amountDue, turnaround, now, id).run();
+    return json({ ok: true, audit_intake_id: id, status: 'scoped', amount_due_usd: amountDue });
+  }
+
+  if (action === 'upgrade') {
+    if (existing.offer_type !== 'stress_test' || !['paid', 'fulfilled'].includes(existing.status)) {
+      return json({ error: 'stress_test_must_be_paid_before_upgrade' }, 409);
+    }
+    await env.MONITOR_DB.prepare(
+      `UPDATE audit_intakes SET offer_type = 'full_audit', approximate_claims = '10-15',
+       status = 'scoped', scoped_price_usd = 500, prior_credit_usd = 129, amount_due_usd = 371,
+       scope_turnaround = '3–5 business days', payment_state = 'not_requested', payment_url = NULL,
+       payment_provider = NULL, stripe_checkout_session_id = NULL, stripe_payment_intent_id = NULL
+       WHERE id = ?`
+    ).bind(id).run();
+    return json({ ok: true, audit_intake_id: id, status: 'scoped', offer_type: 'full_audit', prior_credit_usd: 129, amount_due_usd: 371 });
   }
 
   if (action === 'mark-paid') {
@@ -111,6 +132,10 @@ export async function handleAuditAdmin(request, env, pathname) {
   return json({ ok: true, audit_intake_id: id, status: 'cancelled' });
 }
 
+export function auditAdminAuthorized(request, env) {
+  return authorized(request, env);
+}
+
 function authorized(request, env) {
   const expected = typeof env?.PROOFTTL_ADMIN_TOKEN === 'string' ? env.PROOFTTL_ADMIN_TOKEN.trim() : '';
   if (!expected) return false;
@@ -125,5 +150,4 @@ function constantTimeEqual(a, b) {
   return mismatch === 0;
 }
 function clean(value, max) { return typeof value === 'string' ? value.trim().slice(0, max) : ''; }
-function isHttps(value) { try { return new URL(value).protocol === 'https:'; } catch { return false; } }
 function json(data, status = 200) { return Response.json(data, { status, headers: { 'cache-control': 'no-store' } }); }
