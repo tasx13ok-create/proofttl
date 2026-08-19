@@ -2,6 +2,7 @@ import entry from "./entry.js";
 import { handleVoiceAssistant, loveCapability, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
 import { handleTextAssistant } from "./assistant-text.js";
 import { handleAuditIntake } from "./audit-intake.js";
+import { handleAuditStatus, handleAuditAdmin } from "./audit-sales.js";
 import {
   assistantQuotaLimit,
   getAssistantQuota
@@ -34,6 +35,8 @@ const ASSISTANT_TEXT_PATH = "/assistant/text";
 const ASSISTANT_USAGE_PATH = "/assistant/usage";
 const ACCOUNT_ENTITLEMENT_PATH = "/account/entitlement";
 const AUDIT_INTAKE_PATH = "/audit/intake";
+const AUDIT_STATUS_PATH = "/audit/intake/status";
+const AUDIT_ADMIN_PREFIX = "/admin/audit/intakes";
 const READINESS_PATH = "/readiness";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 
@@ -97,6 +100,15 @@ export default {
     if (request.method === "POST" && pathname === AUDIT_INTAKE_PATH) {
       const response = await handleAuditIntake(request, env);
       return applyApiCors(response);
+    }
+
+    if (request.method === "POST" && pathname === AUDIT_STATUS_PATH) {
+      const response = await handleAuditStatus(request, env);
+      return applyApiCors(response);
+    }
+
+    if (pathname === AUDIT_ADMIN_PREFIX || pathname.startsWith(`${AUDIT_ADMIN_PREFIX}/`)) {
+      return handleAuditAdmin(request, env, pathname);
     }
 
     if (isAuthPath(pathname)) {
