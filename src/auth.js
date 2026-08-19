@@ -33,11 +33,13 @@ export function authRuntimeStatus(env, request) {
   const passkeys = Boolean(env.PROOFTTL_PASSKEY_RP_ID && env.PROOFTTL_PASSKEY_ORIGIN);
   const database = Boolean(env.MONITOR_DB);
   const secret = Boolean(env.BETTER_AUTH_SECRET);
+  const baseURL = typeof env.BETTER_AUTH_URL === "string" ? env.BETTER_AUTH_URL.trim().replace(/\/$/, "") : "";
 
   return {
-    configured: database && secret,
+    configured: database && secret && Boolean(baseURL),
     database,
     secret,
+    baseURL,
     socialProviders,
     passkeys,
     totp: database && secret,
@@ -50,7 +52,7 @@ export function authRuntimeStatus(env, request) {
 
 export function createProofTTLAuth(env, request) {
   const status = authRuntimeStatus(env, request);
-  if (!status.database || !status.secret) return null;
+  if (!status.configured) return null;
 
   const socialProviders = {};
   const github = optionalProvider(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET);
@@ -81,6 +83,7 @@ export function createProofTTLAuth(env, request) {
 
   return betterAuth({
     appName: "ProofTTL",
+    baseURL: status.baseURL,
     database: env.MONITOR_DB,
     secret: env.BETTER_AUTH_SECRET,
     basePath: AUTH_PREFIX,
