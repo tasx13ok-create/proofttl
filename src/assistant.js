@@ -1,7 +1,11 @@
 import { consumeAssistantQuota } from "./assistant-quota.js";
+import {
+  DEFAULT_ASSISTANT_RESPONSE_MODEL,
+  assistantModelRuntime,
+  runAssistantResponse
+} from "./assistant-model-router.js";
 
 const WHISPER_MODEL = "@cf/openai/whisper";
-const ASSISTANT_MODEL = "@cf/ibm-granite/granite-4.0-h-micro";
 const LOVE_TTS_MODEL = "@cf/deepgram/aura-2-en";
 const DEFAULT_LOVE_SPEAKER = "atlas";
 const DEFAULT_MAX_AUDIO_BYTES = 512 * 1024;
@@ -19,6 +23,7 @@ const NAVIGATION_RULES = [
   { section: "get-started", route: "/get-started/", label: "Get started", patterns: [/\bget started\b/i, /\bpricing\b/i, /\bprice\b/i] },
   { section: "solutions", route: "/solutions/", label: "Solutions", patterns: [/\bsolutions?\b/i, /\buse cases?\b/i] },
   { section: "login", route: "/login/", label: "Sign in", patterns: [/\bsign in\b/i, /\blog ?in\b/i] },
+  { section: "how-it-works", route: "/how-proofttl-works/", label: "How ProofTTL Works", patterns: [/\bhow (?:proofttl|this|the site|the website) works?\b/i, /\bproduct guide\b/i, /\bl\.o\.v\.e\.? guide\b/i] },
   { section: "home", route: "/", label: "Home", patterns: [/\bhome page\b/i, /\bhomepage\b/i, /\bgo home\b/i] }
 ];
 
@@ -140,6 +145,7 @@ export async function handleVoiceAssistant(request, env) {
     });
   }
 
+  const modelRuntime = assistantModelRuntime(env);
   let responseText;
   try {
     const messages = [
@@ -158,14 +164,14 @@ export async function handleVoiceAssistant(request, env) {
     }
     messages.push({ role: "user", content: transcript });
 
-    const completion = await env.AI.run(ASSISTANT_MODEL, {
+    const completion = await runAssistantResponse(env, {
       messages,
       max_tokens: 150,
       temperature: leaseGrounding.found ? 0.1 : 0.2
     });
-    responseText = cleanAssistantResponse(completion?.response);
+    responseText = cleanAssistantResponse(extractAssistantResponse(completion));
   } catch (error) {
-    console.warn(JSON.stringify({ event: "assistant_response_failed", error: safeErrorName(error) }));
+    console.warn(JSON.stringify({ event: "assistant_response_failed", error: safeErrorName(error), provider: modelRuntime.provider }));
     return aiCapacityResponse(transcript, quota);
   }
 
@@ -181,7 +187,8 @@ export async function handleVoiceAssistant(request, env) {
     context: { lease_grounding: publicLeaseGrounding(leaseGrounding) },
     inference: {
       transcription_model: WHISPER_MODEL,
-      response_model: ASSISTANT_MODEL,
+      response_provider: modelRuntime.provider,
+      response_model: modelRuntime.response_model,
       speech_model: LOVE_TTS_MODEL,
       deterministic_route: false,
       lease_grounded: leaseGrounding.found
@@ -192,13 +199,16 @@ export async function handleVoiceAssistant(request, env) {
 export function loveCapability(quota, env) {
   const preview = String(env?.PROOFTTL_LOVE_PUBLIC_PREVIEW || "").toLowerCase() === "true";
   const member = quota?.plan === "member" && quota?.membership_status === "active";
+  const modelRuntime = assistantModelRuntime(env);
   return {
     persona: "L.O.V.E.",
     voice_mode: member || preview,
     member_only: true,
     preview_enabled: preview,
     plan: quota?.plan || "free",
-    speaker: String(env?.PROOFTTL_LOVE_TTS_SPEAKER || DEFAULT_LOVE_SPEAKER)
+    speaker: String(env?.PROOFTTL_LOVE_TTS_SPEAKER || DEFAULT_LOVE_SPEAKER),
+    response_provider: modelRuntime.provider,
+    response_model: modelRuntime.response_model
   };
 }
 
@@ -394,6 +404,13 @@ function cleanAssistantResponse(value) {
   return value.replace(/\s+/g, " ").trim().slice(0, 900);
 }
 
+function extractAssistantResponse(value) {
+  if (typeof value === "string") return value;
+  if (typeof value?.response === "string") return value.response;
+  if (typeof value?.choices?.[0]?.message?.content === "string") return value.choices[0].message.content;
+  return "";
+}
+
 function positiveInt(value, fallback) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -436,5 +453,5 @@ function jsonResponse(body, status = 200, extraHeaders = {}) {
   });
 }
 
-export const ASSISTANT_MODELS = Object.freeze({ transcription: WHISPER_MODEL, response: ASSISTANT_MODEL, speech: LOVE_TTS_MODEL });
+export const ASSISTANT_MODELS = Object.freeze({ transcription: WHISPER_MODEL, response: DEFAULT_ASSISTANT_RESPONSE_MODEL, speech: LOVE_TTS_MODEL });
 export const ASSISTANT_LIMITS = Object.freeze({ maxAudioBytes: DEFAULT_MAX_AUDIO_BYTES, maxTranscriptChars: MAX_TRANSCRIPT_CHARS });
