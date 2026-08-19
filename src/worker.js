@@ -1,6 +1,7 @@
 import entry from "./entry.js";
 import { handleVoiceAssistant, loveCapability, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
 import { handleTextAssistant } from "./assistant-text.js";
+import { handleStudioChat } from "./studio-chat.js";
 import { handleAuditIntake } from "./audit-intake.js";
 import { handleAuditStatus, handleAuditAdmin, auditAdminAuthorized } from "./audit-sales.js";
 import { createAuditCheckoutSession, handleStripeWebhook } from "./stripe-payments.js";
@@ -34,6 +35,7 @@ const COMPATIBLE_PROTOCOL = "ProofTTL/0.3.1";
 const ASSISTANT_VOICE_PATH = "/assistant/voice";
 const ASSISTANT_TEXT_PATH = "/assistant/text";
 const ASSISTANT_USAGE_PATH = "/assistant/usage";
+const STUDIO_CHAT_PATH = "/studio/chat";
 const ACCOUNT_ENTITLEMENT_PATH = "/account/entitlement";
 const AUDIT_INTAKE_PATH = "/audit/intake";
 const AUDIT_STATUS_PATH = "/audit/intake/status";
@@ -49,7 +51,8 @@ function isAuthPath(pathname) {
 function isAssistantPath(pathname) {
   return pathname === ASSISTANT_VOICE_PATH ||
     pathname === ASSISTANT_TEXT_PATH ||
-    pathname === ASSISTANT_USAGE_PATH;
+    pathname === ASSISTANT_USAGE_PATH ||
+    pathname === STUDIO_CHAT_PATH;
 }
 
 function isCredentialedProductPath(pathname) {
@@ -233,6 +236,11 @@ export default {
       return applyAssistantCors(response, request, env);
     }
 
+    if (pathname === STUDIO_CHAT_PATH) {
+      const response = await handleStudioChat(request, env);
+      return applyAssistantCors(response, request, env);
+    }
+
     if (request.method === "GET" && pathname === "/.well-known/proofttl-assistant.json") {
       const anonymousQuota = {
         plan: "free",
@@ -251,7 +259,8 @@ export default {
             endpoints: {
               voice: ASSISTANT_VOICE_PATH,
               text: ASSISTANT_TEXT_PATH,
-              usage: ASSISTANT_USAGE_PATH
+              usage: ASSISTANT_USAGE_PATH,
+              studio: STUDIO_CHAT_PATH
             },
             endpoint: ASSISTANT_VOICE_PATH,
             input: {
@@ -278,7 +287,7 @@ export default {
               account_entitlements: true,
               authenticated_browser_sessions_supported: true
             },
-            scope: "proofttl_product_only",
+            scope: "proofttl_product_only_with_separate_coding_studio",
             models: ASSISTANT_MODELS,
             navigation: "allowlisted_non_destructive_only",
             persistent_actions: "explicit_user_confirmation_required",
