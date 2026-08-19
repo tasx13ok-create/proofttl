@@ -63,10 +63,28 @@ async function updatePreferences(request, env, userId) {
 }
 
 async function listAccountAudits(env, userId) {
-  const rows = await env.MONITOR_DB.prepare(`SELECT a.intake_id,a.offer_type,a.company_project,a.website,a.approximate_claims,a.status,a.amount_due_cents,a.amount_paid_cents,a.payment_provider,a.created_at,a.updated_at,a.paid_at,a.fulfilled_at
-    FROM account_audit_links l JOIN audit_intakes a ON a.intake_id=l.intake_id
-    WHERE l.user_id=? ORDER BY a.updated_at DESC LIMIT 50`).bind(userId).all();
-  return json({ audits: rows.results || [] });
+  const rows = await env.MONITOR_DB.prepare(`SELECT
+      a.id AS intake_id,
+      a.offer_type,
+      a.company_or_project,
+      a.website_url,
+      a.approximate_claims,
+      a.status,
+      a.payment_state,
+      a.amount_due_usd,
+      a.payment_provider,
+      a.created_at_ms,
+      a.scoped_at_ms,
+      a.paid_at_ms,
+      a.fulfilled_at_ms
+    FROM account_audit_links l
+    JOIN audit_intakes a ON a.id = l.intake_id
+    WHERE l.user_id=?
+    ORDER BY a.created_at_ms DESC LIMIT 50`).bind(userId).all();
+  return json({ audits: (rows.results || []).map((row) => ({
+    ...row,
+    amount_paid_usd: row.payment_state === "paid" ? Number(row.amount_due_usd || 0) : 0
+  })) });
 }
 
 async function linkAudit(request, env, userId, userEmail) {
@@ -74,7 +92,7 @@ async function linkAudit(request, env, userId, userEmail) {
   const body = await request.json().catch(() => null);
   const intakeId = clean(body?.intake_id, 64).toLowerCase();
   if (!/^ati_[a-f0-9]{32}$/.test(intakeId)) return json({ error: "invalid_intake_id" }, 400);
-  const intake = await env.MONITOR_DB.prepare("SELECT intake_id,email FROM audit_intakes WHERE intake_id=?").bind(intakeId).first();
+  const intake = await env.MONITOR_DB.prepare("SELECT id,email FROM audit_intakes WHERE id=?").bind(intakeId).first();
   if (!intake) return json({ error: "audit_not_found" }, 404);
   if (normalizeEmail(intake.email) !== userEmail) return json({ error: "audit_ownership_mismatch", message: "This audit was submitted under a different email address." }, 403);
   await env.MONITOR_DB.prepare("INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)").bind(userId,intakeId,new Date().toISOString()).run();
