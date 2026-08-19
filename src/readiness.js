@@ -33,10 +33,18 @@ export async function getDeploymentReadiness(env, request) {
   const required = Object.values(checks);
   const passing = required.filter(Boolean).length;
   const testnetScore = Math.round((passing / required.length) * 100);
-  const providerConfigured = Object.values(auth.socialProviders).some(Boolean) || auth.passkeys;
+  const trustedCustomerAuth = Boolean(
+    auth.socialProviders.google &&
+    auth.socialProviders.discord &&
+    auth.passkeys
+  );
 
   const productionBlockers = [];
-  if (!providerConfigured) productionBlockers.push("customer_sign_in_provider");
+  if (!auth.socialProviders.google) productionBlockers.push("google_sign_in");
+  if (!auth.socialProviders.discord) productionBlockers.push("discord_sign_in");
+  if (!auth.passkeys) productionBlockers.push("passkey_sign_in");
+  if (!trustedBrowserOrigin) productionBlockers.push("trusted_browser_origin");
+  if (!crossOriginCookies) productionBlockers.push("cross_origin_session_cookies");
   productionBlockers.push("mainnet_payment_validation");
   productionBlockers.push("production_pricing_validation");
   productionBlockers.push("paid_membership_billing");
@@ -55,11 +63,19 @@ export async function getDeploymentReadiness(env, request) {
     },
     customer_auth: {
       runtime_configured: auth.configured,
-      sign_in_provider_configured: providerConfigured,
+      trusted_customer_auth_ready: trustedCustomerAuth,
+      required_for_customer_launch: ["google", "discord", "passkey"],
       trusted_browser_origin_configured: trustedBrowserOrigin,
       cross_origin_session_cookies: crossOriginCookies,
       providers: auth.socialProviders,
-      passkeys: auth.passkeys
+      passkeys: auth.passkeys,
+      security: {
+        secure_http_only_sessions: true,
+        csrf_protection: true,
+        origin_allowlist: true,
+        totp: auth.totp,
+        recovery_codes: auth.recoveryCodes
+      }
     },
     entitlements: {
       schema_ready: checks.account_entitlement_schema,
@@ -72,7 +88,7 @@ export async function getDeploymentReadiness(env, request) {
       ready: false,
       blockers: productionBlockers
     },
-    note: "Testnet readiness requires durable storage, AI/rate limits, signing, payment credentials, schemas, and a safe credentialed browser-session path. Production remains false until mainnet, pricing, billing, payer ownership, and a customer sign-in provider are deliberately enabled."
+    note: "Testnet readiness requires durable storage, AI/rate limits, signing, payment credentials, schemas, and a safe credentialed browser-session path. Customer launch additionally requires Google, Discord, and passkey sign-in. Production remains false until mainnet, pricing, billing, payer ownership, and those trusted customer-auth paths are deliberately enabled."
   };
 }
 
