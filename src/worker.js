@@ -2,30 +2,15 @@ import entry from "./entry.js";
 import { handleVoiceAssistant, loveCapability, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
 import { handleTextAssistant } from "./assistant-text.js";
 import { handleStudioChat } from "./studio-chat.js";
+import { handleAccountWorkspace } from "./account-workspace.js";
 import { handleAuditIntake } from "./audit-intake.js";
 import { handleAuditStatus, handleAuditAdmin, auditAdminAuthorized } from "./audit-sales.js";
 import { createAuditCheckoutSession, handleStripeWebhook } from "./stripe-payments.js";
-import {
-  assistantQuotaLimit,
-  getAssistantQuota
-} from "./assistant-quota.js";
-import {
-  applyAssistantCors,
-  assistantPreflightResponse
-} from "./assistant-cors.js";
-import {
-  AUTH_PATH_PREFIX,
-  authRuntimeStatus,
-  handleProofTTLAuth
-} from "./auth.js";
-import {
-  applyAuthCors,
-  authPreflightResponse
-} from "./auth-cors.js";
-import {
-  applyApiCors,
-  apiCorsPreflightResponse
-} from "./http-cors.js";
+import { assistantQuotaLimit, getAssistantQuota } from "./assistant-quota.js";
+import { applyAssistantCors, assistantPreflightResponse } from "./assistant-cors.js";
+import { AUTH_PATH_PREFIX, authRuntimeStatus, handleProofTTLAuth } from "./auth.js";
+import { applyAuthCors, authPreflightResponse } from "./auth-cors.js";
+import { applyApiCors, apiCorsPreflightResponse } from "./http-cors.js";
 import { resolveAssistantEntitlement } from "./entitlements.js";
 import { getDeploymentReadiness } from "./readiness.js";
 import { renderLandingPage } from "./site.js";
@@ -37,6 +22,8 @@ const ASSISTANT_TEXT_PATH = "/assistant/text";
 const ASSISTANT_USAGE_PATH = "/assistant/usage";
 const STUDIO_CHAT_PATH = "/studio/chat";
 const ACCOUNT_ENTITLEMENT_PATH = "/account/entitlement";
+const ACCOUNT_PREFERENCES_PATH = "/account/preferences";
+const STUDIO_PROJECTS_PATH = "/studio/projects";
 const AUDIT_INTAKE_PATH = "/audit/intake";
 const AUDIT_STATUS_PATH = "/audit/intake/status";
 const AUDIT_ADMIN_PREFIX = "/admin/audit/intakes";
@@ -44,269 +31,91 @@ const STRIPE_WEBHOOK_PATH = "/payments/stripe/webhook";
 const READINESS_PATH = "/readiness";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 
-function isAuthPath(pathname) {
-  return pathname === AUTH_PATH_PREFIX || pathname.startsWith(`${AUTH_PATH_PREFIX}/`);
-}
-
-function isAssistantPath(pathname) {
-  return pathname === ASSISTANT_VOICE_PATH ||
-    pathname === ASSISTANT_TEXT_PATH ||
-    pathname === ASSISTANT_USAGE_PATH ||
-    pathname === STUDIO_CHAT_PATH;
-}
-
-function isCredentialedProductPath(pathname) {
-  return pathname === ACCOUNT_ENTITLEMENT_PATH;
-}
+function isAuthPath(pathname) { return pathname === AUTH_PATH_PREFIX || pathname.startsWith(`${AUTH_PATH_PREFIX}/`); }
+function isAssistantPath(pathname) { return pathname === ASSISTANT_VOICE_PATH || pathname === ASSISTANT_TEXT_PATH || pathname === ASSISTANT_USAGE_PATH || pathname === STUDIO_CHAT_PATH; }
+function isAccountWorkspacePath(pathname) { return pathname === ACCOUNT_PREFERENCES_PATH || pathname === STUDIO_PROJECTS_PATH || pathname.startsWith(`${STUDIO_PROJECTS_PATH}/`); }
+function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || isAccountWorkspacePath(pathname); }
 
 export default {
   async fetch(request, env, ctx) {
     const pathname = new URL(request.url).pathname;
 
-    if (request.method === "GET" && pathname === "/") {
-      return renderLandingPage();
-    }
+    if (request.method === "GET" && pathname === "/") return renderLandingPage();
 
     if (request.method === "GET" && pathname === "/health") {
       const response = await entry.fetch(request, env, ctx);
-      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
-        return applyApiCors(response);
-      }
+      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) return applyApiCors(response);
       try {
         const body = await response.json();
-        return applyApiCors(
-          Response.json(
-            {
-              ...body,
-              version: PRODUCT_VERSION,
-              protocol: body?.protocol || COMPATIBLE_PROTOCOL,
-              core_version: body?.version || null
-            },
-            { status: response.status, headers: { "cache-control": "no-store" } }
-          )
-        );
-      } catch {
-        return applyApiCors(response);
-      }
+        return applyApiCors(Response.json({ ...body, version: PRODUCT_VERSION, protocol: body?.protocol || COMPATIBLE_PROTOCOL, core_version: body?.version || null }, { status: response.status, headers: { "cache-control": "no-store" } }));
+      } catch { return applyApiCors(response); }
     }
 
-    if (request.method === "OPTIONS" && (isAuthPath(pathname) || isCredentialedProductPath(pathname))) {
-      return authPreflightResponse(request, env);
-    }
+    if (request.method === "OPTIONS" && (isAuthPath(pathname) || isCredentialedProductPath(pathname))) return authPreflightResponse(request, env);
+    if (request.method === "OPTIONS" && isAssistantPath(pathname)) return assistantPreflightResponse(request, env);
+    if (request.method === "OPTIONS") return apiCorsPreflightResponse();
 
-    if (request.method === "OPTIONS" && isAssistantPath(pathname)) {
-      return assistantPreflightResponse(request, env);
-    }
-
-    if (request.method === "OPTIONS") {
-      return apiCorsPreflightResponse();
-    }
-
-    if (request.method === "POST" && pathname === STRIPE_WEBHOOK_PATH) {
-      return handleStripeWebhook(request, env);
-    }
-
-    if (request.method === "POST" && pathname === AUDIT_INTAKE_PATH) {
-      const response = await handleAuditIntake(request, env);
-      return applyApiCors(response);
-    }
-
-    if (request.method === "POST" && pathname === AUDIT_STATUS_PATH) {
-      const response = await handleAuditStatus(request, env);
-      return applyApiCors(response);
-    }
+    if (request.method === "POST" && pathname === STRIPE_WEBHOOK_PATH) return handleStripeWebhook(request, env);
+    if (request.method === "POST" && pathname === AUDIT_INTAKE_PATH) return applyApiCors(await handleAuditIntake(request, env));
+    if (request.method === "POST" && pathname === AUDIT_STATUS_PATH) return applyApiCors(await handleAuditStatus(request, env));
 
     const checkoutMatch = pathname.match(/^\/admin\/audit\/intakes\/(ati_[a-f0-9]{32})\/checkout$/);
     if (checkoutMatch && request.method === "POST") {
-      if (!auditAdminAuthorized(request, env)) {
-        return Response.json({ error: "admin_auth_required" }, { status: 401, headers: { "cache-control": "no-store" } });
-      }
+      if (!auditAdminAuthorized(request, env)) return Response.json({ error: "admin_auth_required" }, { status: 401, headers: { "cache-control": "no-store" } });
       return createAuditCheckoutSession(request, env, checkoutMatch[1]);
     }
+    if (pathname === AUDIT_ADMIN_PREFIX || pathname.startsWith(`${AUDIT_ADMIN_PREFIX}/`)) return handleAuditAdmin(request, env, pathname);
 
-    if (pathname === AUDIT_ADMIN_PREFIX || pathname.startsWith(`${AUDIT_ADMIN_PREFIX}/`)) {
-      return handleAuditAdmin(request, env, pathname);
-    }
+    if (isAuthPath(pathname)) return applyAuthCors(await handleProofTTLAuth(request, env), request, env);
 
-    if (isAuthPath(pathname)) {
-      const response = await handleProofTTLAuth(request, env);
+    if (isAccountWorkspacePath(pathname)) {
+      const response = await handleAccountWorkspace(request, env, pathname);
       return applyAuthCors(response, request, env);
     }
 
     if (request.method === "GET" && pathname === ACCOUNT_ENTITLEMENT_PATH) {
       const entitlement = await resolveAssistantEntitlement(request, env, assistantQuotaLimit(env));
-      if (!entitlement.authenticated) {
-        return applyAuthCors(
-          Response.json(
-            { error: "authentication_required", message: "Sign in to read account entitlement status." },
-            { status: 401, headers: { "cache-control": "no-store" } }
-          ),
-          request,
-          env
-        );
-      }
-
-      return applyAuthCors(
-        Response.json(
-          {
-            account: {
-              plan: entitlement.plan,
-              membership_status: entitlement.membership_status,
-              assistant_daily_limit: entitlement.limit,
-              period_end_ms: entitlement.period_end_ms || null
-            },
-            billing: {
-              enabled: false,
-              self_service_upgrade: false
-            }
-          },
-          { headers: { "cache-control": "no-store" } }
-        ),
-        request,
-        env
-      );
+      if (!entitlement.authenticated) return applyAuthCors(Response.json({ error: "authentication_required", message: "Sign in to read account entitlement status." }, { status: 401, headers: { "cache-control": "no-store" } }), request, env);
+      return applyAuthCors(Response.json({ account: { plan: entitlement.plan, membership_status: entitlement.membership_status, assistant_daily_limit: entitlement.limit, period_end_ms: entitlement.period_end_ms || null }, billing: { enabled: false, self_service_upgrade: false } }, { headers: { "cache-control": "no-store" } }), request, env);
     }
 
-    if (request.method === "GET" && pathname === READINESS_PATH) {
-      const readiness = await getDeploymentReadiness(env, request);
-      return applyApiCors(
-        Response.json(readiness, { headers: { "cache-control": "no-store" } })
-      );
-    }
+    if (request.method === "GET" && pathname === READINESS_PATH) return applyApiCors(Response.json(await getDeploymentReadiness(env, request), { headers: { "cache-control": "no-store" } }));
 
     if (request.method === "GET" && pathname === AUTH_DISCOVERY_PATH) {
       const status = authRuntimeStatus(env, request);
-      return applyApiCors(
-        Response.json(
-          {
-            service: "ProofTTL Auth",
-            backend: "better-auth",
-            endpoint: `${AUTH_PATH_PREFIX}/*`,
-            configured: status.configured,
-            database: status.database,
-            sign_in: {
-              github: status.socialProviders.github,
-              google: status.socialProviders.google,
-              discord: status.socialProviders.discord,
-              email: status.emailSignIn,
-              passkey: status.passkeys
-            },
-            security: {
-              totp: status.totp,
-              recovery_codes: status.recoveryCodes,
-              passkeys: status.passkeys,
-              secure_http_only_sessions: true,
-              origin_allowlist: true,
-              csrf_protection: true
-            }
-          },
-          { headers: { "cache-control": "no-store" } }
-        )
-      );
+      return applyApiCors(Response.json({ service: "ProofTTL Auth", backend: "better-auth", endpoint: `${AUTH_PATH_PREFIX}/*`, configured: status.configured, database: status.database, sign_in: { github: status.socialProviders.github, google: status.socialProviders.google, discord: status.socialProviders.discord, email: status.emailSignIn, passkey: status.passkeys }, security: { totp: status.totp, recovery_codes: status.recoveryCodes, passkeys: status.passkeys, secure_http_only_sessions: true, origin_allowlist: true, csrf_protection: true } }, { headers: { "cache-control": "no-store" } }));
     }
 
     if (request.method === "GET" && pathname === ASSISTANT_USAGE_PATH) {
       const quota = await getAssistantQuota(request, env);
-      return applyAssistantCors(
-        Response.json(
-          {
-            service: "ProofTTL Assistant",
-            version: PRODUCT_VERSION,
-            quota,
-            love: loveCapability(quota, env),
-            membership: {
-              available: false,
-              note: "Paid assistant plans are not enabled yet; L.O.V.E. voice mode is temporarily available through the testnet preview."
-            }
-          },
-          { headers: { "cache-control": "no-store" } }
-        ),
-        request,
-        env
-      );
+      return applyAssistantCors(Response.json({ service: "ProofTTL Assistant", version: PRODUCT_VERSION, quota, love: loveCapability(quota, env), membership: { available: false, note: "Paid assistant plans are not enabled yet; L.O.V.E. voice mode is temporarily available through the testnet preview." } }, { headers: { "cache-control": "no-store" } }), request, env);
     }
 
-    if (pathname === ASSISTANT_VOICE_PATH) {
-      const response = await handleVoiceAssistant(request, env);
-      return applyAssistantCors(response, request, env);
-    }
-
-    if (pathname === ASSISTANT_TEXT_PATH) {
-      const response = await handleTextAssistant(request, env, ctx);
-      return applyAssistantCors(response, request, env);
-    }
-
-    if (pathname === STUDIO_CHAT_PATH) {
-      const response = await handleStudioChat(request, env);
-      return applyAssistantCors(response, request, env);
-    }
+    if (pathname === ASSISTANT_VOICE_PATH) return applyAssistantCors(await handleVoiceAssistant(request, env), request, env);
+    if (pathname === ASSISTANT_TEXT_PATH) return applyAssistantCors(await handleTextAssistant(request, env, ctx), request, env);
+    if (pathname === STUDIO_CHAT_PATH) return applyAssistantCors(await handleStudioChat(request, env), request, env);
 
     if (request.method === "GET" && pathname === "/.well-known/proofttl-assistant.json") {
-      const anonymousQuota = {
-        plan: "free",
-        membership_status: "anonymous"
-      };
-      return applyApiCors(
-        Response.json(
-          {
-            service: "ProofTTL Assistant",
-            version: PRODUCT_VERSION,
-            persona: {
-              name: "L.O.V.E.",
-              role: "ProofTTL product intelligence"
-            },
-            interaction: "text_or_voice_input_text_and_optional_voice_output",
-            endpoints: {
-              voice: ASSISTANT_VOICE_PATH,
-              text: ASSISTANT_TEXT_PATH,
-              usage: ASSISTANT_USAGE_PATH,
-              studio: STUDIO_CHAT_PATH
-            },
-            endpoint: ASSISTANT_VOICE_PATH,
-            input: {
-              voice_content_type: "audio/*",
-              text_content_type: "application/json",
-              max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes
-            },
-            output: {
-              text: true,
-              voice: true,
-              voice_encoding: "mp3",
-              voice_capability: loveCapability(anonymousQuota, env)
-            },
-            grounding: {
-              fact_lease_ids: true,
-              source: "live_lease_storage",
-              missing_lease_behavior: "refuse_to_invent"
-            },
-            quota: {
-              free_daily_messages: assistantQuotaLimit(env),
-              shared_between_text_and_voice: true,
-              reset: "daily_utc",
-              durable_accounting: Boolean(env?.MONITOR_DB),
-              account_entitlements: true,
-              authenticated_browser_sessions_supported: true
-            },
-            scope: "proofttl_product_only_with_separate_coding_studio",
-            models: ASSISTANT_MODELS,
-            navigation: "allowlisted_non_destructive_only",
-            persistent_actions: "explicit_user_confirmation_required",
-            audio_retention: "none_by_default",
-            free_capacity_behavior: "fail_closed_no_paid_fallback",
-            configured: Boolean(env?.AI && env?.ASSISTANT_RATE_LIMITER)
-          },
-          { headers: { "cache-control": "public, max-age=60" } }
-        )
-      );
+      const anonymousQuota = { plan: "free", membership_status: "anonymous" };
+      return applyApiCors(Response.json({
+        service: "ProofTTL Assistant", version: PRODUCT_VERSION,
+        persona: { name: "L.O.V.E.", role: "ProofTTL product intelligence" },
+        interaction: "text_or_voice_input_text_and_optional_voice_output",
+        endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, usage: ASSISTANT_USAGE_PATH, studio: STUDIO_CHAT_PATH },
+        endpoint: ASSISTANT_VOICE_PATH,
+        input: { voice_content_type: "audio/*", text_content_type: "application/json", max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes },
+        output: { text: true, voice: true, voice_encoding: "mp3", voice_capability: loveCapability(anonymousQuota, env) },
+        grounding: { fact_lease_ids: true, source: "live_lease_storage", missing_lease_behavior: "refuse_to_invent" },
+        quota: { free_daily_messages: assistantQuotaLimit(env), shared_between_text_and_voice: true, reset: "daily_utc", durable_accounting: Boolean(env?.MONITOR_DB), account_entitlements: true, authenticated_browser_sessions_supported: true },
+        scope: "proofttl_product_only_with_separate_coding_studio", models: ASSISTANT_MODELS,
+        navigation: "allowlisted_non_destructive_only", persistent_actions: "explicit_user_confirmation_required", audio_retention: "none_by_default", free_capacity_behavior: "fail_closed_no_paid_fallback", configured: Boolean(env?.AI && env?.ASSISTANT_RATE_LIMITER)
+      }, { headers: { "cache-control": "public, max-age=60" } }));
     }
 
-    const response = await entry.fetch(request, env, ctx);
-    return applyApiCors(response);
+    return applyApiCors(await entry.fetch(request, env, ctx));
   },
 
   async scheduled(controller, env, ctx) {
-    if (typeof entry.scheduled === "function") {
-      return entry.scheduled(controller, env, ctx);
-    }
+    if (typeof entry.scheduled === "function") return entry.scheduled(controller, env, ctx);
   }
 };
