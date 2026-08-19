@@ -1,8 +1,12 @@
 import {
-  ASSISTANT_MODELS,
   assistantSystemPrompt,
   matchAssistantNavigation
 } from "./assistant.js";
+import {
+  assistantModelRuntime,
+  assistantResponseProviderAvailable,
+  runAssistantResponse
+} from "./assistant-model-router.js";
 import {
   consumeAssistantQuota,
   getAssistantQuota
@@ -25,7 +29,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
     );
   }
 
-  if (!env?.AI || typeof env.AI.run !== "function") {
+  if (!assistantResponseProviderAvailable(env)) {
     return jsonResponse(
       { error: "assistant_unavailable", message: "ProofTTL assistance is not available right now." },
       503
@@ -103,6 +107,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
   let lastUsage = null;
   const casual = isCasualSocialMessage(message);
   const leaseGrounding = await loadLeaseGrounding(message, env);
+  const modelRuntime = assistantModelRuntime(env);
 
   try {
     const messages = [
@@ -137,7 +142,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
       { role: "user", content: message }
     ];
 
-    let completion = await env.AI.run(ASSISTANT_MODELS.response, {
+    let completion = await runAssistantResponse(env, {
       messages,
       max_tokens: casual ? 90 : 240,
       temperature: casual ? 0.48 : 0.42
@@ -152,11 +157,12 @@ export async function handleTextAssistant(request, env, ctx = null) {
       retries = 1;
       console.warn(JSON.stringify({
         event: "assistant_text_empty_completion",
-        model: ASSISTANT_MODELS.response,
+        provider: modelRuntime.provider,
+        model: modelRuntime.response_model,
         completion_keys: completion && typeof completion === "object" ? Object.keys(completion).slice(0, 12) : []
       }));
 
-      completion = await env.AI.run(ASSISTANT_MODELS.response, {
+      completion = await runAssistantResponse(env, {
         messages: [
           ...messages,
           {
@@ -177,14 +183,14 @@ export async function handleTextAssistant(request, env, ctx = null) {
       queueMiraObservation(ctx, env, {
         task_class: MIRA_TASK_CLASS,
         strategy_id: MIRA_STRATEGY_ID,
-        model_id: ASSISTANT_MODELS.response,
+        model_id: modelRuntime.response_model,
         success: false,
         latency_ms: Date.now() - startedAt,
         prompt_tokens: lastUsage?.prompt_tokens,
         completion_tokens: lastUsage?.completion_tokens,
         retries,
         reliability_score: 0,
-        metadata: { failure: "empty_response", history_messages: history.length, casual, lease_grounded: Boolean(leaseGrounding?.found) }
+        metadata: { failure: "empty_response", provider: modelRuntime.provider, history_messages: history.length, casual, lease_grounded: Boolean(leaseGrounding?.found) }
       });
 
       return jsonResponse(
@@ -200,7 +206,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
     queueMiraObservation(ctx, env, {
       task_class: MIRA_TASK_CLASS,
       strategy_id: MIRA_STRATEGY_ID,
-      model_id: ASSISTANT_MODELS.response,
+      model_id: modelRuntime.response_model,
       success: true,
       latency_ms: Date.now() - startedAt,
       prompt_tokens: lastUsage?.prompt_tokens,
@@ -208,6 +214,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
       retries,
       reliability_score: retried ? 0.99 : 1,
       metadata: {
+        provider: modelRuntime.provider,
         history_messages: history.length,
         response_chars: response.length,
         persona: "casual_grounded_v4",
@@ -232,7 +239,8 @@ export async function handleTextAssistant(request, env, ctx = null) {
         } : null
       },
       inference: {
-        response_model: ASSISTANT_MODELS.response,
+        response_provider: modelRuntime.provider,
+        response_model: modelRuntime.response_model,
         deterministic_route: false,
         empty_response_retry: retried,
         improvement_observation: "mira",
@@ -245,7 +253,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
     queueMiraObservation(ctx, env, {
       task_class: MIRA_TASK_CLASS,
       strategy_id: MIRA_STRATEGY_ID,
-      model_id: ASSISTANT_MODELS.response,
+      model_id: modelRuntime.response_model,
       success: false,
       latency_ms: Date.now() - startedAt,
       prompt_tokens: lastUsage?.prompt_tokens,
@@ -253,6 +261,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
       retries,
       reliability_score: 0,
       metadata: {
+        provider: modelRuntime.provider,
         failure: error?.name || error?.constructor?.name || "Error",
         history_messages: history.length,
         casual,
@@ -262,6 +271,8 @@ export async function handleTextAssistant(request, env, ctx = null) {
 
     console.warn(JSON.stringify({
       event: "assistant_text_response_failed",
+      provider: modelRuntime.provider,
+      model: modelRuntime.response_model,
       error: error?.name || error?.constructor?.name || "Error"
     }));
 
