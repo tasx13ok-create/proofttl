@@ -2,7 +2,8 @@ import entry from "./entry.js";
 import { handleVoiceAssistant, loveCapability, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
 import { handleTextAssistant } from "./assistant-text.js";
 import { handleAuditIntake } from "./audit-intake.js";
-import { handleAuditStatus, handleAuditAdmin } from "./audit-sales.js";
+import { handleAuditStatus, handleAuditAdmin, auditAdminAuthorized } from "./audit-sales.js";
+import { createAuditCheckoutSession, handleStripeWebhook } from "./stripe-payments.js";
 import {
   assistantQuotaLimit,
   getAssistantQuota
@@ -37,6 +38,7 @@ const ACCOUNT_ENTITLEMENT_PATH = "/account/entitlement";
 const AUDIT_INTAKE_PATH = "/audit/intake";
 const AUDIT_STATUS_PATH = "/audit/intake/status";
 const AUDIT_ADMIN_PREFIX = "/admin/audit/intakes";
+const STRIPE_WEBHOOK_PATH = "/payments/stripe/webhook";
 const READINESS_PATH = "/readiness";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 
@@ -97,6 +99,10 @@ export default {
       return apiCorsPreflightResponse();
     }
 
+    if (request.method === "POST" && pathname === STRIPE_WEBHOOK_PATH) {
+      return handleStripeWebhook(request, env);
+    }
+
     if (request.method === "POST" && pathname === AUDIT_INTAKE_PATH) {
       const response = await handleAuditIntake(request, env);
       return applyApiCors(response);
@@ -105,6 +111,14 @@ export default {
     if (request.method === "POST" && pathname === AUDIT_STATUS_PATH) {
       const response = await handleAuditStatus(request, env);
       return applyApiCors(response);
+    }
+
+    const checkoutMatch = pathname.match(/^\/admin\/audit\/intakes\/(ati_[a-f0-9]{32})\/checkout$/);
+    if (checkoutMatch && request.method === "POST") {
+      if (!auditAdminAuthorized(request, env)) {
+        return Response.json({ error: "admin_auth_required" }, { status: 401, headers: { "cache-control": "no-store" } });
+      }
+      return createAuditCheckoutSession(request, env, checkoutMatch[1]);
     }
 
     if (pathname === AUDIT_ADMIN_PREFIX || pathname.startsWith(`${AUDIT_ADMIN_PREFIX}/`)) {
