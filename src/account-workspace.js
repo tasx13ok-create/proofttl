@@ -1,0 +1,102 @@
+import { getOptionalProofTTLSession } from "./auth.js";
+
+const MAX_PROJECT_BYTES = 200 * 1024;
+const MAX_PROJECTS = 25;
+
+export async function handleAccountWorkspace(request, env, pathname) {
+  if (!env?.MONITOR_DB) return json({ error: "account_storage_unavailable" }, 503);
+  const session = await getOptionalProofTTLSession(request, env);
+  const userId = session?.user?.id;
+  if (!userId) return json({ error: "authentication_required", message: "Sign in to use account-owned workspace data." }, 401);
+
+  if (pathname === "/account/preferences") {
+    if (request.method === "GET") return getPreferences(env, userId);
+    if (request.method === "PATCH") return updatePreferences(request, env, userId);
+    return json({ error: "method_not_allowed" }, 405, { allow: "GET, PATCH, OPTIONS" });
+  }
+
+  if (pathname === "/studio/projects") {
+    if (request.method === "GET") return listProjects(env, userId);
+    if (request.method === "POST") return saveProject(request, env, userId);
+    return json({ error: "method_not_allowed" }, 405, { allow: "GET, POST, OPTIONS" });
+  }
+
+  const match = pathname.match(/^\/studio\/projects\/(prj_[a-f0-9]{32})$/);
+  if (match) {
+    if (request.method === "GET") return getProject(env, userId, match[1]);
+    if (request.method === "PUT") return saveProject(request, env, userId, match[1]);
+    if (request.method === "DELETE") return deleteProject(env, userId, match[1]);
+    return json({ error: "method_not_allowed" }, 405, { allow: "GET, PUT, DELETE, OPTIONS" });
+  }
+
+  return json({ error: "not_found" }, 404);
+}
+
+async function getPreferences(env, userId) {
+  const row = await env.MONITOR_DB.prepare("SELECT * FROM account_preferences WHERE user_id=?").bind(userId).first();
+  return json({ preferences: row ? publicPreferences(row) : defaults() });
+}
+
+async function updatePreferences(request, env, userId) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object") return json({ error: "invalid_json" }, 400);
+  const current = { ...defaults(), ...(await env.MONITOR_DB.prepare("SELECT * FROM account_preferences WHERE user_id=?").bind(userId).first() || {}) };
+  const next = {
+    preferred_ai_provider: cleanOptional(body.preferred_ai_provider ?? current.preferred_ai_provider, 80),
+    preferred_ai_model: cleanOptional(body.preferred_ai_model ?? current.preferred_ai_model, 160),
+    love_voice_enabled: boolInt(body.love_voice_enabled ?? current.love_voice_enabled),
+    love_compact_mode: boolInt(body.love_compact_mode ?? current.love_compact_mode),
+    studio_autosave: boolInt(body.studio_autosave ?? current.studio_autosave),
+  };
+  const now = new Date().toISOString();
+  await env.MONITOR_DB.prepare(`INSERT INTO account_preferences (user_id,preferred_ai_provider,preferred_ai_model,love_voice_enabled,love_compact_mode,studio_autosave,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET preferred_ai_provider=excluded.preferred_ai_provider,preferred_ai_model=excluded.preferred_ai_model,love_voice_enabled=excluded.love_voice_enabled,love_compact_mode=excluded.love_compact_mode,studio_autosave=excluded.studio_autosave,updated_at=excluded.updated_at`)
+    .bind(userId,next.preferred_ai_provider,next.preferred_ai_model,next.love_voice_enabled,next.love_compact_mode,next.studio_autosave,now,now).run();
+  return json({ preferences: publicPreferences(next) });
+}
+
+async function listProjects(env, userId) {
+  const rows = await env.MONITOR_DB.prepare("SELECT project_id,name,language,active_file,created_at,updated_at FROM studio_projects WHERE user_id=? ORDER BY updated_at DESC LIMIT ?").bind(userId, MAX_PROJECTS).all();
+  return json({ projects: rows.results || [] });
+}
+
+async function getProject(env, userId, projectId) {
+  const row = await env.MONITOR_DB.prepare("SELECT * FROM studio_projects WHERE user_id=? AND project_id=?").bind(userId, projectId).first();
+  if (!row) return json({ error: "project_not_found" }, 404);
+  return json({ project: { ...row, files: safeJson(row.files_json, {}) , files_json: undefined } });
+}
+
+async function saveProject(request, env, userId, forcedId = null) {
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > MAX_PROJECT_BYTES) return json({ error: "project_too_large", max_bytes: MAX_PROJECT_BYTES }, 413);
+  let body; try { body = JSON.parse(raw); } catch { return json({ error: "invalid_json" }, 400); }
+  const files = body?.files && typeof body.files === "object" && !Array.isArray(body.files) ? body.files : null;
+  if (!files || !Object.keys(files).length) return json({ error: "files_required" }, 400);
+  if (Object.keys(files).length > 50) return json({ error: "too_many_files", max_files: 50 }, 400);
+  for (const [name, content] of Object.entries(files)) {
+    if (!validFileName(name) || typeof content !== "string" || content.length > 50000) return json({ error: "invalid_project_file" }, 400);
+  }
+  const projectId = forcedId || `prj_${crypto.randomUUID().replaceAll("-", "")}`;
+  const now = new Date().toISOString();
+  const name = clean(body.name || "Untitled project", 120) || "Untitled project";
+  const language = cleanOptional(body.language, 40);
+  const activeFile = cleanOptional(body.active_file, 200);
+  await env.MONITOR_DB.prepare(`INSERT INTO studio_projects (project_id,user_id,name,language,files_json,active_file,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET name=excluded.name,language=excluded.language,files_json=excluded.files_json,active_file=excluded.active_file,updated_at=excluded.updated_at WHERE studio_projects.user_id=excluded.user_id`)
+    .bind(projectId,userId,name,language,JSON.stringify(files),activeFile,now,now).run();
+  return json({ project: { project_id: projectId, name, language, active_file: activeFile, files, updated_at: now } }, forcedId ? 200 : 201);
+}
+
+async function deleteProject(env, userId, projectId) {
+  await env.MONITOR_DB.prepare("DELETE FROM studio_projects WHERE user_id=? AND project_id=?").bind(userId, projectId).run();
+  return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+}
+
+function defaults(){ return { preferred_ai_provider:null, preferred_ai_model:null, love_voice_enabled:1, love_compact_mode:0, studio_autosave:1 }; }
+function publicPreferences(row){ return { preferred_ai_provider: row.preferred_ai_provider || null, preferred_ai_model: row.preferred_ai_model || null, love_voice_enabled:Boolean(row.love_voice_enabled), love_compact_mode:Boolean(row.love_compact_mode), studio_autosave:Boolean(row.studio_autosave) }; }
+function boolInt(v){ return v === false || v === 0 ? 0 : 1; }
+function clean(v,n){ return typeof v === "string" ? v.trim().slice(0,n) : ""; }
+function cleanOptional(v,n){ const x=clean(v,n); return x || null; }
+function validFileName(v){ return typeof v === "string" && v.length>0 && v.length<=200 && !v.includes("..") && !v.startsWith("/") && !v.includes("\\"); }
+function safeJson(v,fallback){ try{return JSON.parse(v)}catch{return fallback} }
+function json(body,status=200,extra={}){ return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...extra}}); }
