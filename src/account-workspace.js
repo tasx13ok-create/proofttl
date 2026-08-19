@@ -7,12 +7,19 @@ export async function handleAccountWorkspace(request, env, pathname) {
   if (!env?.MONITOR_DB) return json({ error: "account_storage_unavailable" }, 503);
   const session = await getOptionalProofTTLSession(request, env);
   const userId = session?.user?.id;
+  const userEmail = normalizeEmail(session?.user?.email);
   if (!userId) return json({ error: "authentication_required", message: "Sign in to use account-owned workspace data." }, 401);
 
   if (pathname === "/account/preferences") {
     if (request.method === "GET") return getPreferences(env, userId);
     if (request.method === "PATCH") return updatePreferences(request, env, userId);
     return json({ error: "method_not_allowed" }, 405, { allow: "GET, PATCH, OPTIONS" });
+  }
+
+  if (pathname === "/account/audits") {
+    if (request.method === "GET") return listAccountAudits(env, userId);
+    if (request.method === "POST") return linkAudit(request, env, userId, userEmail);
+    return json({ error: "method_not_allowed" }, 405, { allow: "GET, POST, OPTIONS" });
   }
 
   if (pathname === "/studio/projects") {
@@ -55,6 +62,25 @@ async function updatePreferences(request, env, userId) {
   return json({ preferences: publicPreferences(next) });
 }
 
+async function listAccountAudits(env, userId) {
+  const rows = await env.MONITOR_DB.prepare(`SELECT a.intake_id,a.offer_type,a.company_project,a.website,a.approximate_claims,a.status,a.amount_due_cents,a.amount_paid_cents,a.payment_provider,a.created_at,a.updated_at,a.paid_at,a.fulfilled_at
+    FROM account_audit_links l JOIN audit_intakes a ON a.intake_id=l.intake_id
+    WHERE l.user_id=? ORDER BY a.updated_at DESC LIMIT 50`).bind(userId).all();
+  return json({ audits: rows.results || [] });
+}
+
+async function linkAudit(request, env, userId, userEmail) {
+  if (!userEmail) return json({ error: "verified_email_required", message: "Your sign-in provider must supply an email before an audit can be linked." }, 400);
+  const body = await request.json().catch(() => null);
+  const intakeId = clean(body?.intake_id, 64).toLowerCase();
+  if (!/^ati_[a-f0-9]{32}$/.test(intakeId)) return json({ error: "invalid_intake_id" }, 400);
+  const intake = await env.MONITOR_DB.prepare("SELECT intake_id,email FROM audit_intakes WHERE intake_id=?").bind(intakeId).first();
+  if (!intake) return json({ error: "audit_not_found" }, 404);
+  if (normalizeEmail(intake.email) !== userEmail) return json({ error: "audit_ownership_mismatch", message: "This audit was submitted under a different email address." }, 403);
+  await env.MONITOR_DB.prepare("INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)").bind(userId,intakeId,new Date().toISOString()).run();
+  return json({ linked: true, intake_id: intakeId }, 201);
+}
+
 async function listProjects(env, userId) {
   const rows = await env.MONITOR_DB.prepare("SELECT project_id,name,language,active_file,created_at,updated_at FROM studio_projects WHERE user_id=? ORDER BY updated_at DESC LIMIT ?").bind(userId, MAX_PROJECTS).all();
   return json({ projects: rows.results || [] });
@@ -63,7 +89,7 @@ async function listProjects(env, userId) {
 async function getProject(env, userId, projectId) {
   const row = await env.MONITOR_DB.prepare("SELECT * FROM studio_projects WHERE user_id=? AND project_id=?").bind(userId, projectId).first();
   if (!row) return json({ error: "project_not_found" }, 404);
-  return json({ project: { ...row, files: safeJson(row.files_json, {}) , files_json: undefined } });
+  return json({ project: { ...row, files: safeJson(row.files_json, {}), files_json: undefined } });
 }
 
 async function saveProject(request, env, userId, forcedId = null) {
@@ -97,6 +123,7 @@ function publicPreferences(row){ return { preferred_ai_provider: row.preferred_a
 function boolInt(v){ return v === false || v === 0 ? 0 : 1; }
 function clean(v,n){ return typeof v === "string" ? v.trim().slice(0,n) : ""; }
 function cleanOptional(v,n){ const x=clean(v,n); return x || null; }
+function normalizeEmail(v){ return typeof v === "string" ? v.trim().toLowerCase() : ""; }
 function validFileName(v){ return typeof v === "string" && v.length>0 && v.length<=200 && !v.includes("..") && !v.startsWith("/") && !v.includes("\\"); }
 function safeJson(v,fallback){ try{return JSON.parse(v)}catch{return fallback} }
 function json(body,status=200,extra={}){ return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...extra}}); }
