@@ -23,6 +23,7 @@ const ASSISTANT_USAGE_PATH = "/assistant/usage";
 const STUDIO_CHAT_PATH = "/studio/chat";
 const ACCOUNT_ENTITLEMENT_PATH = "/account/entitlement";
 const ACCOUNT_PREFERENCES_PATH = "/account/preferences";
+const ACCOUNT_AUDITS_PATH = "/account/audits";
 const STUDIO_PROJECTS_PATH = "/studio/projects";
 const AUDIT_INTAKE_PATH = "/audit/intake";
 const AUDIT_STATUS_PATH = "/audit/intake/status";
@@ -33,7 +34,7 @@ const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 
 function isAuthPath(pathname) { return pathname === AUTH_PATH_PREFIX || pathname.startsWith(`${AUTH_PATH_PREFIX}/`); }
 function isAssistantPath(pathname) { return pathname === ASSISTANT_VOICE_PATH || pathname === ASSISTANT_TEXT_PATH || pathname === ASSISTANT_USAGE_PATH || pathname === STUDIO_CHAT_PATH; }
-function isAccountWorkspacePath(pathname) { return pathname === ACCOUNT_PREFERENCES_PATH || pathname === STUDIO_PROJECTS_PATH || pathname.startsWith(`${STUDIO_PROJECTS_PATH}/`); }
+function isAccountWorkspacePath(pathname) { return pathname === ACCOUNT_PREFERENCES_PATH || pathname === ACCOUNT_AUDITS_PATH || pathname === STUDIO_PROJECTS_PATH || pathname.startsWith(`${STUDIO_PROJECTS_PATH}/`); }
 function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || isAccountWorkspacePath(pathname); }
 
 export default {
