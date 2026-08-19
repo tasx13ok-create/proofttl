@@ -2,6 +2,7 @@ import entry from "./entry.js";
 import { handleVoiceAssistant, loveCapability, ASSISTANT_LIMITS, ASSISTANT_MODELS } from "./assistant.js";
 import { handleTextAssistant } from "./assistant-text.js";
 import { handleStudioChat } from "./studio-chat.js";
+import { assistantModelCatalog } from "./assistant-model-router.js";
 import { handleAccountWorkspace } from "./account-workspace.js";
 import { handleAuditIntake } from "./audit-intake.js";
 import { handleAuditStatus, handleAuditAdmin, auditAdminAuthorized } from "./audit-sales.js";
@@ -20,6 +21,7 @@ const COMPATIBLE_PROTOCOL = "ProofTTL/0.3.1";
 const ASSISTANT_VOICE_PATH = "/assistant/voice";
 const ASSISTANT_TEXT_PATH = "/assistant/text";
 const ASSISTANT_USAGE_PATH = "/assistant/usage";
+const ASSISTANT_MODELS_PATH = "/assistant/models";
 const STUDIO_CHAT_PATH = "/studio/chat";
 const ACCOUNT_ENTITLEMENT_PATH = "/account/entitlement";
 const ACCOUNT_PREFERENCES_PATH = "/account/preferences";
@@ -33,7 +35,7 @@ const READINESS_PATH = "/readiness";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 
 function isAuthPath(pathname) { return pathname === AUTH_PATH_PREFIX || pathname.startsWith(`${AUTH_PATH_PREFIX}/`); }
-function isAssistantPath(pathname) { return pathname === ASSISTANT_VOICE_PATH || pathname === ASSISTANT_TEXT_PATH || pathname === ASSISTANT_USAGE_PATH || pathname === STUDIO_CHAT_PATH; }
+function isAssistantPath(pathname) { return pathname === ASSISTANT_VOICE_PATH || pathname === ASSISTANT_TEXT_PATH || pathname === ASSISTANT_USAGE_PATH || pathname === ASSISTANT_MODELS_PATH || pathname === STUDIO_CHAT_PATH; }
 function isAccountWorkspacePath(pathname) { return pathname === ACCOUNT_PREFERENCES_PATH || pathname === ACCOUNT_AUDITS_PATH || pathname === STUDIO_PROJECTS_PATH || pathname.startsWith(`${STUDIO_PROJECTS_PATH}/`); }
 function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || isAccountWorkspacePath(pathname); }
 
@@ -92,6 +94,10 @@ export default {
       return applyAssistantCors(Response.json({ service: "ProofTTL Assistant", version: PRODUCT_VERSION, quota, love: loveCapability(quota, env), membership: { available: false, note: "Paid assistant plans are not enabled yet; L.O.V.E. voice mode is temporarily available through the testnet preview." } }, { headers: { "cache-control": "no-store" } }), request, env);
     }
 
+    if (request.method === "GET" && pathname === ASSISTANT_MODELS_PATH) {
+      return applyAssistantCors(Response.json({ service: "ProofTTL Model Catalog", catalog: assistantModelCatalog(env) }, { headers: { "cache-control": "no-store" } }), request, env);
+    }
+
     if (pathname === ASSISTANT_VOICE_PATH) return applyAssistantCors(await handleVoiceAssistant(request, env), request, env);
     if (pathname === ASSISTANT_TEXT_PATH) return applyAssistantCors(await handleTextAssistant(request, env, ctx), request, env);
     if (pathname === STUDIO_CHAT_PATH) return applyAssistantCors(await handleStudioChat(request, env), request, env);
@@ -102,7 +108,7 @@ export default {
         service: "ProofTTL Assistant", version: PRODUCT_VERSION,
         persona: { name: "L.O.V.E.", role: "ProofTTL product intelligence" },
         interaction: "text_or_voice_input_text_and_optional_voice_output",
-        endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, usage: ASSISTANT_USAGE_PATH, studio: STUDIO_CHAT_PATH },
+        endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, usage: ASSISTANT_USAGE_PATH, models: ASSISTANT_MODELS_PATH, studio: STUDIO_CHAT_PATH },
         endpoint: ASSISTANT_VOICE_PATH,
         input: { voice_content_type: "audio/*", text_content_type: "application/json", max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes },
         output: { text: true, voice: true, voice_encoding: "mp3", voice_capability: loveCapability(anonymousQuota, env) },
