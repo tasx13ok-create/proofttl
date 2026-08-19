@@ -1,5 +1,6 @@
 -- Account-owned product state for ProofTTL Console, L.O.V.E., and Studio.
--- Ownership is always keyed to Better Auth user.id; no email-based ownership inference.
+-- Ownership is always keyed to Better Auth user.id; audit claiming additionally
+-- requires the authenticated provider email to match the intake email.
 
 CREATE TABLE IF NOT EXISTS account_preferences (
   user_id TEXT PRIMARY KEY REFERENCES "user"("id") ON DELETE CASCADE,
@@ -28,7 +29,7 @@ CREATE INDEX IF NOT EXISTS studio_projects_user_updated_idx
 
 CREATE TABLE IF NOT EXISTS account_audit_links (
   user_id TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
-  intake_id TEXT NOT NULL,
+  intake_id TEXT NOT NULL REFERENCES audit_intakes(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL,
   PRIMARY KEY (user_id, intake_id)
 );
