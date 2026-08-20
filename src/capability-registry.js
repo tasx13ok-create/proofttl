@@ -12,6 +12,16 @@ const DEFINITIONS = Object.freeze([
   { id: 'studio.chat', area: 'studio', risk: 'read', state: 'live', label: 'Coding model assistance' },
   { id: 'studio.projects', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Account-owned Studio projects' },
   { id: 'studio.run', area: 'studio', risk: 'sensitive', state: 'built_locked', label: 'Isolated code execution' },
+  { id: 'models.catalog', area: 'connections', risk: 'read', state: 'built_locked', label: 'Read approved cloud AI model catalog' },
+  { id: 'models.use', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Use approved cloud AI models in projects' },
+  { id: 'github.read', area: 'connections', risk: 'read', state: 'built_locked', label: 'Read connected GitHub repositories, issues, and pull requests' },
+  { id: 'github.write', area: 'connections', risk: 'modify', state: 'built_locked', label: 'Create/update connected GitHub repository content' },
+  { id: 'github.delete', area: 'connections', risk: 'sensitive', state: 'built_locked', label: 'Delete connected GitHub repository content' },
+  { id: 'vercel.read', area: 'connections', risk: 'read', state: 'built_locked', label: 'Read connected Vercel projects, deployments, and logs' },
+  { id: 'vercel.deploy', area: 'studio', risk: 'sensitive', state: 'built_locked', label: 'Deploy a project to connected Vercel account' },
+  { id: 'creative.image.generate', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Generate project images and visual assets' },
+  { id: 'creative.world.generate', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Generate structured 3D scenes and environments' },
+  { id: 'creative.render', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Render approved scenes or project visuals' },
   { id: 'account.security', area: 'security', risk: 'sensitive', state: 'built_locked', label: 'Passkeys, MFA and sessions' },
   { id: 'account.models', area: 'connections', risk: 'modify', state: 'built_locked', label: 'Approved AI model selection' },
   { id: 'money.read', area: 'money', risk: 'read', state: 'planned', label: 'Financial data intelligence' },
@@ -38,18 +48,26 @@ export function capabilityRegistry(env = {}) {
     stripe: Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET),
     sandbox: Boolean(env.VERCEL_SANDBOX_TOKEN && env.VERCEL_SANDBOX_PROJECT_ID),
     ai: Boolean(env.AI || env.PROOFTTL_EXTERNAL_AI_API_KEY),
+    github: Boolean(env.GITHUB_APP_TOKEN || env.GITHUB_TOKEN),
+    vercel: Boolean(env.VERCEL_API_TOKEN && (env.VERCEL_TEAM_ID || env.VERCEL_PROJECT_ID)),
+    image_generation: Boolean(env.PROOFTTL_IMAGE_PROVIDER || env.PROOFTTL_IMAGE_API_KEY),
+    world_generation: Boolean(env.PROOFTTL_WORLD_PROVIDER || env.PROOFTTL_WORLD_API_KEY)
   };
 
   const capabilities = DEFINITIONS.map((item) => ({ ...item, policy: RISK[item.risk], ready: capabilityReady(item.id, runtime) }));
-  return { service: 'ProofTTL Capability Registry', version: 1, principle: 'user_intent_over_app_selection', policy: RISK, runtime, capabilities };
+  return { service: 'ProofTTL Capability Registry', version: 2, principle: 'user_intent_over_app_selection', provider_adapter_contract: true, policy: RISK, runtime, capabilities };
 }
 
 function capabilityReady(id, runtime) {
   if (id === 'love.command' || id === 'truth.verify' || id === 'truth.audit') return true;
-  if (id === 'studio.chat') return runtime.ai;
+  if (id === 'studio.chat' || id === 'models.catalog' || id === 'models.use') return runtime.ai;
   if (id === 'studio.projects' || id === 'account.models' || id.startsWith('files.') || id.startsWith('work.tasks.') || id === 'automations.manage') return runtime.auth;
   if (id === 'studio.run') return runtime.auth && runtime.sandbox;
   if (id === 'account.security') return runtime.auth && runtime.google && runtime.discord && runtime.passkeys;
+  if (id.startsWith('github.')) return runtime.auth && runtime.github;
+  if (id.startsWith('vercel.')) return runtime.auth && runtime.vercel;
+  if (id === 'creative.image.generate' || id === 'creative.render') return runtime.auth && runtime.image_generation;
+  if (id === 'creative.world.generate') return runtime.auth && runtime.world_generation;
   return false;
 }
 
