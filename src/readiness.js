@@ -23,7 +23,9 @@ export async function getDeploymentReadiness(env, request) {
     stripe_events: await tableExists(env?.MONITOR_DB, "stripe_webhook_events"),
     account_preferences: await tableExists(env?.MONITOR_DB, "account_preferences"),
     studio_projects: await tableExists(env?.MONITOR_DB, "studio_projects"),
-    account_audit_links: await tableExists(env?.MONITOR_DB, "account_audit_links")
+    account_audit_links: await tableExists(env?.MONITOR_DB, "account_audit_links"),
+    action_receipts: await tableExists(env?.MONITOR_DB, "action_receipts"),
+    account_automations: await tableExists(env?.MONITOR_DB, "account_automations")
   };
 
   const modelRuntime = assistantModelRuntime(env);
@@ -31,7 +33,7 @@ export async function getDeploymentReadiness(env, request) {
   const commercialWebUrl = isHttps(webUrl);
   const stripeSecret = Boolean(clean(env?.STRIPE_SECRET_KEY));
   const stripeWebhookSecret = Boolean(clean(env?.STRIPE_WEBHOOK_SECRET));
-  const auditAdminSecret = Boolean(clean(env?.PROOFTTL_AUDIT_ADMIN_SECRET));
+  const auditAdminSecret = Boolean(clean(env?.PROOFTTL_ADMIN_TOKEN));
 
   const checks = {
     kv_storage: Boolean(env?.LEASES),
@@ -62,7 +64,7 @@ export async function getDeploymentReadiness(env, request) {
     stripe_secret: stripeSecret,
     stripe_webhook_secret: stripeWebhookSecret,
     commercial_web_url: commercialWebUrl,
-    audit_admin_secret: auditAdminSecret
+    audit_admin_token: auditAdminSecret
   };
   const commercialReady = Object.values(commercialChecks).every(Boolean);
 
@@ -71,6 +73,8 @@ export async function getDeploymentReadiness(env, request) {
     account_preferences_schema: schema.account_preferences,
     studio_projects_schema: schema.studio_projects,
     account_audit_links_schema: schema.account_audit_links,
+    action_receipts_schema: schema.action_receipts,
+    account_automations_schema: schema.account_automations,
     google_sign_in: auth.socialProviders.google,
     discord_sign_in: auth.socialProviders.discord,
     passkeys: auth.passkeys,
@@ -93,12 +97,25 @@ export async function getDeploymentReadiness(env, request) {
     isolated_runner: runnerConfigured(env)
   };
 
+  const workspaceChecks = {
+    account_preferences: schema.account_preferences,
+    action_receipts: schema.action_receipts,
+    automations: schema.account_automations,
+    studio_projects: schema.studio_projects,
+    audit_ownership: schema.account_audit_links,
+    credentialed_browser_sessions: Boolean(trustedBrowserOrigin && crossOriginCookies),
+    ai_response_provider: assistantResponseProviderAvailable(env)
+  };
+  const workspaceReady = Object.values(workspaceChecks).every(Boolean);
+
   const productionBlockers = [];
   if (!auth.socialProviders.google) productionBlockers.push("google_sign_in");
   if (!auth.socialProviders.discord) productionBlockers.push("discord_sign_in");
   if (!auth.passkeys) productionBlockers.push("passkey_sign_in");
   if (!trustedBrowserOrigin) productionBlockers.push("trusted_browser_origin");
   if (!crossOriginCookies) productionBlockers.push("cross_origin_session_cookies");
+  if (!schema.action_receipts) productionBlockers.push("action_receipts_schema");
+  if (!schema.account_automations) productionBlockers.push("account_automations_schema");
   productionBlockers.push("mainnet_payment_validation");
   productionBlockers.push("production_protocol_pricing_validation");
   productionBlockers.push("paid_membership_billing");
@@ -146,7 +163,18 @@ export async function getDeploymentReadiness(env, request) {
       provider: modelRuntime.provider,
       model: modelRuntime.response_model,
       preference_routing: "server_allowlisted",
+      command_planning: "deterministic_before_model_fallback",
       checks: aiChecks
+    },
+    workspace: {
+      ready: workspaceReady,
+      universal_command_planner: true,
+      centralized_action_policy: true,
+      account_action_receipts: schema.action_receipts,
+      account_automation_definitions: schema.account_automations,
+      automation_execution_connected: false,
+      sensitive_unattended_automation: false,
+      checks: workspaceChecks
     },
     studio: {
       cloud_projects_ready: studioChecks.account_storage,
@@ -172,7 +200,7 @@ export async function getDeploymentReadiness(env, request) {
       ready: false,
       blockers: productionBlockers
     },
-    note: "Readiness is split by product surface so testnet protocol, commercial audit services, customer accounts, AI, and Studio can be evaluated truthfully without implying unfinished mainnet settlement is live."
+    note: "Readiness is split by product surface so testnet protocol, commercial audit services, customer accounts, universal Workspace, AI, and Studio can be evaluated truthfully without implying unfinished providers or mainnet settlement are live."
   };
 }
 
