@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { visualQueryFromMessage, ASSISTANT_VISUALS } from "../src/assistant-visuals.js";
 
 assert.equal(visualQueryFromMessage("show me an alternator"), "alternator");
+assert.equal(visualQueryFromMessage("show me a battery"), "battery");
+assert.equal(visualQueryFromMessage("show me the alternator"), "alternator");
+assert.equal(visualQueryFromMessage("show me some alternators"), "alternators");
 assert.equal(visualQueryFromMessage("show me a picture of an alternator"), "alternator");
+assert.equal(visualQueryFromMessage("show me images of Saturn"), "Saturn");
+assert.equal(visualQueryFromMessage("find a photo of a starter motor"), "starter motor");
 assert.equal(visualQueryFromMessage("what does an alternator look like?"), "alternator");
 assert.equal(visualQueryFromMessage("image of Saturn"), "Saturn");
 assert.equal(visualQueryFromMessage("why is the sky blue?"), null, "ordinary factual questions must not trigger random imagery");
