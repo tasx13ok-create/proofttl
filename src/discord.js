@@ -1,4 +1,5 @@
 import { runAssistantResponse, assistantResponseProviderAvailable } from "./assistant-model-router.js";
+import { LOVE_CREATOR_RESPONSE, isLoveCreatorQuestion } from "./assistant.js";
 
 const DISCORD_API = "https://discord.com/api/v10";
 const MAX_PROMPT_CHARS = 1200;
@@ -56,6 +57,9 @@ export async function handleDiscordInteractions(request, env, ctx) {
 
   if (!prompt) return Response.json({ type: 4, data: { content: "Give L.O.V.E. something to respond to.", flags: 64 } });
   if (prompt.length > MAX_PROMPT_CHARS) return Response.json({ type: 4, data: { content: `Keep prompts under ${MAX_PROMPT_CHARS} characters.`, flags: 64 } });
+  if (isLoveCreatorQuestion(prompt)) {
+    return Response.json({ type: 4, data: { content: LOVE_CREATOR_RESPONSE, flags: 0 } });
+  }
 
   const userId = discordUserId(interaction);
   if (!userId) return Response.json({ type: 4, data: { content: "Could not resolve your Discord user.", flags: 64 } });
@@ -83,6 +87,7 @@ async function finishLoveInteraction(interaction, prompt, env) {
         role: "system",
         content: [
           "You are L.O.V.E., the general-purpose AI intelligence layer for ProofTTL, speaking inside Discord.",
+          `If asked who made, created, built, developed, or designed you, answer exactly: ${LOVE_CREATOR_RESPONSE}`,
           "Answer naturally and directly. Do not act like a corporate support bot unless the user asks about ProofTTL.",
           "Keep Discord replies compact and readable. Markdown is allowed. Never use mass mentions such as @everyone or @here.",
           "Do not claim you performed external actions unless an authoritative connected capability actually confirms it.",
