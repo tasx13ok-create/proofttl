@@ -48,6 +48,7 @@ function completeEnv() {
     CDP_API_KEY_SECRET: "secret",
     PROOFTTL_SIGNING_PRIVATE_JWK: "{}",
     BETTER_AUTH_SECRET: "auth-secret",
+    BETTER_AUTH_URL: "https://proofttl.tasx13ok.workers.dev",
     PROOFTTL_AUTH_TRUSTED_ORIGINS: "https://proofttl-web-git-main-tasx13ok-1769s-projects.vercel.app",
     PROOFTTL_AUTH_CROSS_ORIGIN: "true",
     PROOFTTL_ASSISTANT_FREE_DAILY_MESSAGES: "20",
