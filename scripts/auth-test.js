@@ -20,7 +20,7 @@ function assert(condition, message) {
 async function run() {
   const baseRequest = new Request("https://proofttl.tasx13ok.workers.dev/api/auth/get-session");
   const disabled = authRuntimeStatus({}, baseRequest);
-  assert(disabled.configured === false, "auth is disabled without D1 and secret");
+  assert(disabled.configured === false, "auth is disabled without D1, secret, and base URL");
   assert(disabled.totp === false, "TOTP is not advertised without auth storage/secret");
   assert(disabled.emailSignIn === false, "email sign-in remains disabled without delivery infrastructure");
   assert(disabled.basePath === AUTH_PATH_PREFIX, "auth base path is stable");
@@ -33,6 +33,7 @@ async function run() {
   const env = {
     MONITOR_DB: {},
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef",
+    BETTER_AUTH_URL: "https://proofttl.tasx13ok.workers.dev",
     GITHUB_CLIENT_ID: "github-client",
     GITHUB_CLIENT_SECRET: "github-secret",
     PROOFTTL_AUTH_TRUSTED_ORIGINS: "https://app.example.test, https://preview.example.test",
@@ -41,7 +42,7 @@ async function run() {
   };
 
   const enabled = authRuntimeStatus(env, baseRequest);
-  assert(enabled.configured === true, "D1 plus auth secret enable the auth backend");
+  assert(enabled.configured === true, "D1, auth secret, and Better Auth base URL enable the auth backend");
   assert(enabled.socialProviders.github === true, "configured GitHub OAuth is advertised");
   assert(enabled.socialProviders.google === false, "unconfigured Google OAuth is not advertised");
   assert(enabled.socialProviders.discord === false, "unconfigured Discord OAuth is not advertised");
