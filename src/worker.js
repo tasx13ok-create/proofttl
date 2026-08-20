@@ -4,6 +4,7 @@ import { handleTextAssistant } from "./assistant-text.js";
 import { handleStudioChat } from "./studio-chat.js";
 import { handleStudioRun, runnerConfigured } from "./studio-runner.js";
 import { assistantModelCatalog } from "./assistant-model-router.js";
+import { capabilityRegistry, planCapabilityAction } from "./capability-registry.js";
 import { handleAccountWorkspace } from "./account-workspace.js";
 import { handleAuditIntake } from "./audit-intake.js";
 import { handleAuditStatus, handleAuditAdmin, auditAdminAuthorized } from "./audit-sales.js";
@@ -23,6 +24,8 @@ const ASSISTANT_VOICE_PATH = "/assistant/voice";
 const ASSISTANT_TEXT_PATH = "/assistant/text";
 const ASSISTANT_USAGE_PATH = "/assistant/usage";
 const ASSISTANT_MODELS_PATH = "/assistant/models";
+const CAPABILITIES_PATH = "/capabilities";
+const ACTION_PLAN_PATH = "/actions/plan";
 const STUDIO_CHAT_PATH = "/studio/chat";
 const STUDIO_RUN_PATH = "/studio/run";
 const STUDIO_RUNNER_STATUS_PATH = "/studio/runner";
@@ -87,6 +90,17 @@ export default {
 
     if (request.method === "GET" && pathname === READINESS_PATH) return applyApiCors(Response.json(await getDeploymentReadiness(env, request), { headers: { "cache-control": "no-store" } }));
 
+    if (request.method === "GET" && pathname === CAPABILITIES_PATH) {
+      return applyApiCors(Response.json(capabilityRegistry(env), { headers: { "cache-control": "no-store" } }));
+    }
+
+    if (request.method === "POST" && pathname === ACTION_PLAN_PATH) {
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return applyApiCors(Response.json({ error: "invalid_json" }, { status: 400, headers: { "cache-control": "no-store" } }));
+      const plan = planCapabilityAction(body);
+      return applyApiCors(Response.json(plan, { status: plan.ok ? 200 : 400, headers: { "cache-control": "no-store" } }));
+    }
+
     if (request.method === "GET" && pathname === AUTH_DISCOVERY_PATH) {
       const status = authRuntimeStatus(env, request);
       return applyApiCors(Response.json({ service: "ProofTTL Auth", backend: "better-auth", endpoint: `${AUTH_PATH_PREFIX}/*`, configured: status.configured, database: status.database, sign_in: { github: status.socialProviders.github, google: status.socialProviders.google, discord: status.socialProviders.discord, email: status.emailSignIn, passkey: status.passkeys }, security: { totp: status.totp, recovery_codes: status.recoveryCodes, passkeys: status.passkeys, secure_http_only_sessions: true, origin_allowlist: true, csrf_protection: true } }, { headers: { "cache-control": "no-store" } }));
@@ -123,7 +137,7 @@ export default {
         service: "ProofTTL Assistant", version: PRODUCT_VERSION,
         persona: { name: "L.O.V.E.", role: "ProofTTL product intelligence" },
         interaction: "text_or_voice_input_text_and_optional_voice_output",
-        endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, usage: ASSISTANT_USAGE_PATH, models: ASSISTANT_MODELS_PATH, studio: STUDIO_CHAT_PATH, studio_runner: STUDIO_RUN_PATH },
+        endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, usage: ASSISTANT_USAGE_PATH, models: ASSISTANT_MODELS_PATH, capabilities: CAPABILITIES_PATH, action_plan: ACTION_PLAN_PATH, studio: STUDIO_CHAT_PATH, studio_runner: STUDIO_RUN_PATH },
         endpoint: ASSISTANT_VOICE_PATH,
         input: { voice_content_type: "audio/*", text_content_type: "application/json", max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes },
         output: { text: true, voice: true, voice_encoding: "mp3", voice_capability: loveCapability(anonymousQuota, env) },
