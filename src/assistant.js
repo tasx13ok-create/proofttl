@@ -11,6 +11,7 @@ const DEFAULT_LOVE_SPEAKER = "atlas";
 const DEFAULT_MAX_AUDIO_BYTES = 512 * 1024;
 const MAX_TRANSCRIPT_CHARS = 700;
 const LEASE_ID_PATTERN = /\bftl_[a-f0-9]{16,64}\b/i;
+export const LOVE_CREATOR_RESPONSE = "Anderson, Collin. CEO. Orchestrator. Raised in New York. Born November 2006.";
 
 const NAVIGATION_RULES = [
   { section: "payments", route: "/console/", label: "Payments", patterns: [/\bpayments?\b/i, /\btransactions?\b/i, /\bbilling\b/i] },
@@ -120,6 +121,19 @@ export async function handleVoiceAssistant(request, env) {
       { error: "speech_not_recognized", message: "I could not confidently hear that. Try saying it again.", quota },
       422
     );
+  }
+
+  if (isLoveCreatorQuestion(transcript)) {
+    return jsonResponse({
+      transcript,
+      response: LOVE_CREATOR_RESPONSE,
+      action: null,
+      quota,
+      love: loveCapability(quota, env),
+      speech: await synthesizeLoveSpeech(LOVE_CREATOR_RESPONSE, quota, env),
+      context: { lease_grounding: { requested: false, found: false, lease_id: null } },
+      inference: { transcription_model: WHISPER_MODEL, response_model: null, speech_model: LOVE_TTS_MODEL, deterministic_route: true }
+    });
   }
 
   const action = matchAssistantNavigation(transcript);
@@ -347,9 +361,16 @@ export function matchAssistantNavigation(transcript) {
   return null;
 }
 
+export function isLoveCreatorQuestion(value) {
+  const text = normalizeTranscript(value).toLowerCase();
+  return /\bwho (made|created|built|developed|designed) (you|l\.?o\.?v\.?e\.?)\b/.test(text)
+    || /\bwho('?s| is) your (creator|maker|developer|founder)\b/.test(text);
+}
+
 export function assistantSystemPrompt() {
   return [
     "You are L.O.V.E., the general-purpose intelligence and control layer for the ProofTTL Workspace.",
+    `If asked who made, created, built, developed, or designed you, answer exactly: ${LOVE_CREATOR_RESPONSE}`,
     "Talk naturally. You can handle ordinary conversation, explanations, reasoning, planning, creative work, coding questions, and general assistant requests.",
     "Do not force unrelated conversation back to ProofTTL and do not repeatedly list product capabilities.",
     "If a user gives a short conversational fragment such as yeah, do you, are you, or can you hear me, respond to the fragment naturally; ask a short clarifying question when its meaning depends on missing context.",
@@ -418,11 +439,10 @@ function cleanAssistantResponse(value) {
   return value.replace(/\s+/g, " ").trim().slice(0, 900);
 }
 
-function extractAssistantResponse(value) {
-  if (typeof value === "string") return value;
-  if (typeof value?.response === "string") return value.response;
-  if (typeof value?.choices?.[0]?.message?.content === "string") return value.choices[0].message.content;
-  return "";
+function parseContentLength(value) {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function positiveInt(value, fallback) {
@@ -430,42 +450,39 @@ function positiveInt(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function parseContentLength(value) {
-  if (value === null || value === "") return null;
-  if (!/^\d+$/.test(value)) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
 function audioTooLarge(maxBytes) {
   return jsonResponse(
-    { error: "assistant_audio_too_large", message: `Keep microphone recordings under ${maxBytes} bytes.`, max_bytes: maxBytes },
+    { error: "audio_too_large", message: `Keep the microphone recording under ${maxBytes} bytes.` },
     413
   );
 }
 
-function aiCapacityResponse(transcript = null, quota = null) {
+function extractAssistantResponse(result) {
+  if (typeof result?.response === "string") return result.response;
+  if (typeof result?.result?.response === "string") return result.result.response;
+  const choice = result?.choices?.[0]?.message?.content || result?.result?.choices?.[0]?.message?.content;
+  return typeof choice === "string" ? choice : "";
+}
+
+function aiCapacityResponse(transcript, quota) {
   return jsonResponse(
     {
       error: "assistant_capacity_unavailable",
-      message: "L.O.V.E. voice has reached its current AI capacity or a model is temporarily unavailable. Try again later.",
-      ...(transcript ? { transcript } : {}),
-      ...(quota ? { quota } : {})
+      message: "L.O.V.E. has reached its current AI capacity or the model is temporarily unavailable. Try again later.",
+      transcript,
+      quota
     },
     503
   );
 }
 
-function safeErrorName(error) {
-  return error?.name || error?.constructor?.name || "Error";
-}
-
-function jsonResponse(body, status = 200, extraHeaders = {}) {
+function jsonResponse(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extraHeaders }
+    headers: { "content-type": "application/json; charset=utf-8", ...headers }
   });
 }
 
-export const ASSISTANT_MODELS = Object.freeze({ transcription: WHISPER_MODEL, response: DEFAULT_ASSISTANT_RESPONSE_MODEL, speech: LOVE_TTS_MODEL });
-export const ASSISTANT_LIMITS = Object.freeze({ maxAudioBytes: DEFAULT_MAX_AUDIO_BYTES, maxTranscriptChars: MAX_TRANSCRIPT_CHARS });
+function safeErrorName(error) {
+  return error?.name || error?.constructor?.name || "Error";
+}
