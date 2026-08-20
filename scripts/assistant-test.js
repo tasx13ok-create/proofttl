@@ -55,6 +55,14 @@ check("security navigation is allowlisted", () => {
   });
 });
 
+check("main menu navigation resolves to Workspace", () => {
+  assert.deepEqual(matchAssistantNavigation("go to the main menu"), {
+    section: "home",
+    route: "/workspace/",
+    label: "Workspace"
+  });
+});
+
 check("arbitrary navigation target is rejected", () => {
   assert.equal(matchAssistantNavigation("open javascript alert dot com"), null);
 });
@@ -63,13 +71,24 @@ check("assistant prompt forbids fabricated account state", () => {
   assert.match(assistantSystemPrompt(), /Never invent account data/i);
 });
 
+check("assistant prompt supports normal conversation", () => {
+  assert.match(assistantSystemPrompt(), /Talk naturally/i);
+  assert.doesNotMatch(assistantSystemPrompt(), /Answer only questions about ProofTTL/i);
+});
+
+check("voice uses Whisper large v3 turbo", () => {
+  assert.equal(ASSISTANT_MODELS.transcription, "@cf/openai/whisper-large-v3-turbo");
+});
+
 {
   let aiCalls = 0;
+  let transcriptionOptions = null;
   const response = await handleVoiceAssistant(audioRequest(), {
     AI: {
-      async run(model) {
+      async run(model, options) {
         aiCalls += 1;
         assert.equal(model, ASSISTANT_MODELS.transcription);
+        transcriptionOptions = options;
         return { text: "Take me to payments" };
       }
     },
@@ -77,6 +96,12 @@ check("assistant prompt forbids fabricated account state", () => {
   });
   const body = await response.json();
 
+  check("voice transcription enables English conversational VAD", () => {
+    assert.equal(transcriptionOptions?.language, "en");
+    assert.equal(transcriptionOptions?.vad_filter, true);
+    assert.equal(transcriptionOptions?.condition_on_previous_text, false);
+    assert.match(transcriptionOptions?.initial_prompt || "", /can you hear me/i);
+  });
   check("deterministic navigation returns HTTP 200", () => assert.equal(response.status, 200));
   check("deterministic navigation skips text LLM", () => assert.equal(aiCalls, 1));
   check("deterministic navigation returns structured action", () => {
@@ -107,13 +132,31 @@ check("assistant prompt forbids fabricated account state", () => {
   });
   const body = await response.json();
 
-  check("product question uses transcription then micro model", () => {
+  check("product question uses transcription then response model", () => {
     assert.deepEqual(models, [ASSISTANT_MODELS.transcription, ASSISTANT_MODELS.response]);
   });
   check("product question returns text with no navigation action", () => {
     assert.equal(response.status, 200);
     assert.equal(body.action, null);
     assert.match(body.response, /REVOKED/);
+  });
+}
+
+{
+  const response = await handleVoiceAssistant(audioRequest(), {
+    AI: {
+      async run(model) {
+        if (model === ASSISTANT_MODELS.transcription) return { text: "do you?" };
+        return { response: "" };
+      }
+    },
+    ASSISTANT_RATE_LIMITER: limiter()
+  });
+  const body = await response.json();
+  check("short ambiguous voice fragments never fall back to old ProofTTL capability list", () => {
+    assert.equal(response.status, 200);
+    assert.match(body.response, /What about me|Finish the thought/i);
+    assert.doesNotMatch(body.response, /Fact Leases, the API, x402/i);
   });
 }
 
