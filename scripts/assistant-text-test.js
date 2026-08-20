@@ -21,6 +21,9 @@ function makeEnv() {
         if (/what is proofttl/i.test(last)) {
           return { response: "ProofTTL turns changing factual claims into source-backed Fact Leases that expire and can be rechecked when evidence changes." };
         }
+        if (/why is the sky blue/i.test(last)) {
+          return { response: "The sky looks blue because Earth's atmosphere scatters shorter blue wavelengths of sunlight more strongly than longer red wavelengths." };
+        }
         return { response: "A Fact Lease is a source-backed claim with an expiry." };
       }
     },
@@ -68,6 +71,16 @@ assert.equal(env.calls.length, 1, "product conversation should invoke the lightw
 quota = await getAssistantQuota(req({ message: "status" }), env);
 assert.equal(quota.used, 1, "conversational product questions spend AI quota");
 
+const general = await handleTextAssistant(req({ message: "why is the sky blue" }), env);
+assert.equal(general.status, 200);
+const generalBody = await general.json();
+assert.match(generalBody.response, /atmosphere|wavelength/i, "general non-ProofTTL questions must receive normal model answers");
+assert.equal(generalBody.action, null);
+assert.equal(env.calls.length, 2, "general conversation should invoke the model normally");
+const generalPrompt = env.calls[1].input.messages.map((item) => item.content).join("\n");
+assert.match(generalPrompt, /general-purpose AI assistant/i, "general-purpose scope must be explicit");
+assert.doesNotMatch(generalPrompt, /working scope is ProofTTL|ProofTTL-only boundary applies/i, "legacy ProofTTL-only refusal rules must stay removed");
+
 const history = [
   { role: "user", content: "old 1" },
   { role: "assistant", content: "old 2" },
@@ -88,11 +101,11 @@ assert.equal(answer.status, 200);
 const answerBody = await answer.json();
 assert.match(answerBody.response, /Fact Lease/i);
 assert.equal(answerBody.context.history_messages_used, 5, "invalid history roles are removed after six-message tail bounding");
-assert.equal(answerBody.quota.used, 2);
-assert.equal(answerBody.quota.remaining, 18);
-assert.equal(env.calls.length, 2);
+assert.equal(answerBody.quota.used, 3);
+assert.equal(answerBody.quota.remaining, 17);
+assert.equal(env.calls.length, 3);
 
-const sentMessages = env.calls[1].input.messages;
+const sentMessages = env.calls[2].input.messages;
 assert.equal(sentMessages[0].role, "system");
 assert.equal(sentMessages.at(-1).role, "user");
 assert.equal(sentMessages.at(-1).content, "Tell me how the verifier decides whether semantic evidence is enough.");
