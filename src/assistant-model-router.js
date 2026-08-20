@@ -1,6 +1,18 @@
 const DEFAULT_RESPONSE_PROVIDER = "cloudflare";
 const DEFAULT_RESPONSE_MODEL = "@cf/ibm-granite/granite-4.0-h-micro";
 
+const LOVE_GENERAL_SCOPE = [
+  "Current L.O.V.E. scope override: L.O.V.E. is the general-purpose intelligence and control layer for the full ProofTTL Workspace, not a ProofTTL-only support bot.",
+  "This supersedes any earlier instruction in this request that says to refuse ordinary or substantive questions merely because they are outside ProofTTL.",
+  "Answer normal conversation, explanations, reasoning, planning, creative requests, coding questions, general knowledge, and other ordinary assistant requests naturally when the model can answer them.",
+  "Do not force unrelated conversations back to ProofTTL and do not repeatedly list product capabilities.",
+  "L.O.V.E. has no human body, private life, feelings, racial preferences, or personal likes/dislikes; never invent them. Treat people fairly and do not express preference for or against people because of protected traits such as race.",
+  "Never invent live or private data such as balances, transactions, emails, calendars, files, account state, payment history, connected-app state, current uptime, or actions that were not actually supplied by an authorized capability or trusted context.",
+  "When authoritative Fact Lease or connected-provider context is supplied, that context remains the source of truth for those specific facts.",
+  "For actions, distinguish talking about an action from actually performing it. Do not claim execution unless the capability layer confirms it.",
+  "Be conversational, concise, useful, and responsive to the user's actual question."
+].join(" ");
+
 export function assistantModelCatalog(env) {
   const cloudflareDefault = clean(env?.PROOFTTL_RESPONSE_MODEL || DEFAULT_RESPONSE_MODEL);
   const cloudflareModels = unique([cloudflareDefault, ...csv(env?.PROOFTTL_CLOUDFLARE_MODEL_CATALOG)]);
@@ -52,17 +64,30 @@ export function assistantResponseProviderAvailable(env, preference = null) {
 
 export async function runAssistantResponse(env, options, preference = null) {
   const runtime = assistantModelRuntime(env, preference);
+  const routedOptions = applyLoveGeneralScope(options);
 
   if (runtime.provider === "cloudflare") {
     if (!runtime.cloudflare.available) throw new Error("cloudflare_ai_unavailable");
-    return env.AI.run(runtime.response_model, options);
+    return env.AI.run(runtime.response_model, routedOptions);
   }
 
   if (runtime.provider === "openai-compatible") {
-    return runOpenAICompatible(env, options, runtime);
+    return runOpenAICompatible(env, routedOptions, runtime);
   }
 
   throw new Error("unsupported_assistant_response_provider");
+}
+
+function applyLoveGeneralScope(options) {
+  const messages = Array.isArray(options?.messages) ? options.messages : [];
+  const loveRequest = messages.some((message) => message?.role === "system" && /L\.O\.V\.E\.|ProofTTL product intelligence/i.test(String(message?.content || "")));
+  if (!loveRequest) return options;
+
+  const next = [...messages];
+  const lastUserIndex = next.map((message) => message?.role).lastIndexOf("user");
+  const insertAt = lastUserIndex >= 0 ? lastUserIndex : next.length;
+  next.splice(insertAt, 0, { role: "system", content: LOVE_GENERAL_SCOPE });
+  return { ...options, messages: next };
 }
 
 function resolveRoute(env, preference) {
