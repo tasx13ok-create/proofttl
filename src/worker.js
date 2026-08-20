@@ -5,6 +5,7 @@ import { handleStudioChat } from "./studio-chat.js";
 import { handleStudioRun, runnerConfigured } from "./studio-runner.js";
 import { assistantModelCatalog } from "./assistant-model-router.js";
 import { capabilityRegistry } from "./capability-registry.js";
+import { planNaturalLanguageCommand } from "./command-planner.js";
 import { handleActionPlan, handleAccountActions } from "./action-control.js";
 import { handleAccountAutomations } from "./account-automations.js";
 import { handleAccountWorkspace } from "./account-workspace.js";
@@ -27,6 +28,7 @@ const ASSISTANT_TEXT_PATH = "/assistant/text";
 const ASSISTANT_USAGE_PATH = "/assistant/usage";
 const ASSISTANT_MODELS_PATH = "/assistant/models";
 const CAPABILITIES_PATH = "/capabilities";
+const COMMAND_PLAN_PATH = "/commands/plan";
 const ACTION_PLAN_PATH = "/actions/plan";
 const ACCOUNT_ACTIONS_PATH = "/account/actions";
 const ACCOUNT_AUTOMATIONS_PATH = "/account/automations";
@@ -110,6 +112,12 @@ export default {
       return applyApiCors(Response.json(capabilityRegistry(env), { headers: { "cache-control": "no-store" } }));
     }
 
+    if (request.method === "POST" && pathname === COMMAND_PLAN_PATH) {
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body.command !== "string") return applyApiCors(Response.json({ error: "command_required" }, { status: 400, headers: { "cache-control": "no-store" } }));
+      return applyApiCors(Response.json(planNaturalLanguageCommand(body.command), { headers: { "cache-control": "no-store" } }));
+    }
+
     if (pathname === ACTION_PLAN_PATH) {
       const response = await handleActionPlan(request, env);
       return applyApiCors(response);
@@ -151,7 +159,7 @@ export default {
         service: "ProofTTL Assistant", version: PRODUCT_VERSION,
         persona: { name: "L.O.V.E.", role: "ProofTTL product intelligence" },
         interaction: "text_or_voice_input_text_and_optional_voice_output",
-        endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, usage: ASSISTANT_USAGE_PATH, models: ASSISTANT_MODELS_PATH, capabilities: CAPABILITIES_PATH, action_plan: ACTION_PLAN_PATH, account_actions: ACCOUNT_ACTIONS_PATH, account_automations: ACCOUNT_AUTOMATIONS_PATH, studio: STUDIO_CHAT_PATH, studio_runner: STUDIO_RUN_PATH },
+        endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, usage: ASSISTANT_USAGE_PATH, models: ASSISTANT_MODELS_PATH, capabilities: CAPABILITIES_PATH, command_plan: COMMAND_PLAN_PATH, action_plan: ACTION_PLAN_PATH, account_actions: ACCOUNT_ACTIONS_PATH, account_automations: ACCOUNT_AUTOMATIONS_PATH, studio: STUDIO_CHAT_PATH, studio_runner: STUDIO_RUN_PATH },
         endpoint: ASSISTANT_VOICE_PATH,
         input: { voice_content_type: "audio/*", text_content_type: "application/json", max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes },
         output: { text: true, voice: true, voice_encoding: "mp3", voice_capability: loveCapability(anonymousQuota, env) },
