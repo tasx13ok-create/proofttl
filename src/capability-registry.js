@@ -12,6 +12,7 @@ const DEFINITIONS = Object.freeze([
   { id: 'studio.chat', area: 'studio', risk: 'read', state: 'live', label: 'Coding model assistance' },
   { id: 'studio.projects', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Account-owned Studio projects' },
   { id: 'studio.run', area: 'studio', risk: 'sensitive', state: 'built_locked', label: 'Isolated code execution' },
+  { id: 'worlds.compose', area: 'worlds', risk: 'modify', state: 'live', label: 'Compose and render structured browser 3D scenes' },
   { id: 'models.catalog', area: 'connections', risk: 'read', state: 'built_locked', label: 'Read approved cloud AI model catalog' },
   { id: 'models.use', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Use approved cloud AI models in projects' },
   { id: 'github.read', area: 'connections', risk: 'read', state: 'built_locked', label: 'Read connected GitHub repositories, issues, and pull requests' },
@@ -19,9 +20,9 @@ const DEFINITIONS = Object.freeze([
   { id: 'github.delete', area: 'connections', risk: 'sensitive', state: 'built_locked', label: 'Delete connected GitHub repository content' },
   { id: 'vercel.read', area: 'connections', risk: 'read', state: 'built_locked', label: 'Read connected Vercel projects, deployments, and logs' },
   { id: 'vercel.deploy', area: 'studio', risk: 'sensitive', state: 'built_locked', label: 'Deploy a project to connected Vercel account' },
-  { id: 'creative.image.generate', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Generate project images and visual assets' },
-  { id: 'creative.world.generate', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Generate structured 3D scenes and environments' },
-  { id: 'creative.render', area: 'studio', risk: 'modify', state: 'built_locked', label: 'Render approved scenes or project visuals' },
+  { id: 'creative.image.generate', area: 'worlds', risk: 'modify', state: 'built_locked', label: 'Generate project images and visual assets' },
+  { id: 'creative.world.generate', area: 'worlds', risk: 'modify', state: 'built_locked', label: 'Generate model-produced 3D scenes, meshes, and environments' },
+  { id: 'creative.render', area: 'worlds', risk: 'modify', state: 'built_locked', label: 'Render provider-backed scenes or project visuals' },
   { id: 'account.security', area: 'security', risk: 'sensitive', state: 'built_locked', label: 'Passkeys, MFA and sessions' },
   { id: 'account.models', area: 'connections', risk: 'modify', state: 'built_locked', label: 'Approved AI model selection' },
   { id: 'money.read', area: 'money', risk: 'read', state: 'planned', label: 'Financial data intelligence' },
@@ -55,11 +56,11 @@ export function capabilityRegistry(env = {}) {
   };
 
   const capabilities = DEFINITIONS.map((item) => ({ ...item, policy: RISK[item.risk], ready: capabilityReady(item.id, runtime) }));
-  return { service: 'ProofTTL Capability Registry', version: 2, principle: 'user_intent_over_app_selection', provider_adapter_contract: true, policy: RISK, runtime, capabilities };
+  return { service: 'ProofTTL Capability Registry', version: 3, principle: 'user_intent_over_app_selection', provider_adapter_contract: true, policy: RISK, runtime, capabilities };
 }
 
 function capabilityReady(id, runtime) {
-  if (id === 'love.command' || id === 'truth.verify' || id === 'truth.audit') return true;
+  if (id === 'love.command' || id === 'truth.verify' || id === 'truth.audit' || id === 'worlds.compose') return true;
   if (id === 'studio.chat' || id === 'models.catalog' || id === 'models.use') return runtime.ai;
   if (id === 'studio.projects' || id === 'account.models' || id.startsWith('files.') || id.startsWith('work.tasks.') || id === 'automations.manage') return runtime.auth;
   if (id === 'studio.run') return runtime.auth && runtime.sandbox;
