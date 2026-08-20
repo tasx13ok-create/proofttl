@@ -51,7 +51,7 @@ function isAssistantPath(pathname) { return pathname === ASSISTANT_VOICE_PATH ||
 function isAccountActionsPath(pathname) { return pathname === ACCOUNT_ACTIONS_PATH || pathname.startsWith(`${ACCOUNT_ACTIONS_PATH}/`); }
 function isAccountAutomationsPath(pathname) { return pathname === ACCOUNT_AUTOMATIONS_PATH || pathname.startsWith(`${ACCOUNT_AUTOMATIONS_PATH}/`); }
 function isAccountWorkspacePath(pathname) { return pathname === ACCOUNT_PREFERENCES_PATH || pathname === ACCOUNT_AUDITS_PATH || pathname === STUDIO_PROJECTS_PATH || pathname.startsWith(`${STUDIO_PROJECTS_PATH}/`); }
-function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || isAccountWorkspacePath(pathname) || isAccountActionsPath(pathname) || isAccountAutomationsPath(pathname); }
+function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || pathname === ACTION_PLAN_PATH || isAccountWorkspacePath(pathname) || isAccountActionsPath(pathname) || isAccountAutomationsPath(pathname); }
 
 export default {
   async fetch(request, env, ctx) {
@@ -120,7 +120,7 @@ export default {
 
     if (pathname === ACTION_PLAN_PATH) {
       const response = await handleActionPlan(request, env);
-      return applyApiCors(response);
+      return applyAuthCors(response, request, env);
     }
 
     if (request.method === "GET" && pathname === AUTH_DISCOVERY_PATH) {
