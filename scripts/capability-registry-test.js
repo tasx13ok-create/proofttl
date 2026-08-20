@@ -10,6 +10,8 @@ function assert(condition, message) {
 const empty = capabilityRegistry({});
 assert(empty.principle === 'user_intent_over_app_selection', 'registry preserves universal intent-first principle');
 assert(Array.isArray(empty.capabilities) && empty.capabilities.length >= 10, 'registry exposes cross-platform capability catalog');
+assert(empty.capabilities.some((item) => item.id === 'worlds.compose' && item.area === 'worlds' && item.ready === true), 'native browser Worlds composition is live without a cloud generation provider');
+assert(empty.capabilities.some((item) => item.id === 'creative.world.generate' && item.area === 'worlds' && item.ready === false), 'cloud 3D generation stays locked without a real provider');
 assert(empty.capabilities.some((item) => item.id === 'money.move' && item.risk === 'sensitive'), 'money movement is classified as sensitive');
 assert(empty.capabilities.some((item) => item.id === 'work.mail.send' && item.risk === 'sensitive'), 'sending mail is classified as sensitive');
 assert(empty.capabilities.some((item) => item.id === 'files.delete' && item.risk === 'sensitive'), 'file deletion is classified as sensitive');
