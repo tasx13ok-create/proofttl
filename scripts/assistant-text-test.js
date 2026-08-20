@@ -18,11 +18,15 @@ function makeEnv() {
       async run(model, input) {
         calls.push({ model, input });
         const last = input?.messages?.at(-1)?.content || "";
+        const prompt = input?.messages?.map((item) => item.content).join("\n") || "";
         if (/what is proofttl/i.test(last)) {
           return { response: "ProofTTL turns changing factual claims into source-backed Fact Leases that expire and can be rechecked when evidence changes." };
         }
         if (/why is the sky blue/i.test(last)) {
           return { response: "The sky looks blue because Earth's atmosphere scatters shorter blue wavelengths of sunlight more strongly than longer red wavelengths." };
+        }
+        if (/give me something/i.test(last) && /active conversation is coding/i.test(prompt)) {
+          return { response: "Let's build a tiny counter.\n\n```javascript\nlet count = 0;\nfor (let i = 0; i < 5; i++) count += i;\nconsole.log(count);\n```" };
         }
         return { response: "A Fact Lease is a source-backed claim with an expiry." };
       }
@@ -81,6 +85,18 @@ const generalPrompt = env.calls[1].input.messages.map((item) => item.content).jo
 assert.match(generalPrompt, /general-purpose AI assistant/i, "general-purpose scope must be explicit");
 assert.doesNotMatch(generalPrompt, /working scope is ProofTTL|ProofTTL-only boundary applies/i, "legacy ProofTTL-only refusal rules must stay removed");
 
+const codingHistory = [
+  { role: "user", content: "good, lets code" },
+  { role: "assistant", content: "Sure. What should we build?" }
+];
+const coding = await handleTextAssistant(req({ message: "anything give me something", history: codingHistory }), env);
+assert.equal(coding.status, 200);
+const codingBody = await coding.json();
+assert.equal(codingBody.context?.coding_context, true, "short follow-ups must inherit active coding context");
+assert.match(codingBody.response, /```javascript\n/, "coding replies must preserve fenced code formatting");
+assert.match(codingBody.response, /console\.log/, "runnable code must survive response cleaning");
+assert.match(env.calls.at(-1).input.messages.map((item) => item.content).join("\n"), /Pick a useful mini-project now/i, "vague coding follow-ups must get a concrete-project instruction");
+
 const history = [
   { role: "user", content: "old 1" },
   { role: "assistant", content: "old 2" },
@@ -101,11 +117,10 @@ assert.equal(answer.status, 200);
 const answerBody = await answer.json();
 assert.match(answerBody.response, /Fact Lease/i);
 assert.equal(answerBody.context.history_messages_used, 5, "invalid history roles are removed after six-message tail bounding");
-assert.equal(answerBody.quota.used, 3);
-assert.equal(answerBody.quota.remaining, 17);
-assert.equal(env.calls.length, 3);
+assert.equal(answerBody.quota.used, 4);
+assert.equal(answerBody.quota.remaining, 16);
 
-const sentMessages = env.calls[2].input.messages;
+const sentMessages = env.calls.at(-1).input.messages;
 assert.equal(sentMessages[0].role, "system");
 assert.equal(sentMessages.at(-1).role, "user");
 assert.equal(sentMessages.at(-1).content, "Tell me how the verifier decides whether semantic evidence is enough.");
