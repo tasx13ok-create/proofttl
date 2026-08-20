@@ -1,7 +1,7 @@
 import { actionPolicy } from './capability-registry.js';
 
 const NAV = [
-  { route: '/workspace/', label: 'Workspace', patterns: [/\bworkspace\b/i, /\bcommand\s+center\b/i, /\bcontrol\s+center\b/i, /\bai\s+os\b/i] },
+  { route: '/workspace/', label: 'Workspace', patterns: [/\bworkspace\b/i, /\bcommand\s+center\b/i, /\bcontrol\s+center\b/i, /\bai\s+os\b/i, /\bmain\s+menu\b/i, /\bmain\s+workspace\b/i, /\bdashboard\b/i] },
   { route: '/money/', label: 'Money', patterns: [/\bmoney\b/i, /\bfinancial\b/i, /\bbanking\b/i] },
   { route: '/work/', label: 'Work', patterns: [/\bwork\b/i, /\bemail\b/i, /\bcalendar\b/i, /\btasks?\b/i, /\bto[- ]?do\b/i] },
   { route: '/files/', label: 'Files', patterns: [/\bfiles?\b/i, /\blibrary\b/i] },
