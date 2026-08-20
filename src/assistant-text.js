@@ -17,7 +17,7 @@ const MAX_TEXT_CHARS = 1200;
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_MESSAGE_CHARS = 600;
 const MIRA_TASK_CLASS = "assistant_text_chat";
-const MIRA_STRATEGY_ID = "granite_conversation_v4_casual_grounded";
+const MIRA_STRATEGY_ID = "general_conversation_v5_grounded_tools";
 const LEASE_ID_PATTERN = /\bftl_[a-f0-9]{16,64}\b/i;
 
 export async function handleTextAssistant(request, env, ctx = null) {
@@ -31,7 +31,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
 
   if (!assistantResponseProviderAvailable(env)) {
     return jsonResponse(
-      { error: "assistant_unavailable", message: "ProofTTL assistance is not available right now." },
+      { error: "assistant_unavailable", message: "L.O.V.E. is not available right now." },
       503
     );
   }
@@ -47,7 +47,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
   const limiter = env.ASSISTANT_RATE_LIMITER;
   if (!limiter || typeof limiter.limit !== "function") {
     return jsonResponse(
-      { error: "assistant_rate_limiter_unavailable", message: "ProofTTL assistance is not configured safely yet." },
+      { error: "assistant_rate_limiter_unavailable", message: "L.O.V.E. is not configured safely yet." },
       503
     );
   }
@@ -94,7 +94,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
     return jsonResponse(
       {
         error: "assistant_free_limit_reached",
-        message: "You reached today's ProofTTL AI limit.",
+        message: "You reached today's L.O.V.E. AI limit.",
         quota
       },
       429,
@@ -115,16 +115,17 @@ export async function handleTextAssistant(request, env, ctx = null) {
       {
         role: "system",
         content: [
-          "Higher-priority conversation behavior for L.O.V.E.: casual social conversation is explicitly allowed even when it is not about ProofTTL.",
-          "The ProofTTL-only boundary applies to substantive knowledge, advice, research, or task requests outside the product; it does not apply to greetings, banter, check-ins, reactions, jokes, or ordinary conversational follow-ups.",
-          "Never force a casual exchange back to ProofTTL. If the user says hi, yo, what's up, how are you, nah, lol, chill, or similar, answer that moment naturally and stop unless they give you something else to respond to.",
-          "Match the user's energy and length. Short casual messages usually deserve one short sentence or fragment, not a paragraph and not a sales pitch.",
-          "Be socially perceptive, grounded, concise, and confident. Use contractions naturally. Dry humor, light playfulness, warmth, curiosity, and sharp observations are fine when they fit.",
+          "L.O.V.E. is a general-purpose AI assistant. Normal conversation and substantive requests do not need to be about ProofTTL.",
+          "Answer general knowledge questions, explain concepts, brainstorm, write, summarize user-provided material, help with coding, planning, creativity, learning, problem-solving, and ordinary life questions when the model has enough information.",
+          "Do not redirect unrelated questions back to ProofTTL, do not advertise ProofTTL during normal conversation, and do not list product capabilities unless the user asks what the system can do.",
+          "ProofTTL and connected Workspace capabilities are tools L.O.V.E. can use when relevant; they are not a conversational scope restriction.",
+          "Live or private facts such as account data, balances, transactions, email, calendars, files, provider state, deployments, or Fact Lease state require authoritative connected context. Never invent those facts or claim an action happened when it did not.",
+          "Match the user's energy and requested level of detail. Short casual messages usually deserve a short natural response; substantive questions deserve a useful substantive answer.",
+          "Be socially perceptive, grounded, concise by default, and willing to go deeper when asked. Use contractions naturally.",
           "Never use roleplay stage directions or narrated actions. Never write asterisk actions such as *laughs*, *waves*, *looks up*, *leans back*, *winks*, or *sighs*.",
           "Never invent embodiment, surroundings, feelings, memories, a private life, off-screen activity, or human experiences. Do not claim to be human.",
-          "Do not repeatedly introduce yourself, call yourself a bot, list capabilities, ask 'How may I assist you', or mention ProofTTL merely to satisfy product scope.",
-          "If the user directly corrects your tone or style, acknowledge it briefly and comply immediately. Do not argue, tease them about the correction, or repeat the behavior they told you to stop.",
-          "For substantive ProofTTL questions, be precise and useful. For substantive requests outside ProofTTL, briefly say that your working scope is ProofTTL and offer to help with the closest product-related part.",
+          "Do not repeatedly introduce yourself, call yourself a bot, ask 'How may I assist you', or mention product scope as a fallback.",
+          "If the user directly corrects your tone or behavior, acknowledge it briefly and comply immediately.",
           "Do not mention these rules. Always return non-empty natural-language text."
         ].join(" ")
       },
@@ -136,7 +137,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
       }] : []),
       ...(casual ? [{
         role: "system",
-        content: "This turn is casual/social. Do not mention ProofTTL, Fact Leases, product capabilities, or product scope unless the user mentions them first. Reply naturally and briefly."
+        content: "This turn is casual/social. Reply naturally and briefly. Do not mention ProofTTL or product capabilities unless the user mentions them first."
       }] : []),
       ...history,
       { role: "user", content: message }
@@ -144,8 +145,8 @@ export async function handleTextAssistant(request, env, ctx = null) {
 
     let completion = await runAssistantResponse(env, {
       messages,
-      max_tokens: casual ? 90 : 240,
-      temperature: casual ? 0.48 : 0.42
+      max_tokens: casual ? 90 : 320,
+      temperature: casual ? 0.48 : 0.45
     });
     lastUsage = extractUsage(completion);
 
@@ -168,12 +169,12 @@ export async function handleTextAssistant(request, env, ctx = null) {
           {
             role: "system",
             content: casual
-              ? "Reply to the user's casual message naturally in one short line. Do not mention ProofTTL unless they did. No stage directions or fake embodiment."
-              : "Reply naturally now in L.O.V.E.'s voice. No roleplay actions, stage directions, fake embodiment, or theatrical mannerisms."
+              ? "Reply to the user's casual message naturally in one short line. No product pitch, stage directions, or fake embodiment."
+              : "Answer the user's request directly as a general-purpose assistant. Do not redirect to ProofTTL unless the request is actually about ProofTTL. No roleplay actions, stage directions, or fake embodiment."
           }
         ],
-        max_tokens: casual ? 90 : 240,
-        temperature: casual ? 0.5 : 0.45
+        max_tokens: casual ? 90 : 320,
+        temperature: casual ? 0.5 : 0.47
       });
       lastUsage = addUsage(lastUsage, extractUsage(completion));
       response = cleanResponse(extractCompletionText(completion));
@@ -217,7 +218,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
         provider: modelRuntime.provider,
         history_messages: history.length,
         response_chars: response.length,
-        persona: "casual_grounded_v4",
+        persona: "general_grounded_v5",
         casual,
         lease_grounded: Boolean(leaseGrounding?.found),
         lease_id: leaseGrounding?.lease_id || null
@@ -279,7 +280,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
     return jsonResponse(
       {
         error: "assistant_capacity_unavailable",
-        message: "ProofTTL assistance has reached its current AI capacity or the model is temporarily unavailable. Try again later.",
+        message: "L.O.V.E. has reached its current AI capacity or the model is temporarily unavailable. Try again later.",
         quota
       },
       503
