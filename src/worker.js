@@ -8,6 +8,7 @@ import { capabilityRegistry } from "./capability-registry.js";
 import { planNaturalLanguageCommand } from "./command-planner.js";
 import { handleActionPlan, handleAccountActions } from "./action-control.js";
 import { handleAccountAutomations } from "./account-automations.js";
+import { handleAccountFiles } from "./account-files.js";
 import { handleAccountWorkspace } from "./account-workspace.js";
 import { handleAuditIntake } from "./audit-intake.js";
 import { handleAuditStatus, handleAuditAdmin, auditAdminAuthorized } from "./audit-sales.js";
@@ -32,6 +33,7 @@ const COMMAND_PLAN_PATH = "/commands/plan";
 const ACTION_PLAN_PATH = "/actions/plan";
 const ACCOUNT_ACTIONS_PATH = "/account/actions";
 const ACCOUNT_AUTOMATIONS_PATH = "/account/automations";
+const ACCOUNT_FILES_PATH = "/account/files";
 const STUDIO_CHAT_PATH = "/studio/chat";
 const STUDIO_RUN_PATH = "/studio/run";
 const STUDIO_RUNNER_STATUS_PATH = "/studio/runner";
@@ -50,8 +52,9 @@ function isAuthPath(pathname) { return pathname === AUTH_PATH_PREFIX || pathname
 function isAssistantPath(pathname) { return pathname === ASSISTANT_VOICE_PATH || pathname === ASSISTANT_TEXT_PATH || pathname === ASSISTANT_USAGE_PATH || pathname === ASSISTANT_MODELS_PATH || pathname === STUDIO_CHAT_PATH || pathname === STUDIO_RUN_PATH || pathname === STUDIO_RUNNER_STATUS_PATH; }
 function isAccountActionsPath(pathname) { return pathname === ACCOUNT_ACTIONS_PATH || pathname.startsWith(`${ACCOUNT_ACTIONS_PATH}/`); }
 function isAccountAutomationsPath(pathname) { return pathname === ACCOUNT_AUTOMATIONS_PATH || pathname.startsWith(`${ACCOUNT_AUTOMATIONS_PATH}/`); }
+function isAccountFilesPath(pathname) { return pathname === ACCOUNT_FILES_PATH || pathname.startsWith(`${ACCOUNT_FILES_PATH}/`); }
 function isAccountWorkspacePath(pathname) { return pathname === ACCOUNT_PREFERENCES_PATH || pathname === ACCOUNT_AUDITS_PATH || pathname === STUDIO_PROJECTS_PATH || pathname.startsWith(`${STUDIO_PROJECTS_PATH}/`); }
-function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || pathname === ACTION_PLAN_PATH || isAccountWorkspacePath(pathname) || isAccountActionsPath(pathname) || isAccountAutomationsPath(pathname); }
+function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || pathname === ACTION_PLAN_PATH || isAccountWorkspacePath(pathname) || isAccountActionsPath(pathname) || isAccountAutomationsPath(pathname) || isAccountFilesPath(pathname); }
 
 export default {
   async fetch(request, env, ctx) {
@@ -97,6 +100,11 @@ export default {
 
     if (isAccountAutomationsPath(pathname)) {
       const response = await handleAccountAutomations(request, env, pathname);
+      return applyAuthCors(response, request, env);
+    }
+
+    if (isAccountFilesPath(pathname)) {
+      const response = await handleAccountFiles(request, env, pathname);
       return applyAuthCors(response, request, env);
     }
 
@@ -159,14 +167,19 @@ export default {
         service: "ProofTTL Assistant", version: PRODUCT_VERSION,
         persona: { name: "L.O.V.E.", role: "ProofTTL product intelligence" },
         interaction: "text_or_voice_input_text_and_optional_voice_output",
-        endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, usage: ASSISTANT_USAGE_PATH, models: ASSISTANT_MODELS_PATH, capabilities: CAPABILITIES_PATH, command_plan: COMMAND_PLAN_PATH, action_plan: ACTION_PLAN_PATH, account_actions: ACCOUNT_ACTIONS_PATH, account_automations: ACCOUNT_AUTOMATIONS_PATH, studio: STUDIO_CHAT_PATH, studio_runner: STUDIO_RUN_PATH },
+        endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, usage: ASSISTANT_USAGE_PATH, models: ASSISTANT_MODELS_PATH, capabilities: CAPABILITIES_PATH, command_plan: COMMAND_PLAN_PATH, action_plan: ACTION_PLAN_PATH, account_actions: ACCOUNT_ACTIONS_PATH, account_automations: ACCOUNT_AUTOMATIONS_PATH, account_files: ACCOUNT_FILES_PATH, studio: STUDIO_CHAT_PATH, studio_runner: STUDIO_RUN_PATH },
         endpoint: ASSISTANT_VOICE_PATH,
         input: { voice_content_type: "audio/*", text_content_type: "application/json", max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || ASSISTANT_LIMITS.maxAudioBytes },
         output: { text: true, voice: true, voice_encoding: "mp3", voice_capability: loveCapability(anonymousQuota, env) },
         grounding: { fact_lease_ids: true, source: "live_lease_storage", missing_lease_behavior: "refuse_to_invent" },
         quota: { free_daily_messages: assistantQuotaLimit(env), shared_between_text_and_voice: true, reset: "daily_utc", durable_accounting: Boolean(env?.MONITOR_DB), account_entitlements: true, authenticated_browser_sessions_supported: true },
-        scope: "proofttl_product_only_with_separate_coding_studio", models: ASSISTANT_MODELS,
-        navigation: "allowlisted_non_destructive_only", persistent_actions: "explicit_user_confirmation_required", audio_retention: "none_by_default", free_capacity_behavior: "fail_closed_no_paid_fallback", configured: Boolean(env?.AI && env?.ASSISTANT_RATE_LIMITER)
+        scope: "proofttl_product_only_with_separate_coding_studio",
+        models: ASSISTANT_MODELS,
+        navigation: "allowlisted_non_destructive_only",
+        persistent_actions: "explicit_user_confirmation_required",
+        audio_retention: "none_by_default",
+        free_capacity_behavior: "fail_closed_no_paid_fallback",
+        configured: Boolean(env?.AI && env?.ASSISTANT_RATE_LIMITER)
       }, { headers: { "cache-control": "public, max-age=60" } }));
     }
 
