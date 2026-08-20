@@ -96,10 +96,10 @@ export function visualQueryFromMessage(value) {
   if (!text || text.length > 500) return null;
 
   const patterns = [
-    /^(?:please\s+)?(?:show|give)\s+me\s+(?:a|an|the|some)?\s*(?:picture|photo|image|visual|diagram)?\s*(?:of\s+)?(.+)$/i,
-    /^(?:find|show)\s+(?:a|an|the|some)?\s*(?:picture|photo|image|visual|diagram)s?\s+(?:of|for)\s+(.+)$/i,
+    /^(?:please\s+)?(?:show|give)\s+me\s+(?:(?:an|a|the|some)\s+)?(?:(?:picture|photo|image|visual|diagram)s?\s+)?(?:of\s+)?(.+)$/i,
+    /^(?:find|show)\s+(?:(?:an|a|the|some)\s+)?(?:picture|photo|image|visual|diagram)s?\s+(?:of|for)\s+(.+)$/i,
     /^(?:what\s+does|what\s+do)\s+(.+?)\s+look\s+like\??$/i,
-    /^(?:picture|photo|image|visual|diagram)\s+(?:of|for)\s+(.+)$/i
+    /^(?:picture|photo|image|visual|diagram)s?\s+(?:of|for)\s+(.+)$/i
   ];
 
   for (const pattern of patterns) {
@@ -118,7 +118,7 @@ function normalizeVisualQuery(value) {
     .replace(/[\u0000-\u001f\u007f]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/^(?:a|an|the)\s+/i, "")
+    .replace(/^(?:an|a|the)\s+/i, "")
     .slice(0, MAX_QUERY_CHARS);
 }
 
