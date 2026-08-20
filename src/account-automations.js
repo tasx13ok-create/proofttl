@@ -45,7 +45,10 @@ async function createAutomation(request, env, userId) {
   if (triggerType === 'schedule' && !scheduleExpr) return json({ error: 'schedule_required' }, 400);
   if (triggerType === 'condition' && !conditionSummary) return json({ error: 'condition_required' }, 400);
 
-  const actionInput = sanitizeInput(body.action_input);
+  let actionInput;
+  try { actionInput = sanitizeInput(body.action_input); }
+  catch { return json({ error: 'automation_input_too_large', max_chars: MAX_INPUT_CHARS }, 413); }
+
   const confirmationMode = policy.explicit_confirmation_required ? 'per_run_explicit' : 'policy_default';
   const requestedEnabled = body.enabled === true;
   const enabled = requestedEnabled && !policy.explicit_confirmation_required ? 1 : 0;
