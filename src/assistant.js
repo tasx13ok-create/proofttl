@@ -5,7 +5,7 @@ import {
   runAssistantResponse
 } from "./assistant-model-router.js";
 
-const WHISPER_MODEL = "@cf/openai/whisper";
+const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
 const LOVE_TTS_MODEL = "@cf/deepgram/aura-2-en";
 const DEFAULT_LOVE_SPEAKER = "atlas";
 const DEFAULT_MAX_AUDIO_BYTES = 512 * 1024;
@@ -24,7 +24,7 @@ const NAVIGATION_RULES = [
   { section: "solutions", route: "/solutions/", label: "Solutions", patterns: [/\bsolutions?\b/i, /\buse cases?\b/i] },
   { section: "login", route: "/login/", label: "Sign in", patterns: [/\bsign in\b/i, /\blog ?in\b/i] },
   { section: "how-it-works", route: "/how-proofttl-works/", label: "How ProofTTL Works", patterns: [/\bhow (?:proofttl|this|the site|the website) works?\b/i, /\bproduct guide\b/i, /\bl\.o\.v\.e\.? guide\b/i] },
-  { section: "home", route: "/", label: "Home", patterns: [/\bhome page\b/i, /\bhomepage\b/i, /\bgo home\b/i] }
+  { section: "home", route: "/workspace/", label: "Workspace", patterns: [/\bhome page\b/i, /\bhomepage\b/i, /\bgo home\b/i, /\bmain menu\b/i, /\bmain workspace\b/i, /\bdashboard\b/i] }
 ];
 
 const NAVIGATION_VERBS = /\b(open|show|take me|go to|bring me|navigate|view|see)\b/i;
@@ -101,7 +101,14 @@ export async function handleVoiceAssistant(request, env) {
 
   let transcript;
   try {
-    const transcription = await env.AI.run(WHISPER_MODEL, { audio: [...audio.bytes] });
+    const transcription = await env.AI.run(WHISPER_MODEL, {
+      audio: [...audio.bytes],
+      task: "transcribe",
+      language: "en",
+      vad_filter: true,
+      condition_on_previous_text: false,
+      initial_prompt: "Natural conversational English addressed to an AI assistant named L.O.V.E. Common phrases include can you hear me, hello, yeah, do you, open the main menu, open Workspace, ProofTTL, Studio, Files, Work, Money, and Automations."
+    });
     transcript = normalizeTranscript(transcription?.text);
   } catch (error) {
     console.warn(JSON.stringify({ event: "assistant_transcription_failed", error: safeErrorName(error) }));
@@ -110,7 +117,7 @@ export async function handleVoiceAssistant(request, env) {
 
   if (!transcript) {
     return jsonResponse(
-      { error: "speech_not_recognized", message: "I could not confidently hear a request. Try the microphone again.", quota },
+      { error: "speech_not_recognized", message: "I could not confidently hear that. Try saying it again.", quota },
       422
     );
   }
@@ -166,8 +173,8 @@ export async function handleVoiceAssistant(request, env) {
 
     const completion = await runAssistantResponse(env, {
       messages,
-      max_tokens: 150,
-      temperature: leaseGrounding.found ? 0.1 : 0.2
+      max_tokens: 170,
+      temperature: leaseGrounding.found ? 0.1 : 0.42
     });
     responseText = cleanAssistantResponse(extractAssistantResponse(completion));
   } catch (error) {
@@ -175,7 +182,7 @@ export async function handleVoiceAssistant(request, env) {
     return aiCapacityResponse(transcript, quota);
   }
 
-  const finalText = responseText || "I can help with ProofTTL, Fact Leases, the API, x402, monitoring, payments, and product navigation.";
+  const finalText = responseText || conversationalFallback(transcript);
 
   return jsonResponse({
     transcript,
@@ -342,19 +349,26 @@ export function matchAssistantNavigation(transcript) {
 
 export function assistantSystemPrompt() {
   return [
-    "You are L.O.V.E., ProofTTL product intelligence.",
-    "Your voice persona is calm, deep, precise, composed, cinematic, and slightly ominous without being theatrical.",
-    "Answer only questions about ProofTTL and its documented product behavior.",
-    "ProofTTL issues source-backed, expiring Fact Leases for precise claims.",
-    "A lease records claim, source, evidence, verdict, fingerprint, TTL, issued status, and current state.",
-    "Verdicts are SUPPORTED, CONTRADICTED, or UNKNOWN. Lease states are ACTIVE, REVOKED, or EXPIRED.",
-    "POST /verify uses x402 and currently costs $0.001 test USDC on Base Sepolia per Fact Lease issuance.",
-    "GET /lease/:id reads a lease. Automatic monitoring can revoke an active lease when evidence no longer maintains its verdict.",
-    "Never invent account data, payment history, lease state, customer data, uptime, or actions you did not perform.",
-    "When authoritative Lease context is supplied, use only that context for Lease-specific facts and say when a requested field is unavailable.",
-    "If asked about something outside ProofTTL, say you only handle ProofTTL product questions.",
-    "Keep responses concise and useful."
+    "You are L.O.V.E., the general-purpose intelligence and control layer for the ProofTTL Workspace.",
+    "Talk naturally. You can handle ordinary conversation, explanations, reasoning, planning, creative work, coding questions, and general assistant requests.",
+    "Do not force unrelated conversation back to ProofTTL and do not repeatedly list product capabilities.",
+    "If a user gives a short conversational fragment such as yeah, do you, are you, or can you hear me, respond to the fragment naturally; ask a short clarifying question when its meaning depends on missing context.",
+    "You do not have a human body, private life, feelings, racial preferences, or personal likes and dislikes. Treat people fairly and never express preference for or against people because of protected traits.",
+    "ProofTTL issues source-backed, expiring Fact Leases for precise claims. Verdicts are SUPPORTED, CONTRADICTED, or UNKNOWN. Lease states are ACTIVE, REVOKED, or EXPIRED.",
+    "Never invent account data, balances, transactions, payment history, email, calendar data, files, lease state, customer data, uptime, connected-app state, or actions you did not perform.",
+    "When authoritative Lease or connected-provider context is supplied, use only that context for those specific live facts and say when a requested field is unavailable.",
+    "For actions, distinguish discussing an action from actually performing it. Never claim execution unless the capability layer confirms it.",
+    "Keep responses concise, useful, and conversational."
   ].join(" ");
+}
+
+function conversationalFallback(transcript) {
+  const text = String(transcript || "").trim().toLowerCase();
+  if (/^(hi|hey|hello|yo)[!.? ]*$/.test(text)) return "Hey. I hear you.";
+  if (/^(yeah|yea|yep|yes|mhm|uh huh)[!.? ]*$/.test(text)) return "Yeah, I'm with you.";
+  if (/^(do you|are you|and you|you)[?.! ]*$/.test(text)) return "What about me? Finish the thought.";
+  if (/can you hear me|do you hear me|hear me/.test(text)) return "Yeah. I can hear you.";
+  return "I heard you. Say that again or keep going.";
 }
 
 async function readRequestBytesLimited(request, maxBytes) {
@@ -434,7 +448,7 @@ function aiCapacityResponse(transcript = null, quota = null) {
   return jsonResponse(
     {
       error: "assistant_capacity_unavailable",
-      message: "ProofTTL voice assistance has reached its current AI capacity or a model is temporarily unavailable. Try again later.",
+      message: "L.O.V.E. voice has reached its current AI capacity or a model is temporarily unavailable. Try again later.",
       ...(transcript ? { transcript } : {}),
       ...(quota ? { quota } : {})
     },
