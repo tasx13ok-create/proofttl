@@ -13,8 +13,12 @@ function assert(condition, message) {
 }
 
 async function run() {
+  let capturedMessages = null;
   const cloudflareEnv = {
-    AI: { run: async (model, options) => ({ response: `ok:${model}:${options.messages.length}` }) },
+    AI: { run: async (model, options) => {
+      capturedMessages = options.messages;
+      return { response: `ok:${model}:${options.messages.length}` };
+    } },
     PROOFTTL_CLOUDFLARE_MODEL_CATALOG: '@cf/meta/llama-3.1-8b-instruct,@cf/qwen/qwen3-30b-a3b-fp8'
   };
 
@@ -28,6 +32,18 @@ async function run() {
   assert(assistantResponseProviderAvailable(cloudflareEnv), 'default provider is available with Workers AI binding');
   const nativeResult = await runAssistantResponse(cloudflareEnv, { messages: [{ role: 'user', content: 'hi' }] });
   assert(String(nativeResult.response).startsWith('ok:@cf/ibm-granite/'), 'default provider routes through configured Workers AI model');
+  assert(capturedMessages?.length === 1, 'non-L.O.V.E. model calls are not modified by the general-scope override');
+
+  await runAssistantResponse(cloudflareEnv, {
+    messages: [
+      { role: 'system', content: 'You are L.O.V.E., ProofTTL product intelligence.' },
+      { role: 'user', content: 'Do you like black people?' }
+    ]
+  });
+  const scopeMessage = capturedMessages?.find((item) => item.role === 'system' && /general-purpose intelligence/i.test(String(item.content || '')));
+  assert(Boolean(scopeMessage), 'L.O.V.E. calls receive the general-purpose Workspace scope override');
+  assert(/no human body, private life, feelings, racial preferences/i.test(scopeMessage?.content || ''), 'L.O.V.E. scope prevents invented racial or personal preferences');
+  assert(/Never invent live or private data/i.test(scopeMessage?.content || ''), 'general scope preserves private/live-data grounding boundary');
 
   const allowedPreference = {
     preferred_ai_provider: 'cloudflare',
