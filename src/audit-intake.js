@@ -65,6 +65,16 @@ export async function handleAuditIntake(request, env) {
 
   if (!offer) return json({ error: 'invalid_offer_type' }, 400);
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'valid_email_required' }, 400);
+
+  const sessionEmail = clean(authenticatedSession?.user?.email, 254).toLowerCase();
+  const accountEmailMatches = sessionEmail === email;
+  if (authenticatedSession?.user?.id && (!sessionEmail || !accountEmailMatches)) {
+    return json({
+      error: 'audit_email_must_match_account',
+      message: 'Use the same email address as your signed-in ProofTTL account for this audit request.'
+    }, 400);
+  }
+
   if (!companyOrProject) return json({ error: 'company_or_project_required' }, 400);
   if (!claimScope) return json({ error: 'claim_scope_required' }, 400);
   if (!whyItMatters) return json({ error: 'why_it_matters_required' }, 400);
@@ -83,18 +93,23 @@ export async function handleAuditIntake(request, env) {
       ORDER BY created_at_ms DESC LIMIT 1`
   ).bind(email, offerType, claimScope, now - WINDOW_MS).first();
   if (duplicate?.id) {
+    const linked = await ensureAccountLink(env, authenticatedSession, duplicate.id, now);
+    if (productionAuthConfigured(env) && !linked) {
+      return json({ error: 'audit_account_link_failed', message: 'ProofTTL stored this request but could not attach it to your account. Retry shortly.' }, 503);
+    }
     return json({
       ok: true,
       duplicate: true,
       audit_intake_id: duplicate.id,
       status: duplicate.status || 'received',
+      account: { linked },
       offer: {
         type: offerType,
         ...offer,
         upgrade: offerType === 'stress_test' ? { to: 'full_audit', additional_usd: 371, total_usd: 500 } : null
       },
       payment: { required_now: false, state: 'scope_review_before_payment' },
-      next_step: 'Your original request is already stored. ProofTTL reviews the submitted scope within 24 hours before payment is requested.'
+      next_step: 'Your original request is already stored and linked to this account. ProofTTL reviews the submitted scope before payment is requested.'
     }, 200);
   }
 
@@ -111,17 +126,13 @@ export async function handleAuditIntake(request, env) {
     ) VALUES (?, ?, 'received', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, now, email, companyOrProject, websiteUrl || null, claimScope, approximateClaims, whyItMatters, deadline || null, fingerprint, offerType).run();
 
-  let linkedToAccount = false;
-  try {
-    const session = authenticatedSession || await getOptionalProofTTLSession(request, env);
-    const sessionUserId = session?.user?.id;
-    if (sessionUserId) {
-      await env.MONITOR_DB.prepare('INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)')
-        .bind(sessionUserId, id, new Date(now).toISOString()).run();
-      linkedToAccount = true;
-    }
-  } catch (error) {
-    console.warn(JSON.stringify({ event: 'audit_account_auto_link_failed', intake_id: id, error: error?.name || 'Error' }));
+  const linkedToAccount = await ensureAccountLink(env, authenticatedSession, id, now);
+  if (productionAuthConfigured(env) && !linkedToAccount) {
+    return json({
+      error: 'audit_account_link_failed',
+      audit_intake_id: id,
+      message: 'ProofTTL stored the request but could not attach it to your account. Retry the same request shortly; it will be recovered instead of duplicated.'
+    }, 503);
   }
 
   return json({
@@ -137,6 +148,21 @@ export async function handleAuditIntake(request, env) {
     payment: { required_now: false, state: 'scope_review_before_payment' },
     next_step: 'ProofTTL reviews the submitted scope within 24 hours before payment is requested.'
   }, 201);
+}
+
+async function ensureAccountLink(env, authenticatedSession, intakeId, now) {
+  const userId = authenticatedSession?.user?.id;
+  if (!userId) return false;
+  try {
+    await env.MONITOR_DB.prepare('INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)')
+      .bind(userId, intakeId, new Date(now).toISOString()).run();
+    const row = await env.MONITOR_DB.prepare('SELECT 1 AS linked FROM account_audit_links WHERE user_id = ? AND intake_id = ? LIMIT 1')
+      .bind(userId, intakeId).first();
+    return Boolean(row?.linked);
+  } catch (error) {
+    console.warn(JSON.stringify({ event: 'audit_account_auto_link_failed', intake_id: intakeId, error: error?.name || 'Error' }));
+    return false;
+  }
 }
 
 function clean(value, max) { return typeof value === 'string' ? value.trim().slice(0, max) : ''; }

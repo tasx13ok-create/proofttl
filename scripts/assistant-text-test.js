@@ -160,7 +160,9 @@ const codingBody = await coding.json();
 assert.equal(codingBody.context?.coding_context, true, "short follow-ups must inherit active coding context");
 assert.match(codingBody.response, /```javascript\n/, "coding replies must preserve fenced code formatting");
 assert.match(codingBody.response, /console\.log/, "runnable code must survive response cleaning");
-assert.match(env.calls.at(-1).input.messages.map((item) => item.content).join("\n"), /Pick a useful mini-project now/i, "vague coding follow-ups must get a concrete-project instruction");
+const codingPrompt = env.calls.at(-1).input.messages.map((item) => item.content).join("\n");
+assert.match(codingPrompt, /choose a (?:small )?concrete project/i, "vague coding follow-ups must instruct the model to choose a concrete project");
+assert.match(codingPrompt, /immediately provide working code/i, "vague coding follow-ups must instruct the model to produce code without re-asking broadly");
 
 const history = [
   { role: "user", content: "old 1" },

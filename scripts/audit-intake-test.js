@@ -97,8 +97,11 @@ async function run() {
   assert(spam.status === 200, 'honeypot submission receives neutral success response');
   assert(spamDb.rows.length === 0, 'honeypot submission is not persisted');
 
-  const limited = await handleAuditIntake(request(fullAudit), { MONITOR_DB: fakeDb(3) });
-  assert(limited.status === 429, 'repeated intake fingerprint is rate limited');
+  const belowLimit = await handleAuditIntake(request(fullAudit), { MONITOR_DB: fakeDb(9) });
+  assert(belowLimit.status === 201, 'nine prior requests in the window still leave one burst slot');
+
+  const limited = await handleAuditIntake(request(fullAudit), { MONITOR_DB: fakeDb(10) });
+  assert(limited.status === 429, 'the eleventh intake in a ten-request window is rate limited');
   assert(limited.headers.get('retry-after') === '600', 'rate limit includes retry-after');
 
   const noDb = await handleAuditIntake(request(fullAudit), {});

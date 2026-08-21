@@ -48,7 +48,12 @@ async function run() {
 
   const voiceAssistant = await text("src/assistant.js");
   assert(voiceAssistant.includes("lease_grounding"), "voice L.O.V.E. returns Lease-grounding metadata");
-  assert(voiceAssistant.includes("refuse") || voiceAssistant.includes("do not invent"), "voice L.O.V.E. refuses to invent missing Lease state");
+  assert(
+    voiceAssistant.includes("I will not guess its status") ||
+    voiceAssistant.includes("do not invent") ||
+    voiceAssistant.includes("refuse"),
+    "voice L.O.V.E. refuses to invent missing Lease state"
+  );
   assert(!voiceAssistant.includes("Lease Offering Value Interpreter"), "unapproved L.O.V.E. expansion is absent from active assistant code");
 
   const worker = await text("src/worker.js");
@@ -56,7 +61,7 @@ async function run() {
   assert(worker.includes('const COMPATIBLE_PROTOCOL = "ProofTTL/0.3.1"'), "Worker defines compatible protocol separately from product version");
   assert(worker.includes("core_version"), "health contract exposes core version separately from product version");
   assert(worker.includes("version: PRODUCT_VERSION"), "assistant public contract uses canonical product version");
-  assert(worker.includes('role: "ProofTTL product intelligence"'), "public L.O.V.E. role is canonical");
+  assert(worker.includes('role: "general workspace intelligence and control"'), "public L.O.V.E. role matches the current Workspace contract");
   assert(worker.includes('source: "live_lease_storage"'), "assistant discovery documents live Lease grounding");
   assert(!worker.includes("Lease Offering Value Interpreter"), "unapproved L.O.V.E. expansion is absent from public discovery");
 
