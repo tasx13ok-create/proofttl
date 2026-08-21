@@ -1,5 +1,6 @@
 import {
   AUTH_PATH_PREFIX,
+  authProviderRedirectURI,
   authRuntimeStatus,
   handleProofTTLAuth
 } from "../src/auth.js";
@@ -34,21 +35,39 @@ async function run() {
     MONITOR_DB: {},
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef",
     BETTER_AUTH_URL: "https://proofttl.tasx13ok.workers.dev",
+    PROOFTTL_AUTH_PUBLIC_URL: "https://proofttl-web.vercel.app",
     GITHUB_CLIENT_ID: "github-client",
     GITHUB_CLIENT_SECRET: "github-secret",
+    GOOGLE_CLIENT_ID: "google-client",
+    GOOGLE_CLIENT_SECRET: "google-secret",
+    DISCORD_CLIENT_ID: "discord-client",
+    DISCORD_CLIENT_SECRET: "discord-secret",
     PROOFTTL_AUTH_TRUSTED_ORIGINS: "https://app.example.test, https://preview.example.test",
     PROOFTTL_PASSKEY_RP_ID: "app.example.test",
     PROOFTTL_PASSKEY_ORIGIN: "https://app.example.test"
   };
 
   const enabled = authRuntimeStatus(env, baseRequest);
-  assert(enabled.configured === true, "D1, auth secret, and Better Auth base URL enable the auth backend");
+  assert(enabled.configured === true, "D1, auth secret, and public auth base URL enable the auth backend");
+  assert(enabled.baseURL === "https://proofttl-web.vercel.app", "public auth URL wins over the Worker origin");
   assert(enabled.socialProviders.github === true, "configured GitHub OAuth is advertised");
-  assert(enabled.socialProviders.google === false, "unconfigured Google OAuth is not advertised");
-  assert(enabled.socialProviders.discord === false, "unconfigured Discord OAuth is not advertised");
+  assert(enabled.socialProviders.google === true, "configured Google OAuth is advertised");
+  assert(enabled.socialProviders.discord === true, "configured Discord OAuth is advertised");
   assert(enabled.passkeys === true, "passkeys require explicit RP ID and origin");
   assert(enabled.totp === true && enabled.recoveryCodes === true, "TOTP and recovery codes are enabled with auth storage/secret");
   assert(enabled.trustedOrigins.includes("https://app.example.test"), "configured frontend origin is trusted");
+  assert(
+    authProviderRedirectURI(enabled.baseURL, "github") === "https://proofttl-web.vercel.app/api/auth/callback/github",
+    "GitHub OAuth callback is pinned to the first-party web origin"
+  );
+  assert(
+    authProviderRedirectURI(enabled.baseURL, "google") === "https://proofttl-web.vercel.app/api/auth/callback/google",
+    "Google OAuth callback is pinned to the first-party web origin"
+  );
+  assert(
+    authProviderRedirectURI(enabled.baseURL, "discord") === "https://proofttl-web.vercel.app/api/auth/callback/discord",
+    "Discord OAuth callback is pinned to the first-party web origin"
+  );
 
   const allowedRequest = new Request(baseRequest.url, {
     method: "OPTIONS",
