@@ -1,12 +1,43 @@
 # ProofTTL
 
-ProofTTL issues **expiring, source-backed Fact Leases** for machines.
+**ProofTTL is a source-backed claim verification and fact-checking service for factual assertions that need to survive scrutiny.**
+
+Official website: `https://proofttl-web.vercel.app/`
+
+Paid verification: `https://proofttl-web.vercel.app/audit/`
+
+Verification services: `https://proofttl-web.vercel.app/services/`
+
+Public sample audit: `https://proofttl-web.vercel.app/audit/sample/`
+
+ProofTTL checks specific factual claims — including AI-generated and human-written claims — against public sources and returns explicit `SUPPORTED`, `CONTRADICTED`, or `UNKNOWN` verdicts with evidence and signed Fact Leases.
+
+The name **ProofTTL** refers to this claim-verification product and website. In this product, **TTL means the time-bounded trust/freshness window attached to a source-backed verification record**. ProofTTL is not a temporal-logic proof checker, a generic cache-TTL utility, or merely a blockchain timestamping service.
+
+## Human verification service
+
+The current commercial wedge is a scope-first paid verification service:
+
+- **$129 Claim Stress Test** — 3–5 high-stakes claims, target 48-hour turnaround after payment and scope confirmation, source-backed verdicts, and signed Fact Leases.
+- **$500 Full Verification Audit** — 10–25 claims, target 3–5 business days after payment and scope confirmation, a verification report, signed Fact Leases, and 7 days of monitoring.
+- **$371 upgrade balance** — the original $129 is credited in full toward the $500 audit.
+- Scope is confirmed before payment is requested.
+
+Good use cases include AI-output fact checking, pre-publication review, marketing claims, startup and pitch claims, research claims, website claims, product and competitor claims, public company claims, certifications, partnerships, market statistics, and selected public due-diligence claims.
+
+ProofTTL does **not** claim universal or permanent truth. It records what examined evidence supports at a point in time, preserves `UNKNOWN` when evidence is insufficient, and does not replace legal, medical, financial, regulatory, accounting, or other professional judgment.
+
+## Technical Fact Lease protocol
+
+ProofTTL also contains a separate technical protocol/API that issues **expiring, source-backed Fact Leases** for machines.
 
 A client supplies a claim, a public source URL, and a TTL. ProofTTL checks whether that source currently supports the claim, fingerprints the observed source text, stores the lease, and automatically monitors active leases for changes. If the source changes and the issued verdict can no longer be maintained before expiry, the lease can be revoked.
 
 Live API: `https://proofttl.tasx13ok.workers.dev`
 
 Protocol: `ProofTTL/0.3.1`
+
+The technical x402 payment rail is testnet infrastructure and is separate from the live Stripe-backed human verification offer.
 
 ## What ProofTTL claims
 
@@ -22,12 +53,13 @@ Verdicts are deliberately limited to:
 
 `UNKNOWN` is a valid result and is preferred over unsupported certainty.
 
-## Current testnet platform
+## Current technical platform
 
-The backend currently contains the following testnet-grade foundations:
+The backend contains the following hardened foundations:
 
-- x402 v2 payment gating on Base Sepolia
-- pre-handler settlement before protected source/AI/state work
+- x402 v2 payment gating on Base Sepolia for the technical verification endpoint
+- scope-first live Stripe payment lifecycle for the human audit service
+- pre-handler settlement before protected source/AI/state work on x402 routes
 - SSRF and redirect-target validation
 - bounded request bodies and bounded source reads
 - deterministic exact-match verification plus conservative Workers AI semantic verification
@@ -37,25 +69,26 @@ The backend currently contains the following testnet-grade foundations:
 - automatic lease expiry, source-change checking, and revocation
 - Ed25519 issuance signatures with public-key discovery
 - payer-aware verification rate limiting
-- browser-safe x402 CORS
-- Better Auth runtime with D1 schema, secure sessions, TOTP/recovery codes, optional OAuth providers, and optional passkeys
-- text + voice ProofTTL product assistant
+- browser-safe CORS
+- Better Auth runtime with D1 schema, secure sessions, TOTP/recovery codes, OAuth provider support, and passkeys
+- text + voice L.O.V.E. assistant routes
 - bounded six-message text-chat context
+- deterministic navigation and deterministic game-state routing where applicable
 - one shared daily assistant allowance across text and voice
 - atomic D1 assistant usage accounting with keyed pseudonymous subjects
 - account entitlement schema for future member limits
-- read-only authenticated account entitlement status
+- authenticated account workspace and audit ownership foundations
 - deployment readiness diagnostics
 - deterministic local regression checks
 - daily no-payment / no-AI live smoke workflow
 
-The guarded Windows launch path is:
+The guarded Windows testnet launch path is:
 
 ```powershell
 npm run launch:testnet
 ```
 
-That command runs local tests, provisions/reuses D1 when needed, applies all migrations, preserves or creates the Better Auth secret, installs the signing key, dry-runs the Worker bundle, deploys, runs the live smoke suite, and refuses to finish unless required testnet readiness reaches 100%.
+That command runs local tests, provisions/reuses D1 when needed, applies migrations, preserves or creates required secrets, installs the signing key, dry-runs the Worker bundle, deploys, runs the live smoke suite, and refuses to finish unless required testnet readiness reaches the expected gate.
 
 ## x402 testnet payment
 
@@ -66,9 +99,9 @@ That command runs local tests, provisions/reuses D1 when needed, applies all mig
 - Asset: USDC
 - Price: `$0.001` per verification
 - Receiver: `0x29949a066902bd329F74479c9AEBC448100955d8`
-- Production/mainnet settlement: **not enabled**
+- Production/mainnet x402 settlement: **not enabled**
 
-A complete paid Base Sepolia verification flow has already been proven end to end. Mainnet remains intentionally separate from that testnet validation.
+A complete paid Base Sepolia verification flow has been proven end to end. Mainnet remains intentionally separate from that testnet validation.
 
 ## Main API surfaces
 
@@ -95,7 +128,7 @@ When signing is configured, issuance also includes an immutable issuance attesta
 - `GET /assistant/usage`
 - `GET /.well-known/proofttl-assistant.json`
 
-The free assistant is intentionally **ProofTTL-product scoped**, not general-purpose chat. It can answer about ProofTTL, Fact Leases, x402, monitoring, pricing, security, the API, and product navigation.
+L.O.V.E. is a general-purpose assistant inside the ProofTTL product shell. It can help with ordinary conversation, coding, planning, product navigation, ProofTTL questions, and grounded Fact Lease context. Live/private facts still require authoritative connected context; deterministic stateful interactions such as Tic-Tac-Toe are handled outside model memory.
 
 Typed chat accepts an optional bounded context window:
 
@@ -104,9 +137,22 @@ Typed chat accepts an optional bounded context window:
 - each history message: max 600 characters
 - caller history roles: `user` or `assistant` only
 
-Deterministic navigation commands do not invoke the text model or consume AI quota.
+Deterministic navigation/game routes do not invoke the text model or consume AI quota.
 
 A normal text AI request and a valid voice request share one daily allowance. The default free cap is 20 messages/day, UTC reset. Invalid voice bodies are rejected before daily quota is consumed.
+
+### Human audit sales and account ownership
+
+The backend also owns the live human verification intake/payment lifecycle:
+
+- customer audit intake and status lookup
+- admin scope confirmation before payment
+- Stripe Checkout creation after scope approval
+- Stripe webhook verification and payment-state transitions
+- account-to-audit ownership links
+- $129 Stress Test, $500 Full Verification Audit, and $371 credited upgrade semantics
+
+The customer-facing audit flow is intentionally separate from the Base Sepolia x402 testnet endpoint.
 
 ### Account entitlement foundation
 
@@ -122,7 +168,7 @@ The entitlement model is deliberately fail-safe:
 - DB entitlement lookup failure → free allowance
 - only an active, unexpired `member` entitlement can receive the configured higher assistant limit
 
-The default future member allowance is currently configured as 200 messages/day, but **billing and self-service upgrades are not enabled**. There is no public endpoint that can grant itself membership.
+The default future member allowance is currently configured as 200 messages/day. The paid human audit service is live separately; self-service recurring membership billing is not enabled.
 
 ### Machine-readable operations
 
@@ -133,9 +179,9 @@ The default future member allowance is currently configured as 200 messages/day,
 - `GET /.well-known/proofttl.json`
 - `GET /.well-known/proofttl-keys.json`
 
-`GET /readiness` checks the actual required testnet bindings and schemas, including storage, Workers AI, verification/assistant rate limiters, D1 monitoring, auth tables, assistant usage tables, account entitlement tables, payment facilitator credentials, signing, and auth runtime state.
+`GET /readiness` checks required bindings and schemas including storage, Workers AI, rate limiters, D1 monitoring, auth tables, assistant usage, account entitlements, payment configuration, signing, and auth runtime state.
 
-It intentionally reports production readiness separately and keeps it false until production-only work is actually complete.
+Commercial audit readiness is reported separately from technical mainnet/x402 production readiness.
 
 ## Monitoring architecture
 
@@ -163,12 +209,13 @@ The KV binding used by scheduled monitoring intercepts lease listing and queries
 - model evidence must appear verbatim in normalized source text or confidence is downgraded to `UNKNOWN`
 - exact matches avoid semantic AI when possible
 - unchanged fingerprints avoid repeat semantic verification
-- payment settlement happens before protected work
+- payment settlement happens before protected x402 work
 - failed x402 settlement does not execute the protected verifier
 - public manual reverification is blocked to prevent unmetered source/AI work
 - assistant requests are rate limited and daily-quota limited
 - anonymous assistant accounting stores keyed pseudonymous identifiers rather than raw IP values
-- auth secrets, payment credentials, and private signing material are not committed
+- auth secrets, payment credentials, Stripe secrets, and private signing material are not committed
+- audit prices and payment state are server-controlled
 - account membership is server-controlled and fails closed to free access
 - paid model fallback is not silently enabled
 
@@ -186,9 +233,9 @@ Run the live no-payment, no-AI-inference smoke suite:
 npm run test:smoke
 ```
 
-The canonical local suite covers source/security limits, cost guards, monitor scheduling, lease state, signatures, CORS, assistant routing, contextual chat, assistant quota behavior, Better Auth boundaries/schema drift, model routing, payment-gate behavior, CDP authentication, and regression scenarios.
+The canonical local suite covers source/security limits, cost guards, monitoring, lease state, signatures, CORS, assistant routing/context/quota, deterministic game behavior, Better Auth boundaries/schema drift, model routing, audit/Stripe behavior, payment gates, CDP authentication, and regression scenarios.
 
-GitHub Actions runs `npm run test:local` plus a Wrangler dry run on pushes and pull requests. A separate scheduled workflow runs the live smoke suite daily without authorizing payment or invoking AI inference.
+GitHub Actions runs release checks before backend deployment and the production workflow runs live smoke checks after deploy.
 
 ## Guarded testnet deployment
 
@@ -198,7 +245,7 @@ See `LAUNCH-TESTNET.md` for details. The short path is:
 npm run launch:testnet
 ```
 
-A successful guarded launch requires:
+A successful guarded technical testnet launch requires:
 
 - D1 binding present
 - monitor/auth/assistant-usage/account-entitlement migrations applied
@@ -208,23 +255,34 @@ A successful guarded launch requires:
 - deploy successful
 - live x402 challenge healthy
 - D1 assistant accounting active
-- `/readiness` testnet score = 100%
+- required `/readiness` testnet gates satisfied
 
 If the launcher creates the D1 binding and modifies `wrangler.jsonc`, commit the real generated D1 binding ID afterward. Do not invent one manually.
 
-## Intentionally unfinished production work
+## Current boundaries
 
-These are real remaining blockers rather than hidden placeholders:
+These are intentionally kept explicit instead of hidden behind marketing:
 
-- configure and validate a real customer sign-in provider/passkey production path
-- cryptographically link payer wallets/transactions to customer accounts before exposing customer payment history or owned lease history
-- connect a real billing provider to the existing entitlement model
-- add recent-authentication flows for sensitive profile/account mutations
-- measure production verification + monitoring costs and finalize a defensible price floor
-- validate the production x402 facilitator and Base mainnet path with deliberately limited exposure
-- improve structured extraction for complex HTML while preserving source-grounding guarantees
+- production Base-mainnet x402 settlement is not enabled
+- the technical protocol remains testnet-oriented even though the human Stripe-backed audit service is commercial/live
+- OAuth/session continuity and account-return behavior must stay covered by live regression checks before being called fully certified
+- customer ownership links must remain server-enforced; a session alone must not expose another account's audit
+- recurring membership billing is not enabled
+- recent-authentication flows for sensitive future account mutations still need hardening
+- production verification/monitoring costs should continue to be measured before widening technical payment exposure
+- structured extraction for complex HTML can be improved while preserving source-grounding guarantees
 
-Until those are complete, ProofTTL should be described as a strongly hardened **testnet product**, not a finished mainnet billing platform.
+## Public identity resources
+
+- Website: `https://proofttl-web.vercel.app/`
+- About: `https://proofttl-web.vercel.app/about/`
+- Paid verification: `https://proofttl-web.vercel.app/audit/`
+- Services: `https://proofttl-web.vercel.app/services/`
+- FAQ: `https://proofttl-web.vercel.app/faq/`
+- Machine definition: `https://proofttl-web.vercel.app/machine-definition/`
+- AI-readable context: `https://proofttl-web.vercel.app/llms.txt`
+- Frontend repository: `https://github.com/tasx13ok-create/proofttl-web`
+- Backend identity file: `BRAND-IDENTITY.md`
 
 ## License
 
