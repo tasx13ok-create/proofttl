@@ -14,24 +14,24 @@ export async function handleAuditStatus(request, env) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   if (!env?.MONITOR_DB) return json({ error: 'audit_intake_storage_unavailable' }, 503);
 
-  let session = null;
-  if (productionAuthConfigured(env)) {
-    session = await getOptionalProofTTLSession(request, env);
-    if (!session?.user?.id) return json({ error: 'authentication_required', message: 'Sign in to view a ProofTTL audit request.' }, 401);
+  const authRequired = productionAuthConfigured(env);
+  const session = authRequired ? await getOptionalProofTTLSession(request, env) : null;
+  if (authRequired && !session?.user?.id) {
+    return json({ error: 'authentication_required', message: 'Sign in to view a ProofTTL audit request.' }, 401);
   }
 
   let body;
   try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
   const id = clean(body?.audit_intake_id, 80);
-  const email = clean(body?.email, 254).toLowerCase();
-  if (!/^ati_[a-f0-9]{32}$/.test(id) || !email) return json({ error: 'invalid_status_lookup' }, 400);
+  const suppliedEmail = normalizeEmail(body?.email);
+  if (!/^ati_[a-f0-9]{32}$/.test(id)) return json({ error: 'invalid_status_lookup' }, 400);
 
   const row = await env.MONITOR_DB.prepare(
     `SELECT id, email, status, offer_type, scoped_price_usd, scope_summary, scope_turnaround,
             payment_url, payment_state, payment_provider, amount_due_usd, prior_credit_usd,
             created_at_ms, scoped_at_ms, paid_at_ms, fulfilled_at_ms
-       FROM audit_intakes WHERE id = ? AND lower(email) = ? LIMIT 1`
-  ).bind(id, email).first();
+       FROM audit_intakes WHERE id = ? LIMIT 1`
+  ).bind(id).first();
 
   if (!row) return json({ error: 'audit_intake_not_found' }, 404);
 
@@ -42,13 +42,17 @@ export async function handleAuditStatus(request, env) {
 
     if (!linked?.linked) {
       const sessionEmail = normalizeEmail(session.user.email);
-      if (!sessionEmail || sessionEmail !== normalizeEmail(row.email)) {
-        return json({ error: 'audit_ownership_mismatch', message: 'This audit belongs to a different ProofTTL account.' }, 403);
+      const intakeEmail = normalizeEmail(row.email);
+      if (!sessionEmail || sessionEmail !== intakeEmail) {
+        return json({ error: 'audit_intake_not_found' }, 404);
       }
       await env.MONITOR_DB.prepare(
         'INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)'
       ).bind(session.user.id, id, new Date().toISOString()).run();
     }
+  } else {
+    // Local/unit environments without production auth retain the legacy ID + email contract.
+    if (!suppliedEmail || suppliedEmail !== normalizeEmail(row.email)) return json({ error: 'audit_intake_not_found' }, 404);
   }
 
   return json({
