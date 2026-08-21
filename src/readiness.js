@@ -16,7 +16,16 @@ export async function getDeploymentReadiness(env, request) {
 
   const modelRuntime = assistantModelRuntime(env);
   const webUrl = clean(env?.PROOFTTL_WEB_URL);
-  const commercialChecks = { audit_intake_schema: schema.audit_intake, stripe_event_schema: schema.stripe_events, stripe_secret: Boolean(clean(env?.STRIPE_SECRET_KEY)), stripe_webhook_secret: Boolean(clean(env?.STRIPE_WEBHOOK_SECRET)), commercial_web_url: isHttps(webUrl), audit_admin_token: Boolean(clean(env?.PROOFTTL_ADMIN_TOKEN)) };
+  const stripeSecret = clean(env?.STRIPE_SECRET_KEY);
+  const commercialChecks = {
+    audit_intake_schema: schema.audit_intake,
+    stripe_event_schema: schema.stripe_events,
+    stripe_secret: Boolean(stripeSecret),
+    stripe_live_mode: stripeSecret.startsWith("sk_live_"),
+    stripe_webhook_secret: Boolean(clean(env?.STRIPE_WEBHOOK_SECRET)),
+    commercial_web_url: isHttps(webUrl),
+    audit_admin_token: Boolean(clean(env?.PROOFTTL_ADMIN_TOKEN))
+  };
 
   const checks = { kv_storage:Boolean(env?.LEASES), workers_ai:Boolean(env?.AI), verify_rate_limit:Boolean(env?.VERIFY_RATE_LIMITER), payer_rate_limit:Boolean(env?.PAYER_VERIFY_RATE_LIMITER), assistant_rate_limit:Boolean(env?.ASSISTANT_RATE_LIMITER), monitor_database:Boolean(env?.MONITOR_DB), monitor_schema:schema.monitor, auth_schema:schema.auth, assistant_usage_schema:schema.assistant_usage, account_entitlement_schema:schema.account_entitlement, payment_facilitator_credentials:Boolean(env?.CDP_API_KEY_ID&&env?.CDP_API_KEY_SECRET), issuance_signing:Boolean(env?.PROOFTTL_SIGNING_PRIVATE_JWK), auth_runtime:auth.configured, trusted_browser_origin:trustedBrowserOrigin, cross_origin_session_cookies:crossOriginCookies };
   const required=Object.values(checks), passing=required.filter(Boolean).length, testnetScore=Math.round((passing/required.length)*100);
@@ -33,7 +42,7 @@ export async function getDeploymentReadiness(env, request) {
   return {
     service:"ProofTTL", protocol:"ProofTTL/0.3.1", environment:"testnet",
     testnet:{score:testnetScore,ready:required.every(Boolean),passing_checks:passing,total_checks:required.length,checks},
-    commercial_services:{ready:Object.values(commercialChecks).every(Boolean),payment_provider:"stripe",offers:["claim_stress_test_129","verification_audit_500","full_audit_upgrade_371"],scope_before_payment:true,checks:commercialChecks,note:"Human-facing audit services can become commercially ready through Stripe independently of the x402 protocol remaining on Base Sepolia testnet."},
+    commercial_services:{ready:Object.values(commercialChecks).every(Boolean),payment_provider:"stripe",payment_mode:commercialChecks.stripe_live_mode?"live":"test_or_unconfigured",offers:["claim_stress_test_129","verification_audit_500","full_audit_upgrade_371"],scope_before_payment:true,checks:commercialChecks,note:"Human-facing audit services are commercially ready only when live Stripe credentials, webhook verification, D1 sales schema, the public web URL, and the admin control token are all configured."},
     customer_auth:{runtime_configured:auth.configured,trusted_customer_auth_ready:trustedCustomerAuth,account_product_ready:Object.values(accountChecks).every(Boolean),required_for_customer_launch:["google","discord","passkey"],trusted_browser_origin_configured:trustedBrowserOrigin,cross_origin_session_cookies:crossOriginCookies,providers:auth.socialProviders,passkeys:auth.passkeys,checks:accountChecks,security:{secure_http_only_sessions:true,csrf_protection:true,origin_allowlist:true,totp:auth.totp,recovery_codes:auth.recoveryCodes}},
     ai:{ready:Boolean(aiChecks.response_provider_available&&aiChecks.response_model_configured&&aiChecks.assistant_rate_limit),provider:modelRuntime.provider,model:modelRuntime.response_model,preference_routing:"server_allowlisted",command_planning:"deterministic_before_model_fallback",checks:aiChecks},
     workspace:{ready:Object.values(workspaceChecks).every(Boolean),universal_command_planner:true,centralized_action_policy:true,account_action_receipts:schema.action_receipts,account_automation_definitions:schema.account_automations,native_account_files:schema.account_files,native_account_tasks:schema.account_tasks,automation_execution_connected:false,sensitive_unattended_automation:false,checks:workspaceChecks},
