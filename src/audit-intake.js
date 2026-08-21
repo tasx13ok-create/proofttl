@@ -65,6 +65,16 @@ export async function handleAuditIntake(request, env) {
 
   if (!offer) return json({ error: 'invalid_offer_type' }, 400);
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'valid_email_required' }, 400);
+
+  const sessionEmail = clean(authenticatedSession?.user?.email, 254).toLowerCase();
+  const accountEmailMatches = sessionEmail === email;
+  if (authenticatedSession?.user?.id && (!sessionEmail || !accountEmailMatches)) {
+    return json({
+      error: 'audit_email_must_match_account',
+      message: 'Use the same email address as your signed-in ProofTTL account for this audit request.'
+    }, 400);
+  }
+
   if (!companyOrProject) return json({ error: 'company_or_project_required' }, 400);
   if (!claimScope) return json({ error: 'claim_scope_required' }, 400);
   if (!whyItMatters) return json({ error: 'why_it_matters_required' }, 400);
