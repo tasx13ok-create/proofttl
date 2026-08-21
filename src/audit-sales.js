@@ -6,12 +6,17 @@ function productionAuthConfigured(env) {
   return Boolean(env?.BETTER_AUTH_SECRET && (env?.PROOFTTL_AUTH_PUBLIC_URL || env?.PROOFTTL_WEB_URL || env?.BETTER_AUTH_URL));
 }
 
+function normalizeEmail(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
 export async function handleAuditStatus(request, env) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   if (!env?.MONITOR_DB) return json({ error: 'audit_intake_storage_unavailable' }, 503);
 
+  let session = null;
   if (productionAuthConfigured(env)) {
-    const session = await getOptionalProofTTLSession(request, env);
+    session = await getOptionalProofTTLSession(request, env);
     if (!session?.user?.id) return json({ error: 'authentication_required', message: 'Sign in to view a ProofTTL audit request.' }, 401);
   }
 
@@ -22,13 +27,30 @@ export async function handleAuditStatus(request, env) {
   if (!/^ati_[a-f0-9]{32}$/.test(id) || !email) return json({ error: 'invalid_status_lookup' }, 400);
 
   const row = await env.MONITOR_DB.prepare(
-    `SELECT id, status, offer_type, scoped_price_usd, scope_summary, scope_turnaround,
+    `SELECT id, email, status, offer_type, scoped_price_usd, scope_summary, scope_turnaround,
             payment_url, payment_state, payment_provider, amount_due_usd, prior_credit_usd,
             created_at_ms, scoped_at_ms, paid_at_ms, fulfilled_at_ms
        FROM audit_intakes WHERE id = ? AND lower(email) = ? LIMIT 1`
   ).bind(id, email).first();
 
   if (!row) return json({ error: 'audit_intake_not_found' }, 404);
+
+  if (session?.user?.id) {
+    const linked = await env.MONITOR_DB.prepare(
+      'SELECT 1 AS linked FROM account_audit_links WHERE user_id = ? AND intake_id = ? LIMIT 1'
+    ).bind(session.user.id, id).first();
+
+    if (!linked?.linked) {
+      const sessionEmail = normalizeEmail(session.user.email);
+      if (!sessionEmail || sessionEmail !== normalizeEmail(row.email)) {
+        return json({ error: 'audit_ownership_mismatch', message: 'This audit belongs to a different ProofTTL account.' }, 403);
+      }
+      await env.MONITOR_DB.prepare(
+        'INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)'
+      ).bind(session.user.id, id, new Date().toISOString()).run();
+    }
+  }
+
   return json({
     ok: true,
     audit_intake_id: row.id,
