@@ -70,25 +70,63 @@ const gameStart = await handleTextAssistant(req({ message: gameStartMessage }), 
 assert.equal(gameStart.status, 200);
 const gameStartBody = await gameStart.json();
 assert.equal(gameStartBody.inference?.deterministic_route, true, "Tic-Tac-Toe must use deterministic state, not model memory");
-assert.equal(gameStartBody.inference?.game_engine, "tic_tac_toe_v1");
+assert.equal(gameStartBody.inference?.game_engine, "tic_tac_toe_v2");
 assert.deepEqual(gameStartBody.context?.game?.state?.board, [null,null,null,null,null,null,null,null,null]);
+assert.equal(gameStartBody.context?.game?.state?.user, "X");
+assert.equal(gameStartBody.context?.game?.state?.assistant, "O");
 assert.match(gameStartBody.response, /1 \| 2 \| 3/);
+assert.match(gameStartBody.response, /BOARD=\.\.\.\.\.\.\.\.\./, "deterministic responses must carry compact state that survives whitespace normalization");
 assert.equal(env.calls.length, 0, "starting a deterministic game must not invoke the model");
 
 const gameHistory = [
   { role: "user", content: gameStartMessage },
-  { role: "assistant", content: gameStartBody.response }
+  { role: "assistant", content: gameStartBody.response.replace(/\s+/g, " ") }
 ];
 const gameMove = await handleTextAssistant(req({ message: "9", history: gameHistory }), env);
 assert.equal(gameMove.status, 200);
 const gameMoveBody = await gameMove.json();
 const gameBoard = gameMoveBody.context?.game?.state?.board;
-assert.equal(gameBoard?.[8], "X", "the user's square 9 move must remain on square 9");
+assert.equal(gameBoard?.[8], "X", "the user's square 9 move must remain on square 9 after flattened-history transport");
 assert.equal(gameBoard?.filter((cell) => cell === "X").length, 1, "one user move must create exactly one X");
 assert.equal(gameBoard?.filter((cell) => cell === "O").length, 1, "L.O.V.E. must make exactly one legal reply move");
 assert.notEqual(gameMoveBody.context?.game?.state?.status, "assistant_won", "L.O.V.E. cannot win immediately after the user's first move");
 assert.doesNotMatch(gameMoveBody.response, /three in a row|congratulations, i win/i, "the first reply cannot fabricate a win");
 assert.equal(env.calls.length, 0, "deterministic game moves must not invoke the model");
+
+const takenHistory = [
+  ...gameHistory,
+  { role: "user", content: "9" },
+  { role: "assistant", content: gameMoveBody.response.replace(/\s+/g, " ") }
+];
+const takenMove = await handleTextAssistant(req({ message: "9", history: takenHistory }), env);
+const takenBody = await takenMove.json();
+assert.match(takenBody.response, /already taken/i);
+assert.deepEqual(takenBody.context?.game?.state?.board, gameBoard, "illegal repeat moves must not mutate state");
+
+const assistantFirstStart = await handleTextAssistant(req({ message: "Play tic tac toe. I'll be O and you be X." }), env);
+const assistantFirstBody = await assistantFirstStart.json();
+assert.equal(assistantFirstBody.context?.game?.state?.user, "O");
+assert.equal(assistantFirstBody.context?.game?.state?.assistant, "X");
+assert.equal(assistantFirstBody.context?.game?.state?.board?.[4], "X", "X should make the deterministic opening move when L.O.V.E. starts");
+assert.equal(assistantFirstBody.context?.game?.state?.board?.filter((cell) => cell === "X").length, 1);
+
+const legacyHistory = [
+  { role: "user", content: "tic tac toe" },
+  { role: "assistant", content: "Alright, let's play Tic Tac Toe! I'll be X, and you'll be O. I'll go first and put my X in the center (position 5). The board now looks like this: | | --------- | X | --------- | | Your turn!" }
+];
+const legacyMove = await handleTextAssistant(req({ message: "1", history: legacyHistory }), env);
+assert.equal(legacyMove.status, 200);
+const legacyBody = await legacyMove.json();
+const legacyBoard = legacyBody.context?.game?.state?.board;
+assert.equal(legacyBody.context?.game?.state?.user, "O", "legacy assistant narration must not flip the human into X");
+assert.equal(legacyBody.context?.game?.state?.assistant, "X");
+assert.equal(legacyBoard?.[0], "O", "the user's requested O move must be placed on square 1");
+assert.equal(legacyBoard?.[4], "X", "the legacy center opening must be recovered");
+assert.equal(legacyBoard?.filter((cell) => cell === "O").length, 1, "legacy recovery must create exactly one human move");
+assert.equal(legacyBoard?.filter((cell) => cell === "X").length, 2, "legacy recovery must preserve one prior X and add only one legal L.O.V.E. move");
+assert.notEqual(legacyBody.context?.game?.state?.status, "assistant_won", "L.O.V.E. cannot fabricate a win on its second mark");
+assert.equal(env.calls.length, 0, "legacy game recovery must stay out of the language model");
+
 quota = await getAssistantQuota(req({ message: "status" }), env);
 assert.equal(quota.used, 0, "deterministic game turns must not spend AI quota");
 
