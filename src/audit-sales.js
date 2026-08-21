@@ -1,8 +1,19 @@
+import { getOptionalProofTTLSession } from './auth.js';
+
 const VALID_STATES = new Set(['received', 'scoped', 'payment_ready', 'paid', 'fulfilled', 'cancelled']);
+
+function productionAuthConfigured(env) {
+  return Boolean(env?.BETTER_AUTH_SECRET && (env?.PROOFTTL_AUTH_PUBLIC_URL || env?.PROOFTTL_WEB_URL || env?.BETTER_AUTH_URL));
+}
 
 export async function handleAuditStatus(request, env) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   if (!env?.MONITOR_DB) return json({ error: 'audit_intake_storage_unavailable' }, 503);
+
+  if (productionAuthConfigured(env)) {
+    const session = await getOptionalProofTTLSession(request, env);
+    if (!session?.user?.id) return json({ error: 'authentication_required', message: 'Sign in to view a ProofTTL audit request.' }, 401);
+  }
 
   let body;
   try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
