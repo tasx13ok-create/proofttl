@@ -1,0 +1,35 @@
+name: Auth Schema Probe
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    if: github.head_ref == 'ci/auth-schema-probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Generate Better Auth SQL
+        run: npm run auth:schema:generate
+
+      - name: Print generated SQL for migration review
+        run: |
+          test -s generated-auth-schema.sql
+          echo '---BEGIN PROOFTTL AUTH SCHEMA---'
+          cat generated-auth-schema.sql
+          echo '---END PROOFTTL AUTH SCHEMA---'
