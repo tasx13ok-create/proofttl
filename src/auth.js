@@ -12,9 +12,20 @@ function csv(value) {
     .filter(Boolean);
 }
 
-function optionalProvider(clientId, clientSecret) {
+export function authProviderRedirectURI(baseURL, provider) {
+  const origin = String(baseURL || "").trim().replace(/\/$/, "");
+  const providerId = String(provider || "").trim();
+  if (!origin || !providerId) return "";
+  return `${origin}${AUTH_PREFIX}/callback/${providerId}`;
+}
+
+function optionalProvider(clientId, clientSecret, redirectURI) {
   if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
+  return {
+    clientId,
+    clientSecret,
+    ...(redirectURI ? { redirectURI } : {})
+  };
 }
 
 export function authTrustedOrigins(env, request) {
@@ -58,9 +69,21 @@ export function createProofTTLAuth(env, request) {
   if (!status.configured) return null;
 
   const socialProviders = {};
-  const github = optionalProvider(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET);
-  const google = optionalProvider(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET);
-  const discord = optionalProvider(env.DISCORD_CLIENT_ID, env.DISCORD_CLIENT_SECRET);
+  const github = optionalProvider(
+    env.GITHUB_CLIENT_ID,
+    env.GITHUB_CLIENT_SECRET,
+    authProviderRedirectURI(status.baseURL, "github")
+  );
+  const google = optionalProvider(
+    env.GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_SECRET,
+    authProviderRedirectURI(status.baseURL, "google")
+  );
+  const discord = optionalProvider(
+    env.DISCORD_CLIENT_ID,
+    env.DISCORD_CLIENT_SECRET,
+    authProviderRedirectURI(status.baseURL, "discord")
+  );
   if (github) socialProviders.github = github;
   if (google) socialProviders.google = google;
   if (discord) socialProviders.discord = discord;
