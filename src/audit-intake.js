@@ -25,9 +25,21 @@ const CLAIM_BUCKETS = {
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_PER_WINDOW = 10;
 
+function productionAuthConfigured(env) {
+  return Boolean(env?.BETTER_AUTH_SECRET && (env?.PROOFTTL_AUTH_PUBLIC_URL || env?.PROOFTTL_WEB_URL || env?.BETTER_AUTH_URL));
+}
+
 export async function handleAuditIntake(request, env) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   if (!env?.MONITOR_DB) return json({ error: 'audit_intake_storage_unavailable' }, 503);
+
+  let authenticatedSession = null;
+  if (productionAuthConfigured(env)) {
+    authenticatedSession = await getOptionalProofTTLSession(request, env);
+    if (!authenticatedSession?.user?.id) {
+      return json({ error: 'authentication_required', message: 'Sign in to submit a ProofTTL audit request.' }, 401);
+    }
+  }
 
   const contentType = request.headers.get('content-type') || '';
   if (!contentType.toLowerCase().includes('application/json')) return json({ error: 'content_type_must_be_application_json' }, 415);
@@ -65,8 +77,6 @@ export async function handleAuditIntake(request, env) {
 
   const now = Date.now();
 
-  // Treat a quick repeat of the exact same submission as an idempotent retry instead
-  // of creating a second customer job. This protects double-clicks and flaky networks.
   const duplicate = await env.MONITOR_DB.prepare(
     `SELECT id, status FROM audit_intakes
       WHERE lower(email) = ? AND offer_type = ? AND claim_scope = ? AND created_at_ms >= ?
@@ -103,10 +113,9 @@ export async function handleAuditIntake(request, env) {
 
   let linkedToAccount = false;
   try {
-    const session = await getOptionalProofTTLSession(request, env);
+    const session = authenticatedSession || await getOptionalProofTTLSession(request, env);
     const sessionUserId = session?.user?.id;
-    const sessionEmail = typeof session?.user?.email === 'string' ? session.user.email.trim().toLowerCase() : '';
-    if (sessionUserId && sessionEmail && sessionEmail === email) {
+    if (sessionUserId) {
       await env.MONITOR_DB.prepare('INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)')
         .bind(sessionUserId, id, new Date(now).toISOString()).run();
       linkedToAccount = true;
