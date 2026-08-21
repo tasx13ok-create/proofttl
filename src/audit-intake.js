@@ -23,7 +23,7 @@ const CLAIM_BUCKETS = {
   full_audit: new Set(['10-15', '16-25', '25+'])
 };
 const WINDOW_MS = 10 * 60 * 1000;
-const MAX_PER_WINDOW = 3;
+const MAX_PER_WINDOW = 10;
 
 export async function handleAuditIntake(request, env) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -64,6 +64,30 @@ export async function handleAuditIntake(request, env) {
   }
 
   const now = Date.now();
+
+  // Treat a quick repeat of the exact same submission as an idempotent retry instead
+  // of creating a second customer job. This protects double-clicks and flaky networks.
+  const duplicate = await env.MONITOR_DB.prepare(
+    `SELECT id, status FROM audit_intakes
+      WHERE lower(email) = ? AND offer_type = ? AND claim_scope = ? AND created_at_ms >= ?
+      ORDER BY created_at_ms DESC LIMIT 1`
+  ).bind(email, offerType, claimScope, now - WINDOW_MS).first();
+  if (duplicate?.id) {
+    return json({
+      ok: true,
+      duplicate: true,
+      audit_intake_id: duplicate.id,
+      status: duplicate.status || 'received',
+      offer: {
+        type: offerType,
+        ...offer,
+        upgrade: offerType === 'stress_test' ? { to: 'full_audit', additional_usd: 371, total_usd: 500 } : null
+      },
+      payment: { required_now: false, state: 'scope_review_before_payment' },
+      next_step: 'Your original request is already stored. ProofTTL reviews the submitted scope within 24 hours before payment is requested.'
+    }, 200);
+  }
+
   const fingerprint = await requestFingerprint(request);
   const recent = await env.MONITOR_DB.prepare('SELECT COUNT(*) AS count FROM audit_intakes WHERE request_fingerprint = ? AND created_at_ms >= ?').bind(fingerprint, now - WINDOW_MS).first();
   if (Number(recent?.count || 0) >= MAX_PER_WINDOW) return json({ error: 'audit_intake_rate_limited', retry_after_seconds: 600 }, 429, { 'retry-after': '600' });
