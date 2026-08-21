@@ -20,7 +20,8 @@ function optionalProvider(clientId, clientSecret) {
 export function authTrustedOrigins(env, request) {
   const configured = csv(env.PROOFTTL_AUTH_TRUSTED_ORIGINS);
   const workerOrigin = new URL(request.url).origin;
-  return [...new Set([workerOrigin, ...configured])];
+  const webOrigin = String(env.PROOFTTL_WEB_URL || "").trim().replace(/\/$/, "");
+  return [...new Set([workerOrigin, webOrigin, ...configured].filter(Boolean))];
 }
 
 export function authRuntimeStatus(env, request) {
@@ -33,13 +34,15 @@ export function authRuntimeStatus(env, request) {
   const passkeys = Boolean(env.PROOFTTL_PASSKEY_RP_ID && env.PROOFTTL_PASSKEY_ORIGIN);
   const database = Boolean(env.MONITOR_DB);
   const secret = Boolean(env.BETTER_AUTH_SECRET);
-  const baseURL = typeof env.BETTER_AUTH_URL === "string" ? env.BETTER_AUTH_URL.trim().replace(/\/$/, "") : "";
+  const publicAuthOrigin = String(env.PROOFTTL_AUTH_PUBLIC_URL || env.PROOFTTL_WEB_URL || env.BETTER_AUTH_URL || "")
+    .trim()
+    .replace(/\/$/, "");
 
   return {
-    configured: database && secret && Boolean(baseURL),
+    configured: database && secret && Boolean(publicAuthOrigin),
     database,
     secret,
-    baseURL,
+    baseURL: publicAuthOrigin,
     socialProviders,
     passkeys,
     totp: database && secret,
