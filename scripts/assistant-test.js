@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import {
-  ASSISTANT_MODELS,
   assistantSystemPrompt,
   handleVoiceAssistant,
   matchAssistantNavigation
 } from "../src/assistant.js";
+import { DEFAULT_ASSISTANT_RESPONSE_MODEL } from "../src/assistant-model-router.js";
+
+const TRANSCRIPTION_MODEL = "@cf/openai/whisper-large-v3-turbo";
 
 let checks = 0;
 function check(name, fn) {
@@ -76,8 +78,8 @@ check("assistant prompt supports normal conversation", () => {
   assert.doesNotMatch(assistantSystemPrompt(), /Answer only questions about ProofTTL/i);
 });
 
-check("voice uses Whisper large v3 turbo", () => {
-  assert.equal(ASSISTANT_MODELS.transcription, "@cf/openai/whisper-large-v3-turbo");
+check("voice test tracks current Whisper transcription contract", () => {
+  assert.equal(TRANSCRIPTION_MODEL, "@cf/openai/whisper-large-v3-turbo");
 });
 
 {
@@ -87,7 +89,7 @@ check("voice uses Whisper large v3 turbo", () => {
     AI: {
       async run(model, options) {
         aiCalls += 1;
-        assert.equal(model, ASSISTANT_MODELS.transcription);
+        assert.equal(model, TRANSCRIPTION_MODEL);
         transcriptionOptions = options;
         return { text: "Take me to payments" };
       }
@@ -122,7 +124,7 @@ check("voice uses Whisper large v3 turbo", () => {
     AI: {
       async run(model) {
         models.push(model);
-        if (model === ASSISTANT_MODELS.transcription) {
+        if (model === TRANSCRIPTION_MODEL) {
           return { text: "What does revoked mean?" };
         }
         return { response: "REVOKED means an active Fact Lease can no longer maintain its issued verdict from the monitored evidence." };
@@ -132,8 +134,8 @@ check("voice uses Whisper large v3 turbo", () => {
   });
   const body = await response.json();
 
-  check("product question uses transcription then response model", () => {
-    assert.deepEqual(models, [ASSISTANT_MODELS.transcription, ASSISTANT_MODELS.response]);
+  check("product question uses transcription then routed default response model", () => {
+    assert.deepEqual(models, [TRANSCRIPTION_MODEL, DEFAULT_ASSISTANT_RESPONSE_MODEL]);
   });
   check("product question returns text with no navigation action", () => {
     assert.equal(response.status, 200);
@@ -146,7 +148,7 @@ check("voice uses Whisper large v3 turbo", () => {
   const response = await handleVoiceAssistant(audioRequest(), {
     AI: {
       async run(model) {
-        if (model === ASSISTANT_MODELS.transcription) return { text: "do you?" };
+        if (model === TRANSCRIPTION_MODEL) return { text: "do you?" };
         return { response: "" };
       }
     },
