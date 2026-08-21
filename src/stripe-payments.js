@@ -14,21 +14,15 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
   ).bind(intakeId).first();
 
   if (!row) return json({ error: 'audit_intake_not_found' }, 404);
-  if (!['scoped', 'payment_ready'].includes(row.status)) {
-    return json({ error: 'audit_intake_not_scoped' }, 409);
-  }
-  if (!row.scope_summary || !Number.isInteger(Number(row.scoped_price_usd))) {
-    return json({ error: 'scope_not_complete' }, 409);
-  }
+  if (!['scoped', 'payment_ready'].includes(row.status)) return json({ error: 'audit_intake_not_scoped' }, 409);
+  if (!row.scope_summary || !Number.isInteger(Number(row.scoped_price_usd))) return json({ error: 'scope_not_complete' }, 409);
 
   const total = Number(row.scoped_price_usd);
   const credit = Number(row.prior_credit_usd || 0);
   const amountDue = total - credit;
-  if (![129, 371, 500].includes(amountDue)) {
-    return json({ error: 'invalid_payment_amount', amount_due_usd: amountDue }, 409);
-  }
+  if (![129, 371, 500].includes(amountDue)) return json({ error: 'invalid_payment_amount', amount_due_usd: amountDue }, 409);
 
-  const siteUrl = clean(env?.PROOFTTL_WEB_URL, 1000) || 'https://proofttl-web-git-main-tasx13ok-1769s-projects.vercel.app';
+  const siteUrl = clean(env?.PROOFTTL_WEB_URL, 1000) || 'https://proofttl-web.vercel.app';
   if (!isHttps(siteUrl)) return json({ error: 'invalid_web_url_configuration' }, 503);
 
   const offerName = amountDue === 371
@@ -37,12 +31,13 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
       ? 'ProofTTL Claim Stress Test'
       : 'ProofTTL Full Verification Audit';
 
+  const returnBase = `${siteUrl.replace(/\/$/, '')}/audit/status/?request=${encodeURIComponent(row.id)}`;
   const params = new URLSearchParams();
   params.set('mode', 'payment');
   params.set('customer_email', row.email);
   params.set('client_reference_id', row.id);
-  params.set('success_url', `${siteUrl.replace(/\/$/, '')}/audit/status/?paid=1`);
-  params.set('cancel_url', `${siteUrl.replace(/\/$/, '')}/audit/status/?cancelled=1`);
+  params.set('success_url', `${returnBase}&paid=1&session_id={CHECKOUT_SESSION_ID}`);
+  params.set('cancel_url', `${returnBase}&cancelled=1`);
   params.set('line_items[0][price_data][currency]', 'usd');
   params.set('line_items[0][price_data][unit_amount]', String(amountDue * 100));
   params.set('line_items[0][price_data][product_data][name]', offerName);
@@ -55,12 +50,16 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
   params.set('payment_intent_data[metadata][offer_type]', row.offer_type);
   params.set('payment_intent_data[metadata][amount_due_usd]', String(amountDue));
 
+  // Stripe keeps idempotency keys for a limited window. Hour-bucketing prevents a
+  // double-click from producing two sessions while still allowing a stale/expired
+  // checkout to be regenerated later without manual database surgery.
+  const checkoutWindow = Math.floor(Date.now() / (60 * 60 * 1000));
   const stripeResponse = await fetch(`${STRIPE_API}/checkout/sessions`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${secret}`,
       'content-type': 'application/x-www-form-urlencoded',
-      'idempotency-key': `proofttl-audit-${row.id}-${amountDue}`
+      'idempotency-key': `proofttl-audit-${row.id}-${amountDue}-${checkoutWindow}`
     },
     body: params.toString()
   });
@@ -125,6 +124,7 @@ export async function handleStripeWebhook(request, env) {
   if (eventType === 'checkout.session.completed') {
     if (!/^ati_[a-f0-9]{32}$/.test(intakeId)) return json({ error: 'missing_audit_intake_metadata' }, 400);
     if (object.payment_status !== 'paid') {
+      await markWebhookProcessed(env, eventId);
       return json({ ok: true, ignored: 'checkout_session_not_paid' });
     }
 
@@ -133,25 +133,34 @@ export async function handleStripeWebhook(request, env) {
          FROM audit_intakes WHERE id = ? LIMIT 1`
     ).bind(intakeId).first();
     if (!expected) return json({ error: 'audit_intake_not_found' }, 404);
-    if (expected.stripe_checkout_session_id && expected.stripe_checkout_session_id !== object.id) {
-      return json({ error: 'stripe_session_mismatch' }, 409);
+    if (expected.status === 'paid' || expected.status === 'fulfilled') {
+      await markWebhookProcessed(env, eventId);
+      return json({ ok: true, duplicate_payment_state: true });
     }
+    if (expected.stripe_checkout_session_id && expected.stripe_checkout_session_id !== object.id) return json({ error: 'stripe_session_mismatch' }, 409);
     const paidUsd = Number(object.amount_total || 0) / 100;
-    if (Number(expected.amount_due_usd || 0) !== paidUsd) {
-      return json({ error: 'stripe_amount_mismatch' }, 409);
-    }
+    if (Number(expected.amount_due_usd || 0) !== paidUsd) return json({ error: 'stripe_amount_mismatch' }, 409);
 
     await env.MONITOR_DB.prepare(
       `UPDATE audit_intakes SET status = 'paid', payment_state = 'paid', paid_at_ms = ?,
        stripe_payment_intent_id = ?, stripe_last_event_id = ? WHERE id = ?`
     ).bind(now, clean(object.payment_intent, 200) || null, eventId, intakeId).run();
+  } else if (eventType === 'checkout.session.expired' && /^ati_[a-f0-9]{32}$/.test(intakeId)) {
+    await env.MONITOR_DB.prepare(
+      `UPDATE audit_intakes SET status = CASE WHEN status = 'payment_ready' THEN 'scoped' ELSE status END,
+       payment_state = CASE WHEN payment_state = 'ready' THEN 'not_requested' ELSE payment_state END,
+       payment_url = CASE WHEN payment_state = 'ready' THEN NULL ELSE payment_url END,
+       stripe_checkout_session_id = CASE WHEN payment_state = 'ready' THEN NULL ELSE stripe_checkout_session_id END
+       WHERE id = ? AND status != 'paid' AND status != 'fulfilled'`
+    ).bind(intakeId).run();
   }
 
-  await env.MONITOR_DB.prepare(
-    'UPDATE stripe_webhook_events SET processed = 1 WHERE event_id = ?'
-  ).bind(eventId).run();
-
+  await markWebhookProcessed(env, eventId);
   return json({ ok: true });
+}
+
+async function markWebhookProcessed(env, eventId) {
+  await env.MONITOR_DB.prepare('UPDATE stripe_webhook_events SET processed = 1 WHERE event_id = ?').bind(eventId).run();
 }
 
 export async function verifyStripeSignature(payload, header, secret, nowSeconds = Math.floor(Date.now() / 1000)) {
@@ -161,9 +170,7 @@ export async function verifyStripeSignature(payload, header, secret, nowSeconds 
   if (!timestamp || !signatures.length || !/^\d+$/.test(timestamp)) return { ok: false, error: 'invalid_stripe_signature' };
 
   const ts = Number(timestamp);
-  if (Math.abs(nowSeconds - ts) > WEBHOOK_TOLERANCE_SECONDS) {
-    return { ok: false, error: 'stripe_signature_too_old' };
-  }
+  if (Math.abs(nowSeconds - ts) > WEBHOOK_TOLERANCE_SECONDS) return { ok: false, error: 'stripe_signature_too_old' };
 
   const key = await crypto.subtle.importKey(
     'raw',
