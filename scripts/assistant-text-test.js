@@ -65,6 +65,33 @@ assert.equal(env.calls.length, 0, "deterministic navigation must not invoke the 
 quota = await getAssistantQuota(req({ message: "status" }), env);
 assert.equal(quota.used, 0, "deterministic navigation must not spend AI quota");
 
+const gameStartMessage = "Let's play Tic Tac Toe! I'll be X, and you'll be O.";
+const gameStart = await handleTextAssistant(req({ message: gameStartMessage }), env);
+assert.equal(gameStart.status, 200);
+const gameStartBody = await gameStart.json();
+assert.equal(gameStartBody.inference?.deterministic_route, true, "Tic-Tac-Toe must use deterministic state, not model memory");
+assert.equal(gameStartBody.inference?.game_engine, "tic_tac_toe_v1");
+assert.deepEqual(gameStartBody.context?.game?.state?.board, [null,null,null,null,null,null,null,null,null]);
+assert.match(gameStartBody.response, /1 \| 2 \| 3/);
+assert.equal(env.calls.length, 0, "starting a deterministic game must not invoke the model");
+
+const gameHistory = [
+  { role: "user", content: gameStartMessage },
+  { role: "assistant", content: gameStartBody.response }
+];
+const gameMove = await handleTextAssistant(req({ message: "9", history: gameHistory }), env);
+assert.equal(gameMove.status, 200);
+const gameMoveBody = await gameMove.json();
+const gameBoard = gameMoveBody.context?.game?.state?.board;
+assert.equal(gameBoard?.[8], "X", "the user's square 9 move must remain on square 9");
+assert.equal(gameBoard?.filter((cell) => cell === "X").length, 1, "one user move must create exactly one X");
+assert.equal(gameBoard?.filter((cell) => cell === "O").length, 1, "L.O.V.E. must make exactly one legal reply move");
+assert.notEqual(gameMoveBody.context?.game?.state?.status, "assistant_won", "L.O.V.E. cannot win immediately after the user's first move");
+assert.doesNotMatch(gameMoveBody.response, /three in a row|congratulations, i win/i, "the first reply cannot fabricate a win");
+assert.equal(env.calls.length, 0, "deterministic game moves must not invoke the model");
+quota = await getAssistantQuota(req({ message: "status" }), env);
+assert.equal(quota.used, 0, "deterministic game turns must not spend AI quota");
+
 const about = await handleTextAssistant(req({ message: "what is proofttl" }), env);
 assert.equal(about.status, 200);
 const aboutBody = await about.json();
