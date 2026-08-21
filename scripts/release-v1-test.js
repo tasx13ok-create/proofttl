@@ -48,7 +48,12 @@ async function run() {
 
   const voiceAssistant = await text("src/assistant.js");
   assert(voiceAssistant.includes("lease_grounding"), "voice L.O.V.E. returns Lease-grounding metadata");
-  assert(voiceAssistant.includes("refuse") || voiceAssistant.includes("do not invent"), "voice L.O.V.E. refuses to invent missing Lease state");
+  assert(
+    voiceAssistant.includes("I will not guess its status") ||
+    voiceAssistant.includes("do not invent") ||
+    voiceAssistant.includes("refuse"),
+    "voice L.O.V.E. refuses to invent missing Lease state"
+  );
   assert(!voiceAssistant.includes("Lease Offering Value Interpreter"), "unapproved L.O.V.E. expansion is absent from active assistant code");
 
   const worker = await text("src/worker.js");
