@@ -12,6 +12,7 @@ import {
   getAssistantQuota
 } from "./assistant-quota.js";
 import { recordMiraObservation } from "./mira.js";
+import { handleTicTacToe } from "./tic-tac-toe.js";
 
 const MAX_TEXT_CHARS = 1200;
 const MAX_HISTORY_MESSAGES = 6;
@@ -20,8 +21,6 @@ const MAX_RESPONSE_CHARS = 7000;
 const MIRA_TASK_CLASS = "assistant_text_chat";
 const MIRA_STRATEGY_ID = "general_conversation_v6_contextual_coding";
 const LEASE_ID_PATTERN = /\bftl_[a-f0-9]{16,64}\b/i;
-const TIC_TAC_TOE_PATTERN = /\btic[\s-]*tac[\s-]*toe\b/i;
-const TIC_TAC_TOE_WINS = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
 
 export async function handleTextAssistant(request, env, ctx = null) {
   if (request.method !== "POST") {
@@ -55,7 +54,7 @@ export async function handleTextAssistant(request, env, ctx = null) {
       action: null,
       quota,
       context: { history_messages_used: history.length, max_history_messages: MAX_HISTORY_MESSAGES, game: { type: "tic_tac_toe", state: game.state } },
-      inference: { response_model: null, deterministic_route: true, game_engine: "tic_tac_toe_v1" }
+      inference: { response_model: null, deterministic_route: true, game_engine: "tic_tac_toe_v2" }
     });
   }
 
@@ -137,134 +136,6 @@ export async function handleTextAssistant(request, env, ctx = null) {
     console.warn(JSON.stringify({ event: "assistant_text_response_failed", provider: modelRuntime.provider, model: modelRuntime.response_model, error: error?.name || error?.constructor?.name || "Error" }));
     return jsonResponse({ error: "assistant_capacity_unavailable", message: "L.O.V.E. has reached its current AI capacity or the model is temporarily unavailable. Try again later.", quota }, 503);
   }
-}
-
-function handleTicTacToe(message, history) {
-  const combined = [...history.map((item) => item.content), message].join("\n");
-  const active = TIC_TAC_TOE_PATTERN.test(combined) || history.some((item) => /TIC-TAC-TOE STATE/i.test(item.content));
-  if (!active) return null;
-
-  const startRequested = TIC_TAC_TOE_PATTERN.test(message) && !/^\s*[1-9]\s*$/.test(message);
-  const userSymbol = inferTicTacToeUserSymbol(combined);
-  const aiSymbol = userSymbol === "X" ? "O" : "X";
-
-  if (startRequested) {
-    const board = Array(9).fill(null);
-    return {
-      state: { board, user: userSymbol, assistant: aiSymbol, status: "active" },
-      response: [
-        `Tic-Tac-Toe. You're ${userSymbol}; I'm ${aiSymbol}.`,
-        "",
-        renderTicTacToeBoard(board),
-        "",
-        `TIC-TAC-TOE STATE · YOU=${userSymbol} · LOVE=${aiSymbol}`,
-        "Send the number of the square you want."
-      ].join("\n")
-    };
-  }
-
-  if (!/^\s*[1-9]\s*$/.test(message)) return null;
-
-  const board = parseLatestTicTacToeBoard(history) || Array(9).fill(null);
-  const square = Number(message.trim()) - 1;
-  if (board[square]) {
-    return {
-      state: { board, user: userSymbol, assistant: aiSymbol, status: "active" },
-      response: [`That square is already taken.`, "", renderTicTacToeBoard(board), "", `TIC-TAC-TOE STATE · YOU=${userSymbol} · LOVE=${aiSymbol}`, "Pick an open number."].join("\n")
-    };
-  }
-
-  board[square] = userSymbol;
-  if (ticTacToeWinner(board) === userSymbol) {
-    return { state: { board, user: userSymbol, assistant: aiSymbol, status: "user_won" }, response: [`You got it. You win.`, "", renderTicTacToeBoard(board), "", `TIC-TAC-TOE STATE · YOU=${userSymbol} · LOVE=${aiSymbol}`].join("\n") };
-  }
-  if (board.every(Boolean)) {
-    return { state: { board, user: userSymbol, assistant: aiSymbol, status: "draw" }, response: [`Draw.`, "", renderTicTacToeBoard(board), "", `TIC-TAC-TOE STATE · YOU=${userSymbol} · LOVE=${aiSymbol}`].join("\n") };
-  }
-
-  const aiMove = bestTicTacToeMove(board, aiSymbol, userSymbol);
-  if (aiMove >= 0) board[aiMove] = aiSymbol;
-  const winner = ticTacToeWinner(board);
-  const status = winner === aiSymbol ? "assistant_won" : board.every(Boolean) ? "draw" : "active";
-  const lead = status === "assistant_won" ? `I win this one.` : status === "draw" ? `Draw.` : `I played ${aiMove + 1}. Your move.`;
-  return {
-    state: { board, user: userSymbol, assistant: aiSymbol, status },
-    response: [lead, "", renderTicTacToeBoard(board), "", `TIC-TAC-TOE STATE · YOU=${userSymbol} · LOVE=${aiSymbol}`, ...(status === "active" ? ["Send an open square number."] : ["Say “play again” if you want another round."])].join("\n")
-  };
-}
-
-function inferTicTacToeUserSymbol(text) {
-  if (/\b(?:i(?:'ll| will| am)|i'm)\s+(?:be\s+|play(?:ing)?\s+(?:as\s+)?)?o\b/i.test(text)) return "O";
-  if (/\byou(?:'ll| will| are|'re)\s+(?:be\s+|play(?:ing)?\s+(?:as\s+)?)?x\b/i.test(text)) return "O";
-  return "X";
-}
-
-function parseLatestTicTacToeBoard(history) {
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    if (history[index].role !== "assistant") continue;
-    const parsed = parseTicTacToeBoard(history[index].content);
-    if (parsed) return parsed;
-  }
-  return null;
-}
-
-function parseTicTacToeBoard(text) {
-  const rows = [];
-  for (const line of String(text || "").split(/\r?\n/)) {
-    const match = line.match(/^\s*([XO1-9])\s*\|\s*([XO1-9])\s*\|\s*([XO1-9])\s*$/i);
-    if (!match) continue;
-    rows.push(match.slice(1, 4).map((value) => /^[XO]$/i.test(value) ? value.toUpperCase() : null));
-    if (rows.length === 3) return rows.flat();
-  }
-  return null;
-}
-
-function renderTicTacToeBoard(board) {
-  const cell = (index) => board[index] || String(index + 1);
-  return `${cell(0)} | ${cell(1)} | ${cell(2)}\n--+---+--\n${cell(3)} | ${cell(4)} | ${cell(5)}\n--+---+--\n${cell(6)} | ${cell(7)} | ${cell(8)}`;
-}
-
-function ticTacToeWinner(board) {
-  for (const [a, b, c] of TIC_TAC_TOE_WINS) if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
-  return null;
-}
-
-function bestTicTacToeMove(board, aiSymbol, userSymbol) {
-  let bestScore = -Infinity;
-  let bestMove = -1;
-  for (let index = 0; index < board.length; index += 1) {
-    if (board[index]) continue;
-    board[index] = aiSymbol;
-    const score = ticTacToeMinimax(board, false, aiSymbol, userSymbol, 0);
-    board[index] = null;
-    if (score > bestScore) { bestScore = score; bestMove = index; }
-  }
-  return bestMove;
-}
-
-function ticTacToeMinimax(board, maximizing, aiSymbol, userSymbol, depth) {
-  const winner = ticTacToeWinner(board);
-  if (winner === aiSymbol) return 10 - depth;
-  if (winner === userSymbol) return depth - 10;
-  if (board.every(Boolean)) return 0;
-  if (maximizing) {
-    let best = -Infinity;
-    for (let index = 0; index < board.length; index += 1) {
-      if (board[index]) continue;
-      board[index] = aiSymbol;
-      best = Math.max(best, ticTacToeMinimax(board, false, aiSymbol, userSymbol, depth + 1));
-      board[index] = null;
-    }
-    return best;
-  }
-  let best = Infinity;
-  for (let index = 0; index < board.length; index += 1) {
-    if (board[index]) continue;
-    board[index] = userSymbol;
-    best = Math.min(best, ticTacToeMinimax(board, true, aiSymbol, userSymbol, depth + 1));
-    board[index] = null;
-  }
-  return best;
 }
 
 async function loadLeaseGrounding(message, env) {
