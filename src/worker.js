@@ -28,7 +28,7 @@ import { handleCinematics } from "./cinematics.js";
 import { handleDiscordInteractions, DISCORD_INTERACTIONS_PATH } from "./discord.js";
 import { handleFoundry, runFoundryScheduled } from "./foundry.js";
 
-const PRODUCT_VERSION = "1.0.0";
+const PRODUCT_VERSION = "1.0.1";
 const COMPATIBLE_PROTOCOL = "ProofTTL/0.3.1";
 const ASSISTANT_VOICE_PATH = "/assistant/voice";
 const ASSISTANT_TEXT_PATH = "/assistant/text";
@@ -132,7 +132,7 @@ export default {
       const quota = await getAssistantQuota(request, env);
       return applyAssistantCors(Response.json({ service: "ProofTTL Assistant", version: PRODUCT_VERSION, quota, love: loveCapability(quota, env), membership: { available: false, note: "Paid assistant plans are not enabled yet; L.O.V.E. voice mode is temporarily available through the testnet preview." } }, { headers: { "cache-control": "no-store" } }), request, env);
     }
-    if (request.method === "GET" && pathname === ASSISTANT_MODELS_PATH) return applyAssistantCors(Response.json({ service: "ProofTTL Model Catalog", catalog: assistantModelCatalog(env) }, { headers: { "cache-control": "no-store" } }), request, env);
+    if (request.method === "GET" && pathname === ASSISTANT_MODELS_PATH) return applyAssistantCors(Response.json({ service: "ProofTTL Model Catalog", catalog: assistantModelCatalog(env) }, { headers: { "cache-control": "no-store" } }));
     if (request.method === "GET" && pathname === STUDIO_RUNNER_STATUS_PATH) return applyAssistantCors(Response.json({ service: "ProofTTL Studio Runner", configured: runnerConfigured(env), provider: "vercel-sandbox", supported: ["javascript", "python", "bash"], unsupported: ["powershell"], isolation: { ephemeral: true, production_secrets_injected: false, network_default: "deny", max_code_chars: 25000, max_output_chars: 20000, timeout_ms: 15000 } }, { headers: { "cache-control": "no-store" } }), request, env);
 
     if (pathname === ASSISTANT_VOICE_PATH) return applyAssistantCors(await handleVoiceAssistant(request, env), request, env);
