@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 
 const source = fs.readFileSync(new URL('../src/foundry.js', import.meta.url), 'utf8')
-const wrapper = fs.readFileSync(new URL('../src/worker-foundry-wrapper.js', import.meta.url), 'utf8')
+const worker = fs.readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8')
 const migration = fs.readFileSync(new URL('../migrations/0016_foundry.sql', import.meta.url), 'utf8')
 const wrangler = fs.readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8')
 
@@ -15,9 +15,9 @@ const checks = [
   [source.includes('rejected') && source.includes('red_team') && source.includes('evidence_confidence'), 'Foundry persists rejection and red-team judgments'],
   [migration.includes('foundry_runs') && migration.includes('foundry_candidates') && migration.includes('foundry_events'), 'Foundry D1 schema contains run, candidate, and event ledgers'],
   [migration.includes('REFERENCES foundry_runs(run_id) ON DELETE CASCADE'), 'Foundry child records have run foreign-key integrity'],
-  [wrapper.includes('handleFoundry') && wrapper.includes('applyAuthCors'), 'Foundry routes preserve authenticated browser CORS'],
-  [wrapper.includes('runFoundryScheduled') && wrapper.includes('Promise.allSettled'), 'Existing cron advances Foundry without breaking core scheduled work'],
-  [wrangler.includes('src/worker-foundry-wrapper.js'), 'Wrangler deploy entrypoint includes Foundry wrapper'],
+  [worker.includes('handleFoundry') && worker.includes('isFoundryPath') && worker.includes('applyAuthCors'), 'Foundry routes preserve authenticated browser CORS'],
+  [worker.includes('runFoundryScheduled') && worker.includes('Promise.allSettled'), 'Existing cron advances Foundry without breaking core scheduled work'],
+  [wrangler.includes('"main": "src/worker.js"'), 'Wrangler keeps canonical Worker entrypoint'],
 ]
 
 const failed = checks.filter(([ok]) => !ok).map(([, label]) => label)
