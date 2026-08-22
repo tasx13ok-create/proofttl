@@ -25,21 +25,11 @@ const CLAIM_BUCKETS = {
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_PER_WINDOW = 10;
 
-function productionAuthConfigured(env) {
-  return Boolean(env?.BETTER_AUTH_SECRET && (env?.PROOFTTL_AUTH_PUBLIC_URL || env?.PROOFTTL_WEB_URL || env?.BETTER_AUTH_URL));
-}
-
 export async function handleAuditIntake(request, env) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   if (!env?.MONITOR_DB) return json({ error: 'audit_intake_storage_unavailable' }, 503);
 
-  let authenticatedSession = null;
-  if (productionAuthConfigured(env)) {
-    authenticatedSession = await getOptionalProofTTLSession(request, env);
-    if (!authenticatedSession?.user?.id) {
-      return json({ error: 'authentication_required', message: 'Sign in to submit a ProofTTL audit request.' }, 401);
-    }
-  }
+  const authenticatedSession = await getOptionalProofTTLSession(request, env);
 
   const contentType = request.headers.get('content-type') || '';
   if (!contentType.toLowerCase().includes('application/json')) return json({ error: 'content_type_must_be_application_json' }, 415);
@@ -67,11 +57,10 @@ export async function handleAuditIntake(request, env) {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'valid_email_required' }, 400);
 
   const sessionEmail = clean(authenticatedSession?.user?.email, 254).toLowerCase();
-  const accountEmailMatches = sessionEmail === email;
-  if (authenticatedSession?.user?.id && (!sessionEmail || !accountEmailMatches)) {
+  if (authenticatedSession?.user?.id && sessionEmail && sessionEmail !== email) {
     return json({
       error: 'audit_email_must_match_account',
-      message: 'Use the same email address as your signed-in ProofTTL account for this audit request.'
+      message: 'Use the same email address as your signed-in ProofTTL account, or sign out and submit as a guest.'
     }, 400);
   }
 
@@ -86,17 +75,14 @@ export async function handleAuditIntake(request, env) {
   }
 
   const now = Date.now();
-
   const duplicate = await env.MONITOR_DB.prepare(
     `SELECT id, status FROM audit_intakes
       WHERE lower(email) = ? AND offer_type = ? AND claim_scope = ? AND created_at_ms >= ?
       ORDER BY created_at_ms DESC LIMIT 1`
   ).bind(email, offerType, claimScope, now - WINDOW_MS).first();
+
   if (duplicate?.id) {
     const linked = await ensureAccountLink(env, authenticatedSession, duplicate.id, now);
-    if (productionAuthConfigured(env) && !linked) {
-      return json({ error: 'audit_account_link_failed', message: 'ProofTTL stored this request but could not attach it to your account. Retry shortly.' }, 503);
-    }
     return json({
       ok: true,
       duplicate: true,
@@ -109,7 +95,7 @@ export async function handleAuditIntake(request, env) {
         upgrade: offerType === 'stress_test' ? { to: 'full_audit', additional_usd: 371, total_usd: 500 } : null
       },
       payment: { required_now: false, state: 'scope_review_before_payment' },
-      next_step: 'Your original request is already stored and linked to this account. ProofTTL reviews the submitted scope before payment is requested.'
+      next_step: 'Your original request is already stored. Keep this reference and email together to check status without an account.'
     }, 200);
   }
 
@@ -127,13 +113,6 @@ export async function handleAuditIntake(request, env) {
   ).bind(id, now, email, companyOrProject, websiteUrl || null, claimScope, approximateClaims, whyItMatters, deadline || null, fingerprint, offerType).run();
 
   const linkedToAccount = await ensureAccountLink(env, authenticatedSession, id, now);
-  if (productionAuthConfigured(env) && !linkedToAccount) {
-    return json({
-      error: 'audit_account_link_failed',
-      audit_intake_id: id,
-      message: 'ProofTTL stored the request but could not attach it to your account. Retry the same request shortly; it will be recovered instead of duplicated.'
-    }, 503);
-  }
 
   return json({
     ok: true,
@@ -146,7 +125,7 @@ export async function handleAuditIntake(request, env) {
       upgrade: offerType === 'stress_test' ? { to: 'full_audit', additional_usd: 371, total_usd: 500 } : null
     },
     payment: { required_now: false, state: 'scope_review_before_payment' },
-    next_step: 'ProofTTL reviews the submitted scope within 24 hours before payment is requested.'
+    next_step: 'ProofTTL reviews the submitted scope before payment is requested. Keep this request reference and email to check status without signing in.'
   }, 201);
 }
 
