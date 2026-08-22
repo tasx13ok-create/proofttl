@@ -1,4 +1,5 @@
 import { getOptionalProofTTLSession } from './auth.js';
+import { isProofTTLOwnerSession } from './owner-access.js';
 
 const MAX_FILE_BYTES = 200 * 1024;
 const MAX_FILES = 100;
@@ -20,10 +21,11 @@ export async function handleAccountFiles(request, env, pathname) {
   const session = await getOptionalProofTTLSession(request, env);
   const userId = session?.user?.id;
   if (!userId) return json({ error: 'authentication_required' }, 401);
+  const owner = isProofTTLOwnerSession(session);
 
   if (pathname === '/account/files') {
-    if (request.method === 'GET') return listFiles(env, userId);
-    if (request.method === 'POST') return createFile(request, env, userId);
+    if (request.method === 'GET') return listFiles(env, userId, owner);
+    if (request.method === 'POST') return createFile(request, env, userId, owner);
     return json({ error: 'method_not_allowed' }, 405, { allow: 'GET, POST, OPTIONS' });
   }
 
@@ -35,10 +37,13 @@ export async function handleAccountFiles(request, env, pathname) {
   return json({ error: 'method_not_allowed' }, 405, { allow: 'GET, PATCH, DELETE, OPTIONS' });
 }
 
-async function listFiles(env, userId) {
-  const rows = await env.MONITOR_DB.prepare(`SELECT file_id,name,media_type,size_bytes,source,created_at,updated_at
-    FROM account_files WHERE user_id=? ORDER BY updated_at DESC LIMIT ?`).bind(userId, MAX_FILES).all();
-  return json({ files: rows.results || [], limits: { max_files: MAX_FILES, max_file_bytes: MAX_FILE_BYTES } });
+async function listFiles(env, userId, owner) {
+  const rows = owner
+    ? await env.MONITOR_DB.prepare(`SELECT file_id,name,media_type,size_bytes,source,created_at,updated_at
+        FROM account_files WHERE user_id=? ORDER BY updated_at DESC`).bind(userId).all()
+    : await env.MONITOR_DB.prepare(`SELECT file_id,name,media_type,size_bytes,source,created_at,updated_at
+        FROM account_files WHERE user_id=? ORDER BY updated_at DESC LIMIT ?`).bind(userId, MAX_FILES).all();
+  return json({ files: rows.results || [], limits: { max_files: owner ? null : MAX_FILES, max_file_bytes: MAX_FILE_BYTES, unlimited_file_count: owner } });
 }
 
 async function getFile(env, userId, fileId) {
@@ -47,11 +52,13 @@ async function getFile(env, userId, fileId) {
   return json({ file: row });
 }
 
-async function createFile(request, env, userId) {
+async function createFile(request, env, userId, owner) {
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== 'object') return json({ error: 'invalid_json' }, 400);
-  const count = await env.MONITOR_DB.prepare('SELECT COUNT(*) AS count FROM account_files WHERE user_id=?').bind(userId).first();
-  if (Number(count?.count || 0) >= MAX_FILES) return json({ error: 'file_limit_reached', max_files: MAX_FILES }, 409);
+  if (!owner) {
+    const count = await env.MONITOR_DB.prepare('SELECT COUNT(*) AS count FROM account_files WHERE user_id=?').bind(userId).first();
+    if (Number(count?.count || 0) >= MAX_FILES) return json({ error: 'file_limit_reached', max_files: MAX_FILES }, 409);
+  }
 
   const normalized = normalizeFileInput(body);
   if (!normalized.ok) return json(normalized.error, normalized.status);
