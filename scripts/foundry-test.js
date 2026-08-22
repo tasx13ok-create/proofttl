@@ -9,6 +9,7 @@ const ownerAccess = fs.readFileSync(new URL('../src/owner-access.js', import.met
 const assistantQuota = fs.readFileSync(new URL('../src/assistant-quota.js', import.meta.url), 'utf8')
 const migration = fs.readFileSync(new URL('../migrations/0016_foundry.sql', import.meta.url), 'utf8')
 const evidenceMigration = fs.readFileSync(new URL('../migrations/0017_foundry_evidence.sql', import.meta.url), 'utf8')
+const watchdogMigration = fs.readFileSync(new URL('../migrations/0018_foundry_failure_watchdog.sql', import.meta.url), 'utf8')
 const wrangler = fs.readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8')
 
 const checks = [
@@ -36,6 +37,9 @@ const checks = [
   [migration.includes('foundry_runs') && migration.includes('foundry_candidates') && migration.includes('foundry_events'), 'Foundry D1 schema contains run, candidate, and event ledgers'],
   [evidenceMigration.includes('foundry_evidence') && evidenceMigration.includes('foundry_candidate_evidence'), 'Foundry D1 schema contains evidence and candidate-evidence ledgers'],
   [evidenceMigration.includes('REFERENCES foundry_runs(run_id) ON DELETE CASCADE') && evidenceMigration.includes('REFERENCES foundry_candidates(candidate_id) ON DELETE CASCADE'), 'Foundry evidence records preserve foreign-key integrity'],
+  [watchdogMigration.includes('foundry_block_after_consecutive_stage_failures') && watchdogMigration.includes("LIMIT 3"), 'Foundry D1 watchdog evaluates the three most recent execution events'],
+  [watchdogMigration.includes("status = 'blocked'") && watchdogMigration.includes("stage_blocked"), 'Foundry D1 watchdog blocks stalled runs and emits a visible event'],
+  [watchdogMigration.includes("scheduled_step_failed") && watchdogMigration.includes("step_failed") && watchdogMigration.includes("LOWER(foundry_runs.stage)"), 'Foundry watchdog covers scheduled/manual failures and scopes them to the current stage'],
   [worker.includes('handleFoundry') && worker.includes('isFoundryPath') && worker.includes('applyAuthCors'), 'Foundry routes preserve authenticated browser CORS'],
   [worker.includes('runFoundryScheduled') && worker.includes('Promise.allSettled'), 'Existing cron advances Foundry without breaking core scheduled work'],
   [router.includes('foundryModelPreference') && router.includes('ProofTTL Foundry'), 'Foundry requests route through a dedicated model council without changing ordinary L.O.V.E. routing'],
