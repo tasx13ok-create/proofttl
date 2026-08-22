@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 
+// Release invariant suite for the persistent Foundry runtime.
 const source = fs.readFileSync(new URL('../src/foundry.js', import.meta.url), 'utf8')
 const worker = fs.readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8')
 const migration = fs.readFileSync(new URL('../migrations/0016_foundry.sql', import.meta.url), 'utf8')
