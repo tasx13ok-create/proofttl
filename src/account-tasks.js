@@ -1,4 +1,5 @@
 import { getOptionalProofTTLSession } from './auth.js';
+import { isProofTTLOwnerSession } from './owner-access.js';
 
 const PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 const STATUSES = new Set(['open', 'done']);
@@ -9,10 +10,11 @@ export async function handleAccountTasks(request, env, pathname) {
   const session = await getOptionalProofTTLSession(request, env);
   const userId = session?.user?.id;
   if (!userId) return json({ error: 'authentication_required' }, 401);
+  const owner = isProofTTLOwnerSession(session);
 
   if (pathname === '/account/tasks') {
-    if (request.method === 'GET') return listTasks(request, env, userId);
-    if (request.method === 'POST') return createTask(request, env, userId);
+    if (request.method === 'GET') return listTasks(request, env, userId, owner);
+    if (request.method === 'POST') return createTask(request, env, userId, owner);
     return json({ error: 'method_not_allowed' }, 405, { allow: 'GET, POST, OPTIONS' });
   }
 
@@ -23,21 +25,30 @@ export async function handleAccountTasks(request, env, pathname) {
   return json({ error: 'method_not_allowed' }, 405, { allow: 'PATCH, DELETE, OPTIONS' });
 }
 
-async function listTasks(request, env, userId) {
+async function listTasks(request, env, userId, owner) {
   const url = new URL(request.url);
   const requestedStatus = clean(url.searchParams.get('status'), 20).toLowerCase();
   const status = STATUSES.has(requestedStatus) ? requestedStatus : null;
-  const result = status
-    ? await env.MONITOR_DB.prepare(`SELECT * FROM account_tasks WHERE user_id=? AND status=? ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, COALESCE(due_at,'9999'), updated_at DESC LIMIT ?`).bind(userId,status,MAX_TASKS).all()
-    : await env.MONITOR_DB.prepare(`SELECT * FROM account_tasks WHERE user_id=? ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, COALESCE(due_at,'9999'), updated_at DESC LIMIT ?`).bind(userId,MAX_TASKS).all();
-  return json({ tasks: result.results || [], limits: { max_tasks: MAX_TASKS } });
+  let result;
+  if (owner) {
+    result = status
+      ? await env.MONITOR_DB.prepare(`SELECT * FROM account_tasks WHERE user_id=? AND status=? ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, COALESCE(due_at,'9999'), updated_at DESC`).bind(userId,status).all()
+      : await env.MONITOR_DB.prepare(`SELECT * FROM account_tasks WHERE user_id=? ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, COALESCE(due_at,'9999'), updated_at DESC`).bind(userId).all();
+  } else {
+    result = status
+      ? await env.MONITOR_DB.prepare(`SELECT * FROM account_tasks WHERE user_id=? AND status=? ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, COALESCE(due_at,'9999'), updated_at DESC LIMIT ?`).bind(userId,status,MAX_TASKS).all()
+      : await env.MONITOR_DB.prepare(`SELECT * FROM account_tasks WHERE user_id=? ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, COALESCE(due_at,'9999'), updated_at DESC LIMIT ?`).bind(userId,MAX_TASKS).all();
+  }
+  return json({ tasks: result.results || [], limits: { max_tasks: owner ? null : MAX_TASKS, unlimited_task_count: owner } });
 }
 
-async function createTask(request, env, userId) {
+async function createTask(request, env, userId, owner) {
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== 'object') return json({ error: 'invalid_json' }, 400);
-  const count = await env.MONITOR_DB.prepare('SELECT COUNT(*) AS count FROM account_tasks WHERE user_id=?').bind(userId).first();
-  if (Number(count?.count || 0) >= MAX_TASKS) return json({ error: 'task_limit_reached', max_tasks: MAX_TASKS }, 409);
+  if (!owner) {
+    const count = await env.MONITOR_DB.prepare('SELECT COUNT(*) AS count FROM account_tasks WHERE user_id=?').bind(userId).first();
+    if (Number(count?.count || 0) >= MAX_TASKS) return json({ error: 'task_limit_reached', max_tasks: MAX_TASKS }, 409);
+  }
 
   const normalized = normalizeTask(body);
   if (!normalized.ok) return json({ error: normalized.error }, 400);
