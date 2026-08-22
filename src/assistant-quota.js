@@ -1,4 +1,6 @@
 import { resolveAssistantEntitlement } from "./entitlements.js";
+import { getOptionalProofTTLSession } from "./auth.js";
+import { isProofTTLOwnerEmail } from "./owner-access.js";
 
 const DEFAULT_FREE_DAILY_MESSAGES = 20;
 
@@ -10,6 +12,9 @@ export function assistantQuotaLimit(env) {
 }
 
 export async function getAssistantQuota(request, env) {
+  const owner = await ownerQuotaPolicy(request, env);
+  if (owner) return ownerQuotaShape(owner, "owner_unmetered");
+
   const policy = await assistantQuotaPolicy(request, env);
   const timing = quotaTiming();
   const subjectHash = await quotaSubjectHash(request, env, policy.subject);
@@ -36,6 +41,9 @@ export async function getAssistantQuota(request, env) {
 }
 
 export async function consumeAssistantQuota(request, env) {
+  const owner = await ownerQuotaPolicy(request, env);
+  if (owner) return { ...ownerQuotaShape(owner, "owner_unmetered"), allowed: true };
+
   const policy = await assistantQuotaPolicy(request, env);
   const timing = quotaTiming();
   const subjectHash = await quotaSubjectHash(request, env, policy.subject);
@@ -78,6 +86,31 @@ export async function consumeAssistantQuota(request, env) {
   return consumeKvQuota(subjectHash, timing, env, policy);
 }
 
+async function ownerQuotaPolicy(request, env) {
+  const session = await getOptionalProofTTLSession(request, env);
+  const userId = session?.user?.id || session?.session?.userId || null;
+  const email = session?.user?.email || null;
+  if (!userId || !isProofTTLOwnerEmail(email)) return null;
+  return { subject: `user:${String(userId)}`, email: String(email).toLowerCase() };
+}
+
+function ownerQuotaShape(owner, backend) {
+  return {
+    allowed: true,
+    authenticated: true,
+    plan: "owner",
+    membership_status: "active",
+    limit: null,
+    used: 0,
+    remaining: null,
+    unlimited: true,
+    reset: "none",
+    retry_after_seconds: 0,
+    accounting_backend: backend,
+    subject: owner.subject
+  };
+}
+
 async function assistantQuotaPolicy(request, env) {
   const freeLimit = assistantQuotaLimit(env);
   return resolveAssistantEntitlement(request, env, freeLimit);
@@ -92,6 +125,7 @@ function quotaShape(policy, used, retryAfterSeconds, backend) {
     limit: policy.limit,
     used: Math.min(policy.limit, used),
     remaining: Math.max(0, policy.limit - used),
+    unlimited: false,
     reset: "daily_utc",
     retry_after_seconds: retryAfterSeconds,
     accounting_backend: backend
@@ -148,6 +182,7 @@ async function getKvQuota(subjectHash, timing, env, policy) {
       limit: policy.limit,
       used: null,
       remaining: null,
+      unlimited: false,
       reset: "daily_utc",
       retry_after_seconds: timing.retryAfterSeconds,
       accounting_backend: "rate_limit_only"
@@ -174,6 +209,7 @@ async function consumeKvQuota(subjectHash, timing, env, policy) {
       limit: policy.limit,
       used: null,
       remaining: null,
+      unlimited: false,
       reset: "daily_utc",
       retry_after_seconds: timing.retryAfterSeconds,
       accounting_backend: "rate_limit_only"
