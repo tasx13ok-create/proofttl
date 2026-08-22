@@ -1,4 +1,5 @@
 import { getOptionalProofTTLSession } from "./auth.js";
+import { isProofTTLOwnerSession } from "./owner-access.js";
 
 const MAX_PROJECT_BYTES = 200 * 1024;
 const MAX_PROJECTS = 25;
@@ -8,6 +9,7 @@ export async function handleAccountWorkspace(request, env, pathname) {
   const session = await getOptionalProofTTLSession(request, env);
   const userId = session?.user?.id;
   const userEmail = normalizeEmail(session?.user?.email);
+  const owner = isProofTTLOwnerSession(session);
   if (!userId) return json({ error: "authentication_required", message: "Sign in to use account-owned workspace data." }, 401);
 
   if (pathname === "/account/preferences") {
@@ -23,7 +25,7 @@ export async function handleAccountWorkspace(request, env, pathname) {
   }
 
   if (pathname === "/studio/projects") {
-    if (request.method === "GET") return listProjects(env, userId);
+    if (request.method === "GET") return listProjects(env, userId, owner);
     if (request.method === "POST") return saveProject(request, env, userId);
     return json({ error: "method_not_allowed" }, 405, { allow: "GET, POST, OPTIONS" });
   }
@@ -99,9 +101,11 @@ async function linkAudit(request, env, userId, userEmail) {
   return json({ linked: true, intake_id: intakeId }, 201);
 }
 
-async function listProjects(env, userId) {
-  const rows = await env.MONITOR_DB.prepare("SELECT project_id,name,language,active_file,created_at,updated_at FROM studio_projects WHERE user_id=? ORDER BY updated_at DESC LIMIT ?").bind(userId, MAX_PROJECTS).all();
-  return json({ projects: rows.results || [] });
+async function listProjects(env, userId, owner) {
+  const rows = owner
+    ? await env.MONITOR_DB.prepare("SELECT project_id,name,language,active_file,created_at,updated_at FROM studio_projects WHERE user_id=? ORDER BY updated_at DESC").bind(userId).all()
+    : await env.MONITOR_DB.prepare("SELECT project_id,name,language,active_file,created_at,updated_at FROM studio_projects WHERE user_id=? ORDER BY updated_at DESC LIMIT ?").bind(userId, MAX_PROJECTS).all();
+  return json({ projects: rows.results || [], limits: { max_projects: owner ? null : MAX_PROJECTS, unlimited_project_count: owner } });
 }
 
 async function getProject(env, userId, projectId) {
