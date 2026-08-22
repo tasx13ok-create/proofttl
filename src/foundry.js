@@ -40,11 +40,26 @@ export async function handleFoundry(request, env, pathname) {
 
   const stepMatch = pathname.match(/^\/foundry\/runs\/(fdr_[a-f0-9]{32})\/step$/);
   if (stepMatch) {
-    if (request.method === "POST") return stepRun(request, env, userId, stepMatch[1]);
+    if (request.method === "POST") return stepRun(env, userId, stepMatch[1]);
     return json({ error: "method_not_allowed" }, 405, { allow: "POST, OPTIONS" });
   }
 
   return json({ error: "not_found" }, 404);
+}
+
+export async function runFoundryScheduled(env) {
+  if (!env?.MONITOR_DB || !assistantResponseProviderAvailable(env)) return { advanced: false, reason: "unavailable" };
+  const run = await env.MONITOR_DB.prepare(`SELECT run_id,user_id,objective,status,stage,rounds_completed,max_rounds,model_calls,created_at,updated_at
+    FROM foundry_runs WHERE status='running' ORDER BY updated_at ASC LIMIT 1`).first();
+  if (!run) return { advanced: false, reason: "no_running_runs" };
+  try {
+    await executeStage(env, run);
+    return { advanced: true, run_id: run.run_id, stage: run.stage };
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "foundry_scheduled_step_failed", run_id: run.run_id, stage: run.stage, error: error?.name || "Error" }));
+    await addEvent(env, run.run_id, "scheduled_step_failed", `Scheduled stage ${run.stage} failed without advancing the run.`, { error: error?.name || "Error" });
+    return { advanced: false, reason: "step_failed", run_id: run.run_id };
+  }
 }
 
 async function createRun(request, env, userId) {
@@ -84,7 +99,7 @@ async function getRun(env, userId, runId) {
   });
 }
 
-async function stepRun(request, env, userId, runId) {
+async function stepRun(env, userId, runId) {
   const run = await loadRun(env, userId, runId);
   if (!run) return json({ error: "foundry_run_not_found" }, 404);
   if (run.status !== "running") return json({ error: "foundry_run_not_running", run }, 409);
@@ -96,18 +111,21 @@ async function stepRun(request, env, userId, runId) {
   if (!limit.success) return json({ error: "foundry_rate_limit_exceeded" }, 429, { "retry-after": "60" });
 
   try {
-    if (run.stage === "discover") await discoveryStep(env, run);
-    else if (run.stage === "judge") await judgeStep(env, run);
-    else if (run.stage === "challenge") await challengeStep(env, run);
-    else return json({ error: "invalid_foundry_stage" }, 500);
+    await executeStage(env, run);
   } catch (error) {
     console.warn(JSON.stringify({ event: "foundry_step_failed", run_id: runId, stage: run.stage, error: error?.name || "Error" }));
     await addEvent(env, runId, "step_failed", `Stage ${run.stage} failed without advancing the run.`, { error: error?.name || "Error" });
     return json({ error: "foundry_step_failed", stage: run.stage }, 503);
   }
 
-  const fresh = await loadRun(env, userId, runId);
-  return getRun(env, userId, fresh.run_id);
+  return getRun(env, userId, runId);
+}
+
+async function executeStage(env, run) {
+  if (run.stage === "discover") return discoveryStep(env, run);
+  if (run.stage === "judge") return judgeStep(env, run);
+  if (run.stage === "challenge") return challengeStep(env, run);
+  throw new Error("invalid_foundry_stage");
 }
 
 async function discoveryStep(env, run) {
@@ -152,7 +170,7 @@ async function judgeStep(env, run) {
   for (const verdict of verdicts) {
     const id = clean(verdict?.candidate_id, 80);
     if (!allowedIds.has(id)) continue;
-    let status = verdict?.status === "active" && kept < 5 ? "active" : "rejected";
+    const status = verdict?.status === "active" && kept < 5 ? "active" : "rejected";
     if (status === "active") kept += 1;
     await env.MONITOR_DB.prepare(`UPDATE foundry_candidates SET score=?,evidence_confidence=?,red_team=?,status=?,updated_at=? WHERE run_id=? AND candidate_id=?`)
       .bind(clampNumber(verdict?.score, 0, 100, 0), clampNumber(verdict?.evidence_confidence, 0, 100, 0), clean(verdict?.red_team, 1200), status, now, run.run_id, id).run();
@@ -237,10 +255,7 @@ async function loadRun(env, userId, runId) {
   return env.MONITOR_DB.prepare(`SELECT run_id,objective,status,stage,rounds_completed,max_rounds,model_calls,created_at,updated_at FROM foundry_runs WHERE user_id=? AND run_id=?`).bind(userId, runId).first();
 }
 
-function publicCandidate(row) {
-  return { ...row, risks: safeJson(row.risks_json, []), risks_json: undefined };
-}
-
+function publicCandidate(row) { return { ...row, risks: safeJson(row.risks_json, []), risks_json: undefined }; }
 function extractCompletionText(value) {
   if (typeof value === "string") return value.trim();
   if (typeof value?.response === "string") return value.response.trim();
@@ -248,7 +263,6 @@ function extractCompletionText(value) {
   if (typeof value?.choices?.[0]?.message?.content === "string") return value.choices[0].message.content.trim();
   return "";
 }
-
 function parseJsonObject(text) {
   const raw = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   try { return JSON.parse(raw); } catch {}
@@ -257,7 +271,6 @@ function parseJsonObject(text) {
   if (start < 0 || end <= start) return null;
   try { return JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
 }
-
 function clean(value, max) { return typeof value === "string" ? value.trim().slice(0, max) : ""; }
 function cleanArray(value, maxItems, maxChars) { return Array.isArray(value) ? value.map((x) => clean(x, maxChars)).filter(Boolean).slice(0, maxItems) : []; }
 function safeJson(value, fallback) { try { return JSON.parse(value); } catch { return fallback; } }
