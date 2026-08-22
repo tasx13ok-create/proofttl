@@ -9,6 +9,11 @@ import {
   authPreflightResponse,
   isAllowedAuthOrigin
 } from "../src/auth-cors.js";
+import {
+  foundryAccessAllowed,
+  isProofTTLOwnerEmail,
+  PROOFTTL_OWNER_EMAILS
+} from "../src/owner-access.js";
 
 let passed = 0;
 
@@ -19,6 +24,13 @@ function assert(condition, message) {
 }
 
 async function run() {
+  assert(PROOFTTL_OWNER_EMAILS.length === 2, "Foundry owner allowlist contains exactly two accounts");
+  assert(isProofTTLOwnerEmail("tasx13ok@gmail.com"), "primary owner email is authorized");
+  assert(isProofTTLOwnerEmail(" G0F0RTH3KIL1@GMAIL.COM "), "secondary owner email is authorized case-insensitively");
+  assert(!isProofTTLOwnerEmail("other@example.com"), "unlisted email is denied Foundry owner access");
+  assert(foundryAccessAllowed({ user: { email: "tasx13ok@gmail.com" } }), "authorized session passes Foundry gate");
+  assert(!foundryAccessAllowed({ user: { email: "other@example.com" } }), "unlisted session fails Foundry gate");
+
   const baseRequest = new Request("https://proofttl.tasx13ok.workers.dev/api/auth/get-session");
   const disabled = authRuntimeStatus({}, baseRequest);
   assert(disabled.configured === false, "auth is disabled without D1, secret, and base URL");
