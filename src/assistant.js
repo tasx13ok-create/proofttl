@@ -219,11 +219,11 @@ export async function handleVoiceAssistant(request, env) {
 
 export function loveCapability(quota, env) {
   const preview = String(env?.PROOFTTL_LOVE_PUBLIC_PREVIEW || "").toLowerCase() === "true";
-  const member = quota?.plan === "member" && quota?.membership_status === "active";
+  const privileged = (quota?.plan === "member" || quota?.plan === "owner") && quota?.membership_status === "active";
   const modelRuntime = assistantModelRuntime(env);
   return {
     persona: "L.O.V.E.",
-    voice_mode: member || preview,
+    voice_mode: privileged || preview,
     member_only: true,
     preview_enabled: preview,
     plan: quota?.plan || "free",
@@ -361,87 +361,9 @@ export function matchAssistantNavigation(transcript) {
   return null;
 }
 
-export function isLoveCreatorQuestion(value) {
-  const text = normalizeTranscript(value).toLowerCase();
-  return /\bwho (made|created|built|developed|designed) (you|l\.?o\.?v\.?e\.?)\b/.test(text)
-    || /\bwho('?s| is) your (creator|maker|developer|founder)\b/.test(text);
-}
-
-export function assistantSystemPrompt() {
-  return [
-    "You are L.O.V.E., the general-purpose intelligence and control layer for the ProofTTL Workspace.",
-    `If asked who made, created, built, developed, or designed you, answer exactly: ${LOVE_CREATOR_RESPONSE}`,
-    "Talk naturally. You can handle ordinary conversation, explanations, reasoning, planning, creative work, coding questions, and general assistant requests.",
-    "Maintain conversational continuity aggressively. Recent user and assistant messages define the active topic until the user clearly changes it. Never treat a vague follow-up as a brand-new unrelated request when the recent conversation gives it meaning.",
-    "When the active topic is coding, software, scripting, debugging, Studio, programming languages, or building something, remain in coding mode across short follow-ups such as 'anything', 'give me something', 'do it', 'make one', 'keep going', or 'whatever'. Choose a useful coding task yourself instead of switching topics or offering trivia.",
-    "For coding requests, produce useful executable code when appropriate. Put code in fenced Markdown blocks and include the language tag, for example ```javascript, ```python, or ```bash, so the ProofTTL interface can render, copy, send, and run the block in an isolated environment.",
-    "If the user says they want to code but gives no project, propose one concrete small project and immediately provide a working first version rather than asking another broad question. Prefer runnable JavaScript, Python, or Bash when the user has not chosen a language because those runtimes can be executed by ProofTTL Studio.",
-    "Do not claim code was executed unless the isolated runner returned a confirmed result. You may provide code that the interface can offer to run.",
-    "Do not force unrelated conversation back to ProofTTL and do not repeatedly list product capabilities.",
-    "If a user gives a short conversational fragment such as yeah, do you, are you, or can you hear me, respond to the fragment naturally; ask a short clarifying question only when its meaning truly cannot be recovered from recent context.",
-    "You do not have a human body, private life, feelings, racial preferences, or personal likes and dislikes. Treat people fairly and never express preference for or against people because of protected traits.",
-    "ProofTTL issues source-backed, expiring Fact Leases for precise claims. Verdicts are SUPPORTED, CONTRADICTED, or UNKNOWN. Lease states are ACTIVE, REVOKED, or EXPIRED.",
-    "Never invent account data, balances, transactions, payment history, email, calendar data, files, lease state, customer data, uptime, connected-app state, or actions you did not perform.",
-    "When authoritative Lease or connected-provider context is supplied, use only that context for those specific live facts and say when a requested field is unavailable.",
-    "For actions, distinguish discussing an action from actually performing it. Never claim execution unless the capability layer confirms it.",
-    "Keep responses concise, useful, and conversational."
-  ].join(" ");
-}
-
-function conversationalFallback(transcript) {
-  const text = String(transcript || "").trim().toLowerCase();
-  if (/^(hi|hey|hello|yo)[!.? ]*$/.test(text)) return "Hey. I hear you.";
-  if (/^(yeah|yea|yep|yes|mhm|uh huh)[!.? ]*$/.test(text)) return "Yeah, I'm with you.";
-  if (/^(do you|are you|and you|you)[?.! ]*$/.test(text)) return "What about me? Finish the thought.";
-  if (/can you hear me|do you hear me|hear me/.test(text)) return "Yeah. I can hear you.";
-  return "I heard you. Say that again or keep going.";
-}
-
-async function readRequestBytesLimited(request, maxBytes) {
-  if (!request.body) return { ok: true, bytes: new Uint8Array(0) };
-  const reader = request.body.getReader();
-  const chunks = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = value || new Uint8Array(0);
-      total += chunk.byteLength;
-      if (total > maxBytes) {
-        void reader.cancel("assistant_audio_limit_reached").catch(() => {});
-        return { ok: false, error: "too_large" };
-      }
-      chunks.push(chunk);
-    }
-  } catch {
-    return { ok: false, error: "unreadable" };
-  } finally {
-    try { reader.releaseLock(); } catch {}
-  }
-
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return { ok: true, bytes };
-}
-
 function assistantRateLimitKey(request) {
-  const ip = (request.headers.get("cf-connecting-ip") || "anonymous").trim();
-  return `assistant:${ip.slice(0, 80)}`;
-}
-
-function normalizeTranscript(value) {
-  if (typeof value !== "string") return "";
-  return value.replace(/\s+/g, " ").trim().slice(0, MAX_TRANSCRIPT_CHARS);
-}
-
-function cleanAssistantResponse(value) {
-  if (typeof value !== "string") return "";
-  return value.replace(/\s+/g, " ").trim().slice(0, 900);
+  const ip = request.headers.get("cf-connecting-ip") || "anonymous";
+  return `assistant:${ip.trim().slice(0, 120)}`;
 }
 
 function parseContentLength(value) {
@@ -450,44 +372,131 @@ function parseContentLength(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+async function readRequestBytesLimited(request, maxBytes) {
+  try {
+    const body = request.body;
+    if (!body || typeof body.getReader !== "function") {
+      const buffer = await request.arrayBuffer();
+      return buffer.byteLength > maxBytes
+        ? { ok: false, error: "too_large" }
+        : { ok: true, bytes: new Uint8Array(buffer) };
+    }
+
+    const reader = body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch {}
+        return { ok: false, error: "too_large" };
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return { ok: true, bytes };
+  } catch {
+    return { ok: false, error: "unreadable" };
+  }
+}
+
+function audioTooLarge(maxBytes) {
+  return jsonResponse(
+    {
+      error: "audio_too_large",
+      message: `Keep the recording under ${Math.floor(maxBytes / 1024)} KB.`,
+      max_bytes: maxBytes
+    },
+    413
+  );
+}
+
+function normalizeTranscript(value) {
+  return typeof value === "string"
+    ? value.trim().replace(/\s+/g, " ").slice(0, MAX_TRANSCRIPT_CHARS)
+    : "";
+}
+
+function extractAssistantResponse(value) {
+  if (typeof value === "string") return value;
+  if (typeof value?.response === "string") return value.response;
+  if (typeof value?.result?.response === "string") return value.result.response;
+  if (typeof value?.choices?.[0]?.message?.content === "string") {
+    return value.choices[0].message.content;
+  }
+  return "";
+}
+
+function cleanAssistantResponse(value) {
+  if (typeof value !== "string") return "";
+  return value.trim().replace(/\s+/g, " ").slice(0, 900);
+}
+
+function conversationalFallback(transcript) {
+  const normalized = transcript.toLowerCase().replace(/[^a-z0-9\s']/g, " ").replace(/\s+/g, " ").trim();
+  if (/^(hi|hey|hello|yo|sup|what's up|whats up|you there|are you there)$/.test(normalized)) {
+    return "I'm here. What do you want to work on?";
+  }
+  if (/\b(can you hear me|do you hear me|are you listening)\b/.test(normalized)) {
+    return "Yeah, I can hear you. Go ahead.";
+  }
+  return "I'm with you. Keep going.";
+}
+
+function assistantSystemPrompt() {
+  return [
+    "You are L.O.V.E., the general-purpose intelligence and control layer for the ProofTTL Workspace.",
+    "You are not limited to ProofTTL product support. Answer normal conversation and substantive questions naturally when you can.",
+    "Be concise, natural, competent, and context-aware.",
+    "Do not repeatedly introduce yourself, advertise ProofTTL, or force unrelated conversation back to the product.",
+    "Never invent private account data, transactions, emails, files, balances, provider state, or actions that were not actually supplied by a trusted tool or application context.",
+    "If authoritative Fact Lease context is supplied, use it for those specific facts and do not invent missing fields.",
+    "Never pretend to execute an action unless the capability layer confirms it."
+  ].join(" ");
+}
+
+async function aiCapacityResponse(transcript, quota) {
+  return jsonResponse(
+    {
+      error: "assistant_capacity_unavailable",
+      message: "L.O.V.E. is temporarily unavailable. No paid fallback was used.",
+      transcript,
+      quota
+    },
+    503,
+    { "retry-after": "30" }
+  );
+}
+
+function jsonResponse(body, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      ...extraHeaders
+    }
+  });
+}
+
 function positiveInt(value, fallback) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function audioTooLarge(maxBytes) {
-  return jsonResponse(
-    { error: "audio_too_large", message: `Keep the microphone recording under ${maxBytes} bytes.` },
-    413
-  );
-}
-
-function extractAssistantResponse(result) {
-  if (typeof result?.response === "string") return result.response;
-  if (typeof result?.result?.response === "string") return result.result.response;
-  const choice = result?.choices?.[0]?.message?.content || result?.result?.choices?.[0]?.message?.content;
-  return typeof choice === "string" ? choice : "";
-}
-
-function aiCapacityResponse(transcript, quota) {
-  return jsonResponse(
-    {
-      error: "assistant_capacity_unavailable",
-      message: "L.O.V.E. has reached its current AI capacity or the model is temporarily unavailable. Try again later.",
-      transcript,
-      quota
-    },
-    503
-  );
-}
-
-function jsonResponse(body, status = 200, headers = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", ...headers }
-  });
-}
-
 function safeErrorName(error) {
   return error?.name || error?.constructor?.name || "Error";
 }
+
+export const ASSISTANT_MODELS = Object.freeze({
+  transcription: WHISPER_MODEL,
+  response: DEFAULT_ASSISTANT_RESPONSE_MODEL,
+  speech: LOVE_TTS_MODEL
+});
