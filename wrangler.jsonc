@@ -74,6 +74,7 @@
     "PROOFTTL_LOVE_TTS_SPEAKER": "atlas",
     "PROOFTTL_RESPONSE_PROVIDER": "cloudflare",
     "PROOFTTL_RESPONSE_MODEL": "@cf/ibm-granite/granite-4.0-h-micro",
+    "PROOFTTL_CLOUDFLARE_MODEL_CATALOG": "@cf/meta/llama-3.3-70b-instruct-fp8-fast,@cf/qwen/qwen3.8-27b,@cf/zai-org/glm-4.7-flash",
     "BETTER_AUTH_URL": "https://proofttl-web.vercel.app",
     "PROOFTTL_AUTH_PUBLIC_URL": "https://proofttl-web.vercel.app",
     "PROOFTTL_AUTH_TRUSTED_ORIGINS": "https://proofttl-web.vercel.app,https://proofttl-web-git-main-tasx13ok-1769s-projects.vercel.app",
