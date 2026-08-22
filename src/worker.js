@@ -26,6 +26,7 @@ import { getDeploymentReadiness } from "./readiness.js";
 import { renderLandingPage } from "./site.js";
 import { handleCinematics } from "./cinematics.js";
 import { handleDiscordInteractions, DISCORD_INTERACTIONS_PATH } from "./discord.js";
+import { handleFoundry, runFoundryScheduled } from "./foundry.js";
 
 const PRODUCT_VERSION = "1.0.0";
 const COMPATIBLE_PROTOCOL = "ProofTTL/0.3.1";
@@ -56,6 +57,7 @@ const STRIPE_WEBHOOK_PATH = "/payments/stripe/webhook";
 const READINESS_PATH = "/readiness";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 const CINEMATICS_PREFIX = "/cinematics";
+const FOUNDRY_RUNS_PREFIX = "/foundry/runs";
 const DEFAULT_ASSISTANT_MAX_AUDIO_BYTES = 512 * 1024;
 
 function isAuthPath(pathname) { return pathname === AUTH_PATH_PREFIX || pathname.startsWith(`${AUTH_PATH_PREFIX}/`); }
@@ -66,7 +68,8 @@ function isAccountFilesPath(pathname) { return pathname === ACCOUNT_FILES_PATH |
 function isAccountTasksPath(pathname) { return pathname === ACCOUNT_TASKS_PATH || pathname.startsWith(`${ACCOUNT_TASKS_PATH}/`); }
 function isAccountWorkspacePath(pathname) { return pathname === ACCOUNT_PREFERENCES_PATH || pathname === ACCOUNT_AUDITS_PATH || pathname === STUDIO_PROJECTS_PATH || pathname.startsWith(`${STUDIO_PROJECTS_PATH}/`); }
 function isCinematicsPath(pathname) { return pathname === CINEMATICS_PREFIX || pathname.startsWith(`${CINEMATICS_PREFIX}/`); }
-function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || pathname === ACTION_PLAN_PATH || isAccountWorkspacePath(pathname) || isAccountActionsPath(pathname) || isAccountAutomationsPath(pathname) || isAccountFilesPath(pathname) || isAccountTasksPath(pathname) || isCinematicsPath(pathname); }
+function isFoundryPath(pathname) { return pathname === FOUNDRY_RUNS_PREFIX || pathname.startsWith(`${FOUNDRY_RUNS_PREFIX}/`); }
+function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || pathname === ACTION_PLAN_PATH || isAccountWorkspacePath(pathname) || isAccountActionsPath(pathname) || isAccountAutomationsPath(pathname) || isAccountFilesPath(pathname) || isAccountTasksPath(pathname) || isCinematicsPath(pathname) || isFoundryPath(pathname); }
 
 export default {
   async fetch(request, env, ctx) {
@@ -100,6 +103,7 @@ export default {
       return applyAuthCors(await handleCinematics(request, env, pathname, entitlement), request, env);
     }
 
+    if (isFoundryPath(pathname)) return applyAuthCors(await handleFoundry(request, env, pathname), request, env);
     if (isAccountWorkspacePath(pathname)) return applyAuthCors(await handleAccountWorkspace(request, env, pathname), request, env);
     if (isAccountActionsPath(pathname)) return applyAuthCors(await handleAccountActions(request, env, pathname), request, env);
     if (isAccountAutomationsPath(pathname)) return applyAuthCors(await handleAccountAutomations(request, env, pathname), request, env);
@@ -142,9 +146,13 @@ export default {
       const anonymousQuota = { plan: "free", membership_status: "anonymous" };
       const modelCatalog = assistantModelCatalog(env);
       const models = [...modelCatalog.cloudflare, ...modelCatalog.openai_compatible];
-      return applyApiCors(Response.json({ service: "ProofTTL Assistant", version: PRODUCT_VERSION, persona: { name: "L.O.V.E.", role: "general workspace intelligence and control" }, interaction: "text_or_voice_input_with_optional_grounded_sources_visuals_and_final_response_voice_output", endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, speech: ASSISTANT_SPEECH_PATH, visuals: ASSISTANT_VISUALS_PATH, usage: ASSISTANT_USAGE_PATH, models: ASSISTANT_MODELS_PATH, capabilities: CAPABILITIES_PATH, command_plan: COMMAND_PLAN_PATH, action_plan: ACTION_PLAN_PATH, account_actions: ACCOUNT_ACTIONS_PATH, account_automations: ACCOUNT_AUTOMATIONS_PATH, account_files: ACCOUNT_FILES_PATH, account_tasks: ACCOUNT_TASKS_PATH, studio: STUDIO_CHAT_PATH, studio_runner: STUDIO_RUN_PATH, cinematics_plan: "/cinematics/plan", cinematics_storyboard: "/cinematics/storyboard", cinematics_render: "/cinematics/render", discord: DISCORD_INTERACTIONS_PATH }, endpoint: ASSISTANT_VOICE_PATH, input: { voice_content_type: "audio/*", text_content_type: "application/json", max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || DEFAULT_ASSISTANT_MAX_AUDIO_BYTES }, output: { text: true, voice: true, visuals: true, visual_provider: ASSISTANT_VISUALS.provider, visual_max_results: ASSISTANT_VISUALS.maxResults, voice_encoding: "mp3", voice_source: "final_response_text", voice_capability: loveCapability(anonymousQuota, env) }, grounding: { fact_lease_ids: true, source: "live_lease_storage", missing_lease_behavior: "refuse_to_invent", visual_sources: "provider_returned_only" }, quota: { free_daily_messages: assistantQuotaLimit(env), shared_between_text_and_voice: true, reset: "daily_utc", durable_accounting: Boolean(env?.MONITOR_DB), account_entitlements: true, authenticated_browser_sessions_supported: true }, scope: "general_workspace_assistant_with_connected_capability_boundaries", models, navigation: "allowlisted_non_destructive_only", persistent_actions: "explicit_user_confirmation_required", audio_retention: "none_by_default", free_capacity_behavior: "fail_closed_no_paid_fallback", discord: { configured: Boolean(env.DISCORD_PUBLIC_KEY), interactions_endpoint: DISCORD_INTERACTIONS_PATH }, configured: Boolean(env?.AI && env?.ASSISTANT_RATE_LIMITER) }, { headers: { "cache-control": "public, max-age=60" } }));
+      return applyApiCors(Response.json({ service: "ProofTTL Assistant", version: PRODUCT_VERSION, persona: { name: "L.O.V.E.", role: "general workspace intelligence and control" }, interaction: "text_or_voice_input_with_optional_grounded_sources_visuals_and_final_response_voice_output", endpoints: { voice: ASSISTANT_VOICE_PATH, text: ASSISTANT_TEXT_PATH, speech: ASSISTANT_SPEECH_PATH, visuals: ASSISTANT_VISUALS_PATH, usage: ASSISTANT_USAGE_PATH, models: ASSISTANT_MODELS_PATH, capabilities: CAPABILITIES_PATH, command_plan: COMMAND_PLAN_PATH, action_plan: ACTION_PLAN_PATH, account_actions: ACCOUNT_ACTIONS_PATH, account_automations: ACCOUNT_AUTOMATIONS_PATH, account_files: ACCOUNT_FILES_PATH, account_tasks: ACCOUNT_TASKS_PATH, studio: STUDIO_CHAT_PATH, studio_runner: STUDIO_RUN_PATH, cinematics_plan: "/cinematics/plan", cinematics_storyboard: "/cinematics/storyboard", cinematics_render: "/cinematics/render", discord: DISCORD_INTERACTIONS_PATH, foundry: FOUNDRY_RUNS_PREFIX }, endpoint: ASSISTANT_VOICE_PATH, input: { voice_content_type: "audio/*", text_content_type: "application/json", max_audio_bytes: Number(env.PROOFTTL_ASSISTANT_MAX_AUDIO_BYTES) || DEFAULT_ASSISTANT_MAX_AUDIO_BYTES }, output: { text: true, voice: true, visuals: true, visual_provider: ASSISTANT_VISUALS.provider, visual_max_results: ASSISTANT_VISUALS.maxResults, voice_encoding: "mp3", voice_source: "final_response_text", voice_capability: loveCapability(anonymousQuota, env) }, grounding: { fact_lease_ids: true, source: "live_lease_storage", missing_lease_behavior: "refuse_to_invent", visual_sources: "provider_returned_only" }, quota: { free_daily_messages: assistantQuotaLimit(env), shared_between_text_and_voice: true, reset: "daily_utc", durable_accounting: Boolean(env?.MONITOR_DB), account_entitlements: true, authenticated_browser_sessions_supported: true }, scope: "general_workspace_assistant_with_connected_capability_boundaries", models, navigation: "allowlisted_non_destructive_only", persistent_actions: "explicit_user_confirmation_required", audio_retention: "none_by_default", free_capacity_behavior: "fail_closed_no_paid_fallback", discord: { configured: Boolean(env.DISCORD_PUBLIC_KEY), interactions_endpoint: DISCORD_INTERACTIONS_PATH }, configured: Boolean(env?.AI && env?.ASSISTANT_RATE_LIMITER) }, { headers: { "cache-control": "public, max-age=60" } }));
     }
     return applyApiCors(await entry.fetch(request, env, ctx));
   },
-  async scheduled(controller, env, ctx) { if (typeof entry.scheduled === "function") return entry.scheduled(controller, env, ctx); }
+  async scheduled(controller, env, ctx) {
+    const jobs = [runFoundryScheduled(env)];
+    if (typeof entry.scheduled === "function") jobs.push(entry.scheduled(controller, env, ctx));
+    await Promise.allSettled(jobs);
+  }
 };
