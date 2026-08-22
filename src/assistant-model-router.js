@@ -69,7 +69,8 @@ export function assistantResponseProviderAvailable(env, preference = null) {
 }
 
 export async function runAssistantResponse(env, options, preference = null) {
-  const runtime = assistantModelRuntime(env, preference);
+  const effectivePreference = preference || foundryModelPreference(env, options);
+  const runtime = assistantModelRuntime(env, effectivePreference);
   const routedOptions = applyLoveGeneralScope(options);
 
   if (runtime.provider === "cloudflare") {
@@ -82,6 +83,27 @@ export async function runAssistantResponse(env, options, preference = null) {
   }
 
   throw new Error("unsupported_assistant_response_provider");
+}
+
+function foundryModelPreference(env, options) {
+  const messages = Array.isArray(options?.messages) ? options.messages : [];
+  const foundryRequest = messages.some((message) => message?.role === "system" && /ProofTTL Foundry/i.test(String(message?.content || "")));
+  if (!foundryRequest) return null;
+
+  const catalog = assistantModelCatalog(env);
+  const defaultModel = clean(env?.PROOFTTL_RESPONSE_MODEL || DEFAULT_RESPONSE_MODEL);
+  const council = [
+    ...catalog.openai_compatible,
+    ...catalog.cloudflare.filter((item) => item.model !== defaultModel)
+  ];
+  if (!council.length) return null;
+
+  const userPrompt = [...messages].reverse().find((message) => message?.role === "user")?.content || "";
+  let roleIndex = 0;
+  if (/hostile investment committee|JSON schema:\s*\{\"verdicts\"/i.test(String(userPrompt))) roleIndex = 1;
+  else if (/CURRENT LEADERS=|replace the current leaders|challenger businesses/i.test(String(userPrompt))) roleIndex = 2;
+  const route = council[roleIndex % council.length];
+  return route ? { preferred_ai_provider: route.provider, preferred_ai_model: route.model } : null;
 }
 
 function applyLoveGeneralScope(options) {
