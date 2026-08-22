@@ -17,7 +17,7 @@ const checks = [
   [source.includes('model_calls=model_calls+1') && source.includes('rounds_completed'), 'Foundry persists actual run progress instead of pretending runtime'],
   [source.includes('headline, discussion, or excerpt is a market signal') && source.includes('Do not claim customer interviews'), 'Foundry prevents weak signals from being presented as fabricated proof'],
   [source.includes('cleanEvidenceIds') && source.includes('FROM foundry_evidence WHERE run_id=? AND evidence_id=?'), 'Foundry only links valid evidence IDs from the same run'],
-  [source.includes('evidence confidence') && source.includes('below 35 confidence'), 'Foundry judge explicitly penalizes unsupported candidate confidence'],
+  [source.includes('Evidence confidence must reflect') && source.includes('below 35 confidence'), 'Foundry judge explicitly penalizes unsupported candidate confidence'],
   [source.includes('rejected') && source.includes('red_team') && source.includes('evidence_confidence'), 'Foundry persists rejection and red-team judgments'],
   [research.includes('https://hn.algolia.com/api/v1/search_by_date') && research.includes('https://api.gdeltproject.org/api/v2/doc/doc'), 'Foundry research is limited to fixed public signal APIs'],
   [research.includes('Promise.allSettled') && research.includes('failed_sources'), 'Foundry research degrades safely when an upstream source fails'],
