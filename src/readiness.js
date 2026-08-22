@@ -8,7 +8,20 @@ export async function getDeploymentReadiness(env, request) {
     try { const parsed = new URL(origin); return parsed.protocol === "https:" && parsed.origin !== new URL(request.url).origin; }
     catch { return false; }
   });
-  const crossOriginCookies = String(env?.PROOFTTL_AUTH_CROSS_ORIGIN || "").toLowerCase() === "true";
+  const explicitCrossOriginCookies = String(env?.PROOFTTL_AUTH_CROSS_ORIGIN || "").toLowerCase() === "true";
+  const authPublicUrl = clean(env?.PROOFTTL_AUTH_PUBLIC_URL || env?.BETTER_AUTH_URL);
+  const configuredWebUrl = clean(env?.PROOFTTL_WEB_URL);
+  const sameOriginProxySessions = Boolean(
+    authPublicUrl &&
+    configuredWebUrl &&
+    authPublicUrl === configuredWebUrl &&
+    isHttps(authPublicUrl) &&
+    !explicitCrossOriginCookies
+  );
+  // Browser-session readiness can be satisfied either by true cross-origin cookies
+  // or by the production same-origin Vercel proxy, which intentionally keeps
+  // PROOFTTL_AUTH_CROSS_ORIGIN=false and forwards the browser session server-side.
+  const crossOriginCookies = explicitCrossOriginCookies || sameOriginProxySessions;
 
   const schema = {
     monitor: await tableExists(env?.MONITOR_DB, "monitor_schedule"), auth: await tableExists(env?.MONITOR_DB, "session"), assistant_usage: await tableExists(env?.MONITOR_DB, "assistant_usage_daily"), account_entitlement: await tableExists(env?.MONITOR_DB, "account_entitlement"), audit_intake: await tableExists(env?.MONITOR_DB, "audit_intakes"), stripe_events: await tableExists(env?.MONITOR_DB, "stripe_webhook_events"), account_preferences: await tableExists(env?.MONITOR_DB, "account_preferences"), studio_projects: await tableExists(env?.MONITOR_DB, "studio_projects"), account_audit_links: await tableExists(env?.MONITOR_DB, "account_audit_links"), action_receipts: await tableExists(env?.MONITOR_DB, "action_receipts"), account_automations: await tableExists(env?.MONITOR_DB, "account_automations"), account_files: await tableExists(env?.MONITOR_DB, "account_files"), account_tasks: await tableExists(env?.MONITOR_DB, "account_tasks")
@@ -43,7 +56,7 @@ export async function getDeploymentReadiness(env, request) {
     service:"ProofTTL", protocol:"ProofTTL/0.3.1", environment:"testnet",
     testnet:{score:testnetScore,ready:required.every(Boolean),passing_checks:passing,total_checks:required.length,checks},
     commercial_services:{ready:Object.values(commercialChecks).every(Boolean),payment_provider:"stripe",payment_mode:commercialChecks.stripe_live_mode?"live":"test_or_unconfigured",offers:["claim_stress_test_129","verification_audit_500","full_audit_upgrade_371"],scope_before_payment:true,checks:commercialChecks,note:"Human-facing audit services are commercially ready only when live Stripe credentials, webhook verification, D1 sales schema, the public web URL, and the admin control token are all configured."},
-    customer_auth:{runtime_configured:auth.configured,trusted_customer_auth_ready:trustedCustomerAuth,account_product_ready:Object.values(accountChecks).every(Boolean),required_for_customer_launch:["google","discord","passkey"],trusted_browser_origin_configured:trustedBrowserOrigin,cross_origin_session_cookies:crossOriginCookies,providers:auth.socialProviders,passkeys:auth.passkeys,checks:accountChecks,security:{secure_http_only_sessions:true,csrf_protection:true,origin_allowlist:true,totp:auth.totp,recovery_codes:auth.recoveryCodes}},
+    customer_auth:{runtime_configured:auth.configured,trusted_customer_auth_ready:trustedCustomerAuth,account_product_ready:Object.values(accountChecks).every(Boolean),required_for_customer_launch:["google","discord","passkey"],trusted_browser_origin_configured:trustedBrowserOrigin,cross_origin_session_cookies:crossOriginCookies,session_transport:sameOriginProxySessions?"same_origin_proxy":"cross_origin_cookie",providers:auth.socialProviders,passkeys:auth.passkeys,checks:accountChecks,security:{secure_http_only_sessions:true,csrf_protection:true,origin_allowlist:true,totp:auth.totp,recovery_codes:auth.recoveryCodes}},
     ai:{ready:Boolean(aiChecks.response_provider_available&&aiChecks.response_model_configured&&aiChecks.assistant_rate_limit),provider:modelRuntime.provider,model:modelRuntime.response_model,preference_routing:"server_allowlisted",command_planning:"deterministic_before_model_fallback",checks:aiChecks},
     workspace:{ready:Object.values(workspaceChecks).every(Boolean),universal_command_planner:true,centralized_action_policy:true,account_action_receipts:schema.action_receipts,account_automation_definitions:schema.account_automations,native_account_files:schema.account_files,native_account_tasks:schema.account_tasks,automation_execution_connected:false,sensitive_unattended_automation:false,checks:workspaceChecks},
     studio:{cloud_projects_ready:studioChecks.account_storage,coding_ai_ready:studioChecks.coding_model,isolated_runner_ready:studioChecks.isolated_runner,runner_provider:"vercel-sandbox",runner_supported_languages:["javascript","python","bash"],checks:studioChecks},
