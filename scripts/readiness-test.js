@@ -74,12 +74,24 @@ await check("browser session path is required for readiness", async () => {
   assert(result.testnet.score < 100);
 });
 
-await check("cross-origin cookie mode is required for readiness", async () => {
+await check("cross-origin cookie mode is required when no same-origin proxy is configured", async () => {
   const env = completeEnv();
   env.PROOFTTL_AUTH_CROSS_ORIGIN = "false";
   const result = await getDeploymentReadiness(env, request);
   assert.equal(result.testnet.ready, false);
   assert.equal(result.testnet.checks.cross_origin_session_cookies, false);
+});
+
+await check("same-origin web proxy satisfies browser-session readiness without cross-origin cookies", async () => {
+  const env = completeEnv();
+  env.PROOFTTL_AUTH_CROSS_ORIGIN = "false";
+  env.PROOFTTL_AUTH_PUBLIC_URL = "https://proofttl-web.vercel.app";
+  env.PROOFTTL_WEB_URL = "https://proofttl-web.vercel.app";
+  env.PROOFTTL_AUTH_TRUSTED_ORIGINS = "https://proofttl-web.vercel.app";
+  const result = await getDeploymentReadiness(env, request);
+  assert.equal(result.testnet.ready, true);
+  assert.equal(result.testnet.checks.cross_origin_session_cookies, true);
+  assert.equal(result.customer_auth.session_transport, "same_origin_proxy");
 });
 
 await check("missing entitlement schema fails readiness", async () => {
