@@ -1,0 +1,1 @@
+Trigger a fresh production Worker deployment after restoring CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets.
