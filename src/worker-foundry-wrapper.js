@@ -1,5 +1,5 @@
 import coreWorker from "./worker.js";
-import { handleFoundry } from "./foundry.js";
+import { handleFoundry, runFoundryScheduled } from "./foundry.js";
 import { applyAuthCors, authPreflightResponse } from "./auth-cors.js";
 
 function isFoundryPath(pathname) {
@@ -14,6 +14,8 @@ export default {
     return applyAuthCors(await handleFoundry(request, env, pathname), request, env);
   },
   async scheduled(controller, env, ctx) {
-    if (typeof coreWorker.scheduled === "function") return coreWorker.scheduled(controller, env, ctx);
+    const jobs = [runFoundryScheduled(env)];
+    if (typeof coreWorker.scheduled === "function") jobs.push(coreWorker.scheduled(controller, env, ctx));
+    await Promise.allSettled(jobs);
   }
 };
