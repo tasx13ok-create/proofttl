@@ -1,0 +1,1 @@
+Trigger a fresh production Worker deployment so the live Cloudflare runtime picks up the Foundry routes already present on main.
