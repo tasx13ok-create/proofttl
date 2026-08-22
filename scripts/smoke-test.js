@@ -2,6 +2,7 @@ const BASE_URL = (
   process.env.PROOFTTL_BASE_URL ||
   "https://proofttl.tasx13ok.workers.dev"
 ).replace(/\/+$/, "");
+const EXPECTED_PRODUCT_VERSION = "1.0.1";
 const EXPECTED_PROTOCOL = "ProofTTL/0.3.1";
 const EXPECTED_NETWORK = "eip155:84532";
 const EXPECTED_AMOUNT = "1000";
@@ -63,6 +64,7 @@ async function run() {
   const health = await json(`${BASE_URL}/health`);
   assert(health.response.status === 200, "health returns HTTP 200");
   assert(health.body?.ok === true, "health reports ok=true");
+  assert(health.body?.version === EXPECTED_PRODUCT_VERSION, `health reports product version ${EXPECTED_PRODUCT_VERSION}`);
   assert(health.body?.protocol === EXPECTED_PROTOCOL, `health reports ${EXPECTED_PROTOCOL}`);
   assert(health.body?.storage === true, "KV storage binding is active");
   assert(health.body?.ai === true, "Workers AI binding is active");
@@ -76,7 +78,8 @@ async function run() {
   assert(readiness.body?.testnet?.checks?.assistant_usage_schema === true, "assistant usage schema is installed");
   assert(readiness.body?.testnet?.checks?.account_entitlement_schema === true, "account entitlement schema is installed");
   assert(readiness.body?.testnet?.checks?.trusted_browser_origin === true, "trusted browser origin is configured");
-  assert(readiness.body?.testnet?.checks?.cross_origin_session_cookies === true, "cross-origin session cookies are configured");
+  assert(readiness.body?.testnet?.checks?.cross_origin_session_cookies === true, "browser session transport is ready");
+  assert(readiness.body?.customer_auth?.session_transport === "same_origin_proxy", "customer auth uses the production same-origin proxy");
   assert(readiness.body?.entitlements?.browser_session_aware === true, "entitlements are browser-session aware");
   assert(readiness.body?.entitlements?.billing_enabled === false, "billing remains intentionally disabled");
   assert(readiness.body?.production?.ready === false, "production remains intentionally disabled");
@@ -84,9 +87,10 @@ async function run() {
   const discovery = await json(`${BASE_URL}/.well-known/proofttl.json`);
   assert(discovery.response.status === 200, "discovery returns HTTP 200");
   assert(discovery.body?.protocol === EXPECTED_PROTOCOL, "discovery protocol matches");
-  assert(discovery.body?.version === "1.0.0", "discovery reports version 1.0.0");
+  assert(discovery.body?.version === EXPECTED_PRODUCT_VERSION, `discovery reports version ${EXPECTED_PRODUCT_VERSION}`);
   assert(discovery.body?.capabilities?.includes("signed_monitoring_event_chain"), "discovery advertises signed monitoring-event chains");
   assert(discovery.body?.capabilities?.includes("lease_grounded_assistant"), "discovery advertises Lease-grounded assistant behavior");
+  assert(discovery.body?.capabilities?.includes("general_workspace_assistant"), "discovery advertises the general workspace assistant");
   assert(discovery.body?.payments?.network === EXPECTED_NETWORK, "discovery advertises Base Sepolia");
   assert(discovery.body?.payments?.pay_to?.toLowerCase() === EXPECTED_RECEIVER.toLowerCase(), "discovery advertises the expected receiver");
   assert(discovery.body?.endpoints?.reverify?.public_enabled === false, "discovery marks manual reverify disabled");
@@ -97,19 +101,23 @@ async function run() {
   assert(discovery.body?.endpoints?.account_entitlement?.path === "/account/entitlement", "discovery advertises account entitlement status");
   assert(discovery.body?.assistant?.contextual_history?.max_messages === 6, "discovery documents bounded six-message assistant context");
   assert(discovery.body?.assistant?.lease_grounding === "live_lease_storage_when_ftl_id_present", "discovery documents live Lease grounding");
+  assert(discovery.body?.assistant?.scope === "general_workspace_assistant_with_connected_capability_boundaries", "discovery reports the current workspace assistant scope");
 
   const assistant = await json(`${BASE_URL}/.well-known/proofttl-assistant.json`);
   assert(assistant.response.status === 200, "assistant discovery returns HTTP 200");
+  assert(assistant.body?.version === EXPECTED_PRODUCT_VERSION, `assistant discovery reports version ${EXPECTED_PRODUCT_VERSION}`);
   assert(
-    assistant.body?.interaction === "text_or_voice_input_text_and_optional_voice_output",
-    "assistant discovery reports text/voice input with text and optional voice output"
+    assistant.body?.interaction === "text_or_voice_input_with_optional_grounded_sources_visuals_and_final_response_voice_output",
+    "assistant discovery reports the current text/voice/grounded/visual interaction contract"
   );
   assert(assistant.body?.output?.text === true, "assistant discovery confirms text output");
   assert(assistant.body?.output?.voice === true, "assistant discovery confirms optional voice output");
+  assert(assistant.body?.output?.visuals === true, "assistant discovery confirms visual output support");
   assert(assistant.body?.endpoints?.voice === "/assistant/voice", "assistant discovery reports voice endpoint");
   assert(assistant.body?.endpoints?.text === "/assistant/text", "assistant discovery reports text endpoint");
   assert(assistant.body?.endpoints?.usage === "/assistant/usage", "assistant discovery reports usage endpoint");
-  assert(assistant.body?.scope === "proofttl_product_only", "assistant discovery reports product-only scope");
+  assert(assistant.body?.endpoints?.foundry === undefined, "private Foundry is absent from public assistant discovery");
+  assert(assistant.body?.scope === "general_workspace_assistant_with_connected_capability_boundaries", "assistant discovery reports general workspace scope");
   assert(assistant.body?.quota?.shared_between_text_and_voice === true, "assistant quota is shared between text and voice");
   assert(assistant.body?.quota?.account_entitlements === true, "assistant discovery reports account entitlement support");
   assert(assistant.body?.quota?.authenticated_browser_sessions_supported === true, "assistant discovery reports authenticated browser session support");
@@ -120,6 +128,7 @@ async function run() {
 
   const usage = await json(`${BASE_URL}/assistant/usage`);
   assert(usage.response.status === 200, "assistant usage returns HTTP 200");
+  assert(usage.body?.version === EXPECTED_PRODUCT_VERSION, `assistant usage reports version ${EXPECTED_PRODUCT_VERSION}`);
   assert(usage.body?.quota?.plan === "free", "anonymous assistant usage reports free plan");
   assert(usage.body?.quota?.authenticated === false, "anonymous assistant usage is not treated as authenticated");
   assert(Number(usage.body?.quota?.limit) > 0, "assistant usage reports a positive limit");
@@ -132,7 +141,7 @@ async function run() {
 
   const openapi = await json(`${BASE_URL}/openapi.json`);
   assert(openapi.response.status === 200, "OpenAPI returns HTTP 200");
-  assert(openapi.body?.info?.version === "1.0.0", "OpenAPI reports version 1.0.0");
+  assert(openapi.body?.info?.version === EXPECTED_PRODUCT_VERSION, `OpenAPI reports version ${EXPECTED_PRODUCT_VERSION}`);
   const reverifyResponses = openapi.body?.paths?.["/lease/{lease_id}/reverify"]?.post?.responses;
   assert(Boolean(reverifyResponses?.["403"]), "OpenAPI documents manual reverify as HTTP 403");
   const leaseDescription = openapi.body?.paths?.["/lease/{lease_id}"]?.get?.description || "";
@@ -216,7 +225,7 @@ async function run() {
   assert(manual.response.status === 403, "manual reverify returns HTTP 403");
   assert(manual.body?.error === "manual_reverify_disabled", "manual reverify returns the expected error code");
 
-  console.log(`\nSUCCESS: ${passed} ProofTTL v1.0.0 smoke checks passed. No payment or AI inference was made.`);
+  console.log(`\nSUCCESS: ${passed} ProofTTL v1.0.1 smoke checks passed. No payment or AI inference was made.`);
 }
 
 run().catch((error) => {
