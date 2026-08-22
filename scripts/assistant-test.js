@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   assistantSystemPrompt,
   handleVoiceAssistant,
+  loveCapability,
   matchAssistantNavigation
 } from "../src/assistant.js";
 import { DEFAULT_ASSISTANT_RESPONSE_MODEL } from "../src/assistant-model-router.js";
@@ -76,6 +77,15 @@ check("assistant prompt forbids fabricated account state", () => {
 check("assistant prompt supports normal conversation", () => {
   assert.match(assistantSystemPrompt(), /Talk naturally/i);
   assert.doesNotMatch(assistantSystemPrompt(), /Answer only questions about ProofTTL/i);
+});
+
+check("owner plan gets member-only L.O.V.E. voice without public preview", () => {
+  const capability = loveCapability(
+    { plan: "owner", membership_status: "active" },
+    { PROOFTTL_LOVE_PUBLIC_PREVIEW: "false" }
+  );
+  assert.equal(capability.voice_mode, true);
+  assert.equal(capability.plan, "owner");
 });
 
 check("voice test tracks current Whisper transcription contract", () => {
