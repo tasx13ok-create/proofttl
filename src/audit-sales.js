@@ -2,10 +2,6 @@ import { getOptionalProofTTLSession } from './auth.js';
 
 const VALID_STATES = new Set(['received', 'scoped', 'payment_ready', 'paid', 'fulfilled', 'cancelled']);
 
-function productionAuthConfigured(env) {
-  return Boolean(env?.BETTER_AUTH_SECRET && (env?.PROOFTTL_AUTH_PUBLIC_URL || env?.PROOFTTL_WEB_URL || env?.BETTER_AUTH_URL));
-}
-
 function normalizeEmail(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
@@ -14,11 +10,7 @@ export async function handleAuditStatus(request, env) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   if (!env?.MONITOR_DB) return json({ error: 'audit_intake_storage_unavailable' }, 503);
 
-  const authRequired = productionAuthConfigured(env);
-  const session = authRequired ? await getOptionalProofTTLSession(request, env) : null;
-  if (authRequired && !session?.user?.id) {
-    return json({ error: 'authentication_required', message: 'Sign in to view a ProofTTL audit request.' }, 401);
-  }
+  const session = await getOptionalProofTTLSession(request, env);
 
   let body;
   try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
@@ -35,23 +27,26 @@ export async function handleAuditStatus(request, env) {
 
   if (!row) return json({ error: 'audit_intake_not_found' }, 404);
 
+  let authorizedByAccount = false;
   if (session?.user?.id) {
     const linked = await env.MONITOR_DB.prepare(
       'SELECT 1 AS linked FROM account_audit_links WHERE user_id = ? AND intake_id = ? LIMIT 1'
     ).bind(session.user.id, id).first();
+    authorizedByAccount = Boolean(linked?.linked);
 
-    if (!linked?.linked) {
+    if (!authorizedByAccount) {
       const sessionEmail = normalizeEmail(session.user.email);
       const intakeEmail = normalizeEmail(row.email);
-      if (!sessionEmail || sessionEmail !== intakeEmail) {
-        return json({ error: 'audit_intake_not_found' }, 404);
+      if (sessionEmail && sessionEmail === intakeEmail) {
+        await env.MONITOR_DB.prepare(
+          'INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)'
+        ).bind(session.user.id, id, new Date().toISOString()).run();
+        authorizedByAccount = true;
       }
-      await env.MONITOR_DB.prepare(
-        'INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)'
-      ).bind(session.user.id, id, new Date().toISOString()).run();
     }
-  } else {
-    // Local/unit environments without production auth retain the legacy ID + email contract.
+  }
+
+  if (!authorizedByAccount) {
     if (!suppliedEmail || suppliedEmail !== normalizeEmail(row.email)) return json({ error: 'audit_intake_not_found' }, 404);
   }
 
