@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { twoFactor } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
+import { foundryAccessAllowed } from "./owner-access.js";
 
 const AUTH_PREFIX = "/api/auth";
 const DEFAULT_SESSION_SECONDS = 60 * 60 * 24 * 7;
@@ -147,7 +148,13 @@ export async function getOptionalProofTTLSession(request, env) {
   if (!auth) return null;
 
   try {
-    return await auth.api.getSession({ headers: request.headers });
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session) return null;
+    const pathname = new URL(request.url).pathname;
+    if ((pathname === "/foundry/runs" || pathname.startsWith("/foundry/runs/")) && !foundryAccessAllowed(session)) {
+      return null;
+    }
+    return session;
   } catch (error) {
     console.warn(JSON.stringify({
       event: "auth_optional_session_lookup_failed",
