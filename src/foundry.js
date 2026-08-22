@@ -1,6 +1,7 @@
 import { getOptionalProofTTLSession } from "./auth.js";
 import { assistantResponseProviderAvailable, runAssistantResponse } from "./assistant-model-router.js";
 import { collectFoundryEvidence, normalizeFoundrySearchQueries } from "./foundry-research.js";
+import { foundryAccessAllowed } from "./owner-access.js";
 
 const MAX_OBJECTIVE_CHARS = 2000;
 const MAX_RUNS = 20;
@@ -31,7 +32,8 @@ export async function handleFoundry(request, env, pathname) {
   if (!env?.MONITOR_DB) return json({ error: "foundry_storage_unavailable" }, 503);
   const session = await getOptionalProofTTLSession(request, env);
   const userId = session?.user?.id;
-  if (!userId) return json({ error: "authentication_required", message: "Sign in to use Foundry." }, 401);
+  if (!userId) return json({ error: "authentication_required", message: "Sign in with an authorized owner account to use Foundry." }, 401);
+  if (!foundryAccessAllowed(session)) return json({ error: "foundry_access_denied" }, 403);
 
   if (pathname === "/foundry/runs") {
     if (request.method === "GET") return listRuns(env, userId);
@@ -115,11 +117,6 @@ async function stepRun(env, userId, runId) {
   if (!run) return json({ error: "foundry_run_not_found" }, 404);
   if (run.status !== "running") return json({ error: "foundry_run_not_running", run }, 409);
   if (!assistantResponseProviderAvailable(env)) return json({ error: "foundry_model_unavailable" }, 503);
-
-  const limiter = env.ASSISTANT_RATE_LIMITER;
-  if (!limiter || typeof limiter.limit !== "function") return json({ error: "foundry_rate_limiter_unavailable" }, 503);
-  const limit = await limiter.limit({ key: `foundry:${userId}` });
-  if (!limit.success) return json({ error: "foundry_rate_limit_exceeded" }, 429, { "retry-after": "60" });
 
   try {
     await executeStage(env, run);
