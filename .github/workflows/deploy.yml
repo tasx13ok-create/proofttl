@@ -23,28 +23,59 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check deployment freshness
+        id: freshness
+        shell: bash
+        run: |
+          latest_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ -z "$latest_sha" ]; then
+            echo "Could not resolve origin/main; failing closed."
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" = "$latest_sha" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            echo "Current main commit; release gate will run."
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "Stale queued commit $GITHUB_SHA; current main is $latest_sha. Skipping release safely."
+          fi
+
       - name: Setup Node
+        if: steps.freshness.outputs.current == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Install dependencies
+        if: steps.freshness.outputs.current == 'true'
         run: npm install --no-audit --no-fund
 
       - name: Run full local release suite
+        if: steps.freshness.outputs.current == 'true'
         run: npm run test:local
 
       - name: Require Cloudflare deployment credentials
+        if: steps.freshness.outputs.current == 'true'
         shell: bash
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN repository secret"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID repository secret"; exit 1; }
 
+      - name: Recheck deployment freshness before mutation
+        if: steps.freshness.outputs.current == 'true'
+        shell: bash
+        run: |
+          latest_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$GITHUB_SHA" = "$latest_sha" || { echo "main advanced during tests; refusing to mutate production from stale commit"; exit 1; }
+
       - name: Apply D1 migrations
+        if: steps.freshness.outputs.current == 'true'
         run: npx wrangler d1 migrations apply MONITOR_DB --remote
 
       - name: Deploy Cloudflare Worker
+        if: steps.freshness.outputs.current == 'true'
         run: npx wrangler deploy
 
       - name: Run live smoke suite
+        if: steps.freshness.outputs.current == 'true'
         run: npm run test:smoke
