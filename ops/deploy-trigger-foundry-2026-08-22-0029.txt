@@ -1,0 +1,1 @@
+Trigger a fresh production Worker deployment after updating the Cloudflare API token with D1 Edit permission.
