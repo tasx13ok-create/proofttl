@@ -1,0 +1,1 @@
+Trigger fresh production deployment after updating Cloudflare D1 token permissions.
