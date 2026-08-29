@@ -450,7 +450,7 @@ function conversationalFallback(transcript) {
   return "I'm with you. Keep going.";
 }
 
-function assistantSystemPrompt() {
+export function assistantSystemPrompt() {
   return [
     "You are L.O.V.E., the general-purpose intelligence and control layer for the ProofTTL Workspace.",
     "You are not limited to ProofTTL product support. Answer normal conversation and substantive questions naturally when you can.",
