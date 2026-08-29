@@ -21,11 +21,14 @@ This file is the operating record for the 12-day launch sprint. It is not a spec
 - Added `scripts/verification-primitives-test.js` and wired claim decomposition/evidence-ledger tests into both the canonical local suite and CI.
 - Calibrated volatility so dynamic commercial facts such as current pricing/features are `HIGH`, while genuinely realtime claims such as live stock prices remain `VERY_HIGH`.
 - Reached a clean canonical `ProofTTL Code Checks` run on the sprint branch: core security/limits/economics/lease primitives, commercial/account/platform primitives, assistant/entitlement primitives, readiness/auth/payment/research/regression, and the Worker dry-run all passed in run 530.
+- Persisted immutable Claim Contract + advisory TTL-policy context on newly issued leases through the existing lease-store adapter without silently changing the effective protocol TTL.
+- Added a separate `proofttl-verification-context-v1` Ed25519 attestation/signature that binds Claim Contract, TTL rationale, lease identity, issuance time, and source fingerprint while preserving the existing `proofttl-issuance-v1` signed payload byte-for-byte for compatibility.
+- Added tamper tests for the verification-context signature: monitoring-state updates remain valid, while changing the bound source fingerprint or TTL rationale invalidates the context proof.
+- Verified the integration in `ProofTTL Code Checks` run 534: every staged suite and the Worker bundle completed successfully on commit `cb9041f29efffb9eb2c3d057fd1fdb740027d4cb`.
 
 ## IN PROGRESS
 
-- Persisting Claim Contract and TTL policy context on newly issued leases through the existing lease-store adapter, without changing the current protocol TTL or v1 issuance-attestation semantics.
-- Added a separate `proofttl-verification-context-v1` Ed25519 attestation/signature so Claim Contract + TTL rationale can become tamper-evident while the existing `proofttl-issuance-v1` signature remains backward-compatible. CI validation is running before this moves to DONE.
+- Exposing the new verification-context signature/version truthfully through discovery and lease responses without implying that policy TTL is already enforced.
 - Building the orchestration layer above the existing one-source Fact Lease primitive.
 
 ## DISCOVERED
@@ -62,7 +65,7 @@ Multiple URLs must not automatically mean independent corroboration. The evidenc
 
 ### Signing compatibility constraint
 
-The existing `proofttl-issuance-v1` Ed25519 attestation must remain stable for current clients. Richer verification context is therefore being bound by a second versioned signature rather than mutating the signed v1 payload. Monitoring state remains mutable and excluded from both immutable issuance-context attestations.
+The existing `proofttl-issuance-v1` Ed25519 attestation must remain stable for current clients. Richer verification context is therefore bound by a second versioned signature rather than mutating the signed v1 payload. Monitoring state remains mutable and excluded from both immutable issuance-context attestations.
 
 ### TTL rollout constraint
 
@@ -79,7 +82,7 @@ The repos contain substantial assistant/workspace/studio/cinematics/Discord/Real
 
 ## NEXT
 
-1. Finish CI validation of signed verification context and expose its signature/version truthfully through discovery/lease responses.
+1. Expose the verification-context signature/version truthfully through discovery and lease responses.
 2. Expose deterministic long-input claim decomposition as a guarded orchestration/preflight endpoint so the web product can submit text without paying to research filler/opinion claims.
 3. Add a source-discovery stage that produces provenance-preserving evidence candidates, then feed them through the evidence-quality ledger instead of counting search results.
 4. Add a distinct adversarial contradiction pass and record what was searched to defeat the provisional verdict.
