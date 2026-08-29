@@ -46,7 +46,7 @@ export function deriveTtlPolicy({ claimContract, confidence = null, contradictio
   }
 
   const policyTtl = clampInt(Math.round(base * multiplier), MIN_TTL_SECONDS, maxTtlSeconds);
-  const explicitRequested = Number.isFinite(Number(requestedTtlSeconds));
+  const explicitRequested = requestedTtlSeconds !== null && requestedTtlSeconds !== undefined && requestedTtlSeconds !== "" && Number.isFinite(Number(requestedTtlSeconds));
   const requested = explicitRequested
     ? clampInt(Number(requestedTtlSeconds), MIN_TTL_SECONDS, maxTtlSeconds)
     : null;
