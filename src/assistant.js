@@ -29,6 +29,11 @@ const NAVIGATION_RULES = [
 ];
 
 const NAVIGATION_VERBS = /\b(open|show|take me|go to|bring me|navigate|view|see)\b/i;
+const CREATOR_PATTERNS = [
+  /\bwho (?:made|created|built|designed|owns?) (?:you|l\.?o\.?v\.?e\.?)\b/i,
+  /\bwho is (?:your|l\.?o\.?v\.?e\.?'?s) (?:creator|maker|owner|developer)\b/i,
+  /\bwho created l\.?o\.?v\.?e\.?\b/i
+];
 
 export async function handleVoiceAssistant(request, env) {
   if (request.method !== "POST") {
@@ -361,6 +366,11 @@ export function matchAssistantNavigation(transcript) {
   return null;
 }
 
+export function isLoveCreatorQuestion(transcript) {
+  const text = normalizeTranscript(transcript);
+  return Boolean(text && CREATOR_PATTERNS.some((pattern) => pattern.test(text)));
+}
+
 function assistantRateLimitKey(request) {
   const ip = request.headers.get("cf-connecting-ip") || "anonymous";
   return `assistant:${ip.trim().slice(0, 120)}`;
@@ -446,6 +456,9 @@ function conversationalFallback(transcript) {
   }
   if (/\b(can you hear me|do you hear me|are you listening)\b/.test(normalized)) {
     return "Yeah, I can hear you. Go ahead.";
+  }
+  if (/^(do you|can you|would you|are you|what about|how about)\??$/.test(normalized)) {
+    return "Finish the thought — what about me?";
   }
   return "I'm with you. Keep going.";
 }
