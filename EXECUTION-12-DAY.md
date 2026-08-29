@@ -11,15 +11,20 @@ This file is the operating record for the 12-day launch sprint. It is not a spec
 - Confirmed the public web repo now has a `/stress-test/` activation surface on the companion sprint branch, plus a revised sample-audit story and an AI-fact-checker acquisition path into the free preflight.
 - Added `src/claim-contract.js`: deterministic normalized claim, scope hints, quantity extraction, volatility, risk, ambiguity flags, evidence support/contradiction contract, and verification priority.
 - Added `src/ttl-policy.js`: explainable deterministic TTL policy with volatility baselines, confidence/source/contradiction adjustments, caller-request capping, recheck guidance, and explicit invalidation conditions.
-- Added `scripts/claim-contract-ttl-test.js` and wired it into the canonical local test chain.
-- Executed the new policy primitives against representative dynamic, compliance, and historical claims. The first run exposed a real null-handling bug (`Number(null) === 0`) that incorrectly collapsed automatic TTLs to 60 seconds; fixed it and reran successfully.
-- Investigated the latest scheduled GitHub Actions failures. The live smoke job had not reached ProofTTL at all: `actions/setup-node` was failing because `cache: npm` was enabled while the repository has no npm lockfile. Removed the invalid cache configuration so scheduled smoke can reach dependency install and the actual deployed-product checks.
+- Added `scripts/claim-contract-ttl-test.js` and wired it into the canonical local test chain. The first run exposed a real null-handling bug (`Number(null) === 0`) that incorrectly collapsed automatic TTLs to 60 seconds; fixed it before lease integration.
+- Investigated repeated scheduled live-smoke failures. The job had not reached ProofTTL: `actions/setup-node` was failing because npm caching was enabled without a lockfile. Removed the invalid cache configuration.
+- Split the previously opaque CI regression chain into subsystem stages. This proved core security/limits/economics/lease tests and commercial/account/platform tests are green and isolated an unrelated assistant contract drift instead of treating every red run as a verifier failure.
+- Fixed the assistant module/test contract drift that prevented the canonical suite from loading (`assistantSystemPrompt` existed but was not exported), then aligned stale wording assertions with the current safety semantics rather than weakening the prompt.
+- Added `src/claim-decomposition.js`: deterministic long-input segmentation, factual/verifiable filtering, duplicate removal, atomicity hints, proposition extraction, and Claim Contract generation for each candidate claim.
+- Added `src/evidence-quality.js`: source hierarchy, directness/independence/specificity/reputation/freshness components, entailment states, source-conflict penalty, evidence-for/evidence-against ledger, mirror deduplication, measurable confidence, and conservative `SUPPORTED / CONTRADICTED / UNKNOWN` aggregation.
+- Removed nondeterminism from evidence deduplication so identical evidence sets produce reproducible ledger identities.
+- Added `scripts/verification-primitives-test.js` and wired claim decomposition/evidence-ledger tests into both the canonical local suite and CI.
 
 ## IN PROGRESS
 
-- Connecting Claim Contract and TTL policy data to the current lease shape while preserving protocol compatibility and existing signing behavior.
-- Auditing the existing smoke/regression/readiness suites for failures that currently hide behind the setup-node CI failure.
-- Defining the orchestration layer above the existing one-source Fact Lease primitive.
+- Driving the full CI suite to green so launch work is built on a reliable baseline rather than a historically red pipeline.
+- Connecting Claim Contract and TTL policy data to the persisted/signed lease lifecycle without silently changing the existing protocol contract.
+- Building the orchestration layer above the existing one-source Fact Lease primitive.
 
 ## DISCOVERED
 
@@ -43,9 +48,15 @@ The public protocol-level `POST /verify` currently requires both an exact claim 
 
 The shortest path is therefore to preserve the existing lease engine and add an orchestration layer above it rather than replace it.
 
-### Reliability finding
+### Reliability findings
 
-The scheduled live smoke workflow had been red for repeated runs for CI-configuration reasons rather than a verified production failure. Reliability work must distinguish infrastructure-test failure from product-runtime failure; otherwise a red status creates noise without telling us whether verification itself is unhealthy.
+- Scheduled live smoke was red for CI configuration reasons, not a demonstrated production verifier outage.
+- The canonical code-check pipeline was also already red before this sprint. Subsystem staging showed the launch-critical security, limits, economics, lease, audit, payment, account, platform, and CORS primitives pass; the first exposed failure was stale assistant module/test coupling.
+- Reliability work must distinguish product-runtime failure from test-harness drift. A red status that cannot localize the failure is operational noise.
+
+### Evidence-engine design constraint
+
+Multiple URLs must not automatically mean independent corroboration. The evidence ledger now supports `underlying_source_id` so mirrors or derivative reports can collapse to one evidence origin before corroboration is calculated.
 
 ### Product complexity to quarantine during launch
 
@@ -53,17 +64,17 @@ The repos contain substantial assistant/workspace/studio/cinematics/Discord/Real
 
 ## BLOCKED
 
-- True claim-only automated verification needs a source-discovery/retrieval strategy that is both reliable and cost-controlled. The current protocol endpoint intentionally expects a source URL. Do not fake this by generating citations from model memory.
+- True claim-only automated verification still needs a source-discovery/retrieval strategy that is reliable, adversarial, and cost-controlled. The current protocol endpoint intentionally expects a source URL. Do not fake this by generating citations from model memory.
 - Production/mainnet protocol settlement has explicit readiness blockers already reported by `src/readiness.js`; human-facing Stripe audit sales are a separate path.
 
 ## NEXT
 
-1. Attach normalized claim/scope/TTL rationale fields to new leases without breaking existing clients.
-2. Re-run/follow the live smoke pipeline after the workflow fix and fix any real product failures it exposes.
-3. Add a verification orchestration endpoint that can accept long text and return atomic candidate claims before expensive evidence work.
-4. Add evidence objects with explicit source role, freshness, directness, independence, and entailment state.
-5. Add a separate contradiction-pass result rather than a decorative second check.
-6. Expose the resulting structured record in `/verify` on the web app, then add public proof pages and monitoring history.
+1. Finish the canonical CI pass and repair the next real failure it exposes.
+2. Persist Claim Contract + TTL rationale on newly issued leases while preserving existing clients and cryptographic verification behavior.
+3. Expose deterministic long-input claim decomposition as a guarded orchestration/preflight endpoint so the web product can submit text without paying to research filler/opinion claims.
+4. Add a source-discovery stage that produces provenance-preserving evidence candidates, then feed them through the evidence-quality ledger instead of counting search results.
+5. Add a distinct adversarial contradiction pass and record what was searched to defeat the provisional verdict.
+6. Connect the structured verification record to the web `/verify` experience, then public proof pages and monitoring history.
 
 ## Architecture decision
 
