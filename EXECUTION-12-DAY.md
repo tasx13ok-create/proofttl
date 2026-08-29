@@ -24,7 +24,8 @@ This file is the operating record for the 12-day launch sprint. It is not a spec
 
 ## IN PROGRESS
 
-- Connecting Claim Contract and TTL policy data to the persisted/signed lease lifecycle without silently changing the existing protocol contract.
+- Persisting Claim Contract and TTL policy context on newly issued leases through the existing lease-store adapter, without changing the current protocol TTL or v1 issuance-attestation semantics.
+- Added a separate `proofttl-verification-context-v1` Ed25519 attestation/signature so Claim Contract + TTL rationale can become tamper-evident while the existing `proofttl-issuance-v1` signature remains backward-compatible. CI validation is running before this moves to DONE.
 - Building the orchestration layer above the existing one-source Fact Lease primitive.
 
 ## DISCOVERED
@@ -61,7 +62,11 @@ Multiple URLs must not automatically mean independent corroboration. The evidenc
 
 ### Signing compatibility constraint
 
-The current Ed25519 issuance attestation signs the existing lease fields, including TTL/expiry and evidence fields, while intentionally excluding mutable monitoring state. Claim Contract/TTL rationale therefore needs to be integrated before issuance or introduced through an explicitly versioned signed payload; mutating signed lease semantics afterward would create an inconsistent proof.
+The existing `proofttl-issuance-v1` Ed25519 attestation must remain stable for current clients. Richer verification context is therefore being bound by a second versioned signature rather than mutating the signed v1 payload. Monitoring state remains mutable and excluded from both immutable issuance-context attestations.
+
+### TTL rollout constraint
+
+The deterministic TTL engine is currently advisory when attached to an existing protocol lease. The existing caller/default TTL remains the effective lease TTL until a versioned API contract explicitly enables policy-enforced TTL assignment. The persisted context records both the recommendation and the effective legacy TTL so the transition is inspectable rather than silent.
 
 ### Product complexity to quarantine during launch
 
@@ -74,7 +79,7 @@ The repos contain substantial assistant/workspace/studio/cinematics/Discord/Real
 
 ## NEXT
 
-1. Persist Claim Contract + TTL rationale on newly issued leases while preserving existing clients and cryptographic verification behavior.
+1. Finish CI validation of signed verification context and expose its signature/version truthfully through discovery/lease responses.
 2. Expose deterministic long-input claim decomposition as a guarded orchestration/preflight endpoint so the web product can submit text without paying to research filler/opinion claims.
 3. Add a source-discovery stage that produces provenance-preserving evidence candidates, then feed them through the evidence-quality ledger instead of counting search results.
 4. Add a distinct adversarial contradiction pass and record what was searched to defeat the provisional verdict.
