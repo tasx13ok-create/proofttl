@@ -1,17 +1,17 @@
 const MAX_CLAIM_CHARS = 1000;
 
 const VOLATILITY_RULES = [
-  { id: "REALTIME", pattern: /\b(now|currently|today|tonight|live|real[- ]time|weather|temperature|score|stock price|exchange rate|breaking)\b/i, level: "VERY_HIGH" },
+  { id: "REALTIME", pattern: /\b(now|today|tonight|live|real[- ]time|weather|temperature|score|stock price|exchange rate|breaking)\b/i, level: "VERY_HIGH" },
   { id: "COMMERCIAL_DYNAMIC", pattern: /\b(price|pricing|costs?|plan|tier|available|availability|supports?|feature|integration|model|version|limit|quota|inventory|in stock|certified|certification)\b/i, level: "HIGH" },
   { id: "ROLE_POLICY", pattern: /\b(ceo|president|chair|director|owner|policy|law|regulation|status|membership|employee|employees|customer|customers|subscriber|subscribers)\b/i, level: "MEDIUM" },
-  { id: "HISTORICAL", pattern: /\b(was born|born in|founded in|died in|occurred in|happened in|published in|won in|historical|history)\b/i, level: "LOW" },
+  { id: "HISTORICAL", pattern: /\b(was born|born in|founded in|died in|occurred in|happened in|published in|won in|historical|history)\b/i, level: "LOW" }
 ];
 
 const RISK_RULES = [
   { id: "COMPLIANCE", pattern: /\b(certified|certification|compliant|compliance|soc 2|hipaa|gdpr|iso 27001|licensed|license)\b/i, score: 3 },
   { id: "MONEY", pattern: /\b(price|pricing|cost|revenue|market|valuation|million|billion|percent|%|growth|roi)\b/i, score: 2 },
   { id: "DECISION", pattern: /\b(supports?|available|includes?|requires?|guarantees?|compatible|integration|limit|policy|legal|regulation)\b/i, score: 2 },
-  { id: "QUANTIFIED", pattern: /(?:\$|€|£)?\b\d[\d,.]*(?:\s?(?:%|percent|million|billion|thousand|k|m|b))?\b/i, score: 1 },
+  { id: "QUANTIFIED", pattern: /(?:\$|€|£)?\b\d[\d,.]*(?:\s?(?:%|percent|million|billion|thousand|k|m|b))?\b/i, score: 1 }
 ];
 
 export function buildClaimContract(input, options = {}) {
