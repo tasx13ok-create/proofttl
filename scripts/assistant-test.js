@@ -71,11 +71,11 @@ check("arbitrary navigation target is rejected", () => {
 });
 
 check("assistant prompt forbids fabricated account state", () => {
-  assert.match(assistantSystemPrompt(), /Never invent account data/i);
+  assert.match(assistantSystemPrompt(), /Never invent (?:private )?account data/i);
 });
 
 check("assistant prompt supports normal conversation", () => {
-  assert.match(assistantSystemPrompt(), /Talk naturally/i);
+  assert.match(assistantSystemPrompt(), /Answer normal conversation/i);
   assert.doesNotMatch(assistantSystemPrompt(), /Answer only questions about ProofTTL/i);
 });
 
