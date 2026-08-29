@@ -136,7 +136,15 @@ function evidenceIdentity(item) {
     const pathname = url.pathname.replace(/\/$/, "");
     return `url:${url.hostname.toLowerCase()}${pathname}`;
   } catch {
-    return `fallback:${item.publisher || "unknown"}:${item.title || item.source_url || Math.random()}`;
+    return [
+      "fallback",
+      item.publisher || "unknown-publisher",
+      item.title || "untitled",
+      item.source_url || "no-url",
+      item.published_at || "no-publication-time",
+      item.entailment || "unknown-entailment",
+      item.stance || "unknown-stance"
+    ].join(":").toLowerCase();
   }
 }
 
