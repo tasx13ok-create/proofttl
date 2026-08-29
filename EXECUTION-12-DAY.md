@@ -9,12 +9,17 @@ This file is the operating record for the 12-day launch sprint. It is not a spec
 - Confirmed Ed25519 issuance signing already exists with canonical JSON attestations and a public key discovery endpoint.
 - Confirmed SSRF/public-source validation, request-size limits, location/payer rate limiting, x402 settlement, cost instrumentation, readiness reporting, authentication, audit intake, Stripe audit checkout/webhooks, and extensive regression/security/smoke tests already exist.
 - Confirmed the public web repo now has a `/stress-test/` activation surface on the companion sprint branch, plus a revised sample-audit story and an AI-fact-checker acquisition path into the free preflight.
+- Added `src/claim-contract.js`: deterministic normalized claim, scope hints, quantity extraction, volatility, risk, ambiguity flags, evidence support/contradiction contract, and verification priority.
+- Added `src/ttl-policy.js`: explainable deterministic TTL policy with volatility baselines, confidence/source/contradiction adjustments, caller-request capping, recheck guidance, and explicit invalidation conditions.
+- Added `scripts/claim-contract-ttl-test.js` and wired it into the canonical local test chain.
+- Executed the new policy primitives against representative dynamic, compliance, and historical claims. The first run exposed a real null-handling bug (`Number(null) === 0`) that incorrectly collapsed automatic TTLs to 60 seconds; fixed it and reran successfully.
+- Investigated the latest scheduled GitHub Actions failures. The live smoke job had not reached ProofTTL at all: `actions/setup-node` was failing because `cache: npm` was enabled while the repository has no npm lockfile. Removed the invalid cache configuration so scheduled smoke can reach dependency install and the actual deployed-product checks.
 
 ## IN PROGRESS
 
-- Formalizing a deterministic Claim Contract primitive that can be attached to every verification without rewriting the existing verifier.
-- Formalizing an explainable TTL policy so expiration can be derived from claim volatility and evidence conditions rather than being only a caller-supplied number.
-- Connecting these primitives to the current lease shape while preserving protocol compatibility and existing signing behavior.
+- Connecting Claim Contract and TTL policy data to the current lease shape while preserving protocol compatibility and existing signing behavior.
+- Auditing the existing smoke/regression/readiness suites for failures that currently hide behind the setup-node CI failure.
+- Defining the orchestration layer above the existing one-source Fact Lease primitive.
 
 ## DISCOVERED
 
@@ -38,6 +43,10 @@ The public protocol-level `POST /verify` currently requires both an exact claim 
 
 The shortest path is therefore to preserve the existing lease engine and add an orchestration layer above it rather than replace it.
 
+### Reliability finding
+
+The scheduled live smoke workflow had been red for repeated runs for CI-configuration reasons rather than a verified production failure. Reliability work must distinguish infrastructure-test failure from product-runtime failure; otherwise a red status creates noise without telling us whether verification itself is unhealthy.
+
 ### Product complexity to quarantine during launch
 
 The repos contain substantial assistant/workspace/studio/cinematics/Discord/Reality-Engine infrastructure. Some of it is technically strong, but it is not on the critical verification path. During this sprint it should be treated as existing product surface, not a reason to delay verification work.
@@ -49,8 +58,8 @@ The repos contain substantial assistant/workspace/studio/cinematics/Discord/Real
 
 ## NEXT
 
-1. Land Claim Contract + TTL policy modules with deterministic tests.
-2. Attach normalized claim/scope/TTL rationale fields to new leases without breaking existing clients.
+1. Attach normalized claim/scope/TTL rationale fields to new leases without breaking existing clients.
+2. Re-run/follow the live smoke pipeline after the workflow fix and fix any real product failures it exposes.
 3. Add a verification orchestration endpoint that can accept long text and return atomic candidate claims before expensive evidence work.
 4. Add evidence objects with explicit source role, freshness, directness, independence, and entailment state.
 5. Add a separate contradiction-pass result rather than a decorative second check.
