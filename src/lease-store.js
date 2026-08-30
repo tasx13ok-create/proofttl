@@ -167,7 +167,7 @@ export async function reconcileMonitorScheduleFromKv(env, scheduledTime = Date.n
   }
 }
 
-function attachImmutableVerificationContext(lease) {
+export function attachImmutableVerificationContext(lease) {
   if (!lease?.lease_id || !lease?.claim || !lease?.issued_at || !lease?.source_fingerprint) return lease;
 
   if (!lease.claim_contract) {
