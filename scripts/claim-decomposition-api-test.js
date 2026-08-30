@@ -11,7 +11,7 @@ async function check(name, fn) {
   console.log(`ok ${checks} - ${name}`);
 }
 
-await check("claim decomposition API returns deterministic preflight contracts", async () => {
+await check("claim decomposition API returns deterministic Claim Contracts, triage, and evidence plans", async () => {
   const request = new Request("https://example.test/claims/decompose", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -27,13 +27,39 @@ await check("claim decomposition API returns deterministic preflight contracts",
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.stage, "CLAIMS");
+  assert.deepEqual(body.stages_completed, ["CLAIMS", "TRIAGE", "EVIDENCE_PLAN"]);
   assert.equal(body.mode, "DETERMINISTIC_PREFLIGHT");
   assert.equal(body.claim_count, 2);
   assert.equal(body.skipped_count, 1);
   assert.equal(body.claims[1].claim_contract.volatility.level, "HIGH");
+  assert.equal(body.claims[1].triage.decision, "VERIFY");
+  assert.equal(body.claims[1].evidence_plan.status, "PLANNED");
+  assert.equal(body.claims[1].evidence_plan.failure_value, "UNKNOWN");
+  assert.equal(body.claims[1].evidence_plan.acceptance_requirements.retrieval_is_not_evidence, true);
+  assert.ok(body.triage_summary.verify >= 1);
   assert.equal(body.execution.external_calls, 0);
   assert.equal(body.execution.model_calls, 0);
   assert.equal(body.execution.billable_verification_started, false);
+  assert.equal(body.execution.evidence_retrieval_started, false);
+  assert.equal(body.execution.verdict_issued, false);
+});
+
+await check("high assurance changes planning depth without starting verification", async () => {
+  const request = new Request("https://example.test/claims/decompose", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      text: "Acme is SOC 2 certified and compliant with HIPAA.",
+      high_assurance: true
+    })
+  });
+  const response = await handleClaimDecompositionRequest(request);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.claims[0].triage.verification_depth, "HIGH_ASSURANCE");
+  assert.equal(body.claims[0].triage.contradiction_pass_required, true);
+  assert.equal(body.execution.evidence_retrieval_started, false);
+  assert.equal(body.execution.verdict_issued, false);
 });
 
 await check("claim decomposition API rejects non-JSON bodies loudly", async () => {

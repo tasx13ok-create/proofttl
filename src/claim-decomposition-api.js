@@ -1,4 +1,5 @@
 import { decomposeInput } from "./claim-decomposition.js";
+import { buildEvidencePlan, triageClaimContract } from "./verification-plan.js";
 
 export const DEFAULT_MAX_DECOMPOSE_REQUEST_BYTES = 128 * 1024;
 
@@ -36,14 +37,31 @@ export async function handleClaimDecompositionRequest(request, options = {}) {
       nowMs: options.nowMs
     });
 
+    const highAssurance = body?.high_assurance === true;
+    const claims = result.claims.map((claim) => {
+      const triage = triageClaimContract(claim.claim_contract, {
+        high_assurance: highAssurance
+      });
+      return {
+        ...claim,
+        triage,
+        evidence_plan: buildEvidencePlan(claim.claim_contract, triage)
+      };
+    });
+
     return responseJson({
       stage: "CLAIMS",
+      stages_completed: ["CLAIMS", "TRIAGE", "EVIDENCE_PLAN"],
       mode: "DETERMINISTIC_PREFLIGHT",
       ...result,
+      claims,
+      triage_summary: summarizeTriage(claims),
       execution: {
         external_calls: 0,
         model_calls: 0,
-        billable_verification_started: false
+        billable_verification_started: false,
+        evidence_retrieval_started: false,
+        verdict_issued: false
       }
     });
   } catch (error) {
@@ -68,9 +86,25 @@ export async function handleClaimDecompositionRequest(request, options = {}) {
     }));
     return responseJson({
       error: "claim_decomposition_failed",
-      message: "ProofTTL could not decompose this input safely."
+      message: "ProofTTL could not decompose and triage this input safely."
     }, 500);
   }
+}
+
+function summarizeTriage(claims) {
+  const summary = {
+    verify: 0,
+    deferred: 0,
+    contradiction_pass_required: 0,
+    high_assurance: 0
+  };
+  for (const claim of claims) {
+    if (claim.triage?.decision === "VERIFY") summary.verify += 1;
+    else summary.deferred += 1;
+    if (claim.triage?.contradiction_pass_required) summary.contradiction_pass_required += 1;
+    if (claim.triage?.verification_depth === "HIGH_ASSURANCE") summary.high_assurance += 1;
+  }
+  return summary;
 }
 
 async function validateJsonBody(request, maxBytes) {
