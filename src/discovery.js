@@ -8,12 +8,11 @@ export const DISCOVERY = {
   base_url: BASE_URL,
   capabilities: [
     "source_backed_verification",
+    "deterministic_claim_decomposition",
     "persistent_fact_leases",
     "automatic_reverification",
     "automatic_revocation",
     "source_fingerprinting",
-    "ed25519_issuance_signatures",
-    "signed_monitoring_event_chain",
     "independent_lease_verification",
     "x402_payments",
     "general_workspace_assistant",
@@ -36,6 +35,8 @@ export const DISCOVERY = {
   limits: {
     verify_request_body_max_bytes: 16384,
     verify_content_type: "application/json",
+    claim_decomposition_request_body_max_bytes: 131072,
+    claim_decomposition_input_max_chars: 30000,
     source_text_max_chars: 30000,
     source_fetch_raw_prefix_multiplier: 3,
     automatic_checks_per_monitor_run: 10,
@@ -49,6 +50,13 @@ export const DISCOVERY = {
   endpoints: {
     health: { method: "GET", path: "/health" },
     readiness: { method: "GET", path: "/readiness" },
+    claims_decompose: {
+      method: "POST",
+      path: "/claims/decompose",
+      payment_required: false,
+      verdicts_issued: false,
+      mode: "deterministic_preflight"
+    },
     verify: { method: "POST", path: "/verify", payment_required: true },
     lease: { method: "GET", path: "/lease/{lease_id}" },
     reverify: {
@@ -158,16 +166,24 @@ export const OPENAPI = {
   info: {
     title: "ProofTTL API",
     version: "1.0.1",
-    description: "ProofTTL v1.0.1 issues and monitors expiring, source-backed Fact Leases while retaining the compatible ProofTTL/0.3.1 wire protocol. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /verify is protected by an x402 v2 Base Sepolia test payment. Active leases are automatically reverified; public manual reverification is disabled. Stored leases expose issued_status and current_status so the original verdict is preserved without hiding later changes. When signing is configured, issued leases include an immutable Ed25519 issuance attestation; new monitoring events can be individually signed and cryptographically chained. ProofTTL also exposes a bounded general workspace AI assistant with text or voice input, bounded conversational history, live Fact Lease grounding when an ftl_ identifier is present, a shared daily quota, allowlisted navigation, account-entitlement foundations, and no paid-model fallback."
+    description: "ProofTTL v1.0.1 issues and monitors expiring, source-backed Fact Leases while retaining the compatible ProofTTL/0.3.1 wire protocol. ProofTTL verifies whether a specified public source currently supports an exact claim; it does not claim universal truth. POST /claims/decompose is a deterministic, non-verdict preflight for reducing long text into Claim Contracts before retrieval or paid verification. POST /verify is protected by an x402 v2 Base Sepolia test payment. Active leases are automatically reverified; public manual reverification is disabled. Stored leases expose issued_status and current_status so the original verdict is preserved without hiding later changes. When signing is configured, issued leases include an immutable Ed25519 issuance attestation plus a separately versioned signed verification context for Claim Contract and TTL rationale; new monitoring events can be individually signed and cryptographically chained. ProofTTL also exposes a bounded general workspace AI assistant with text or voice input, bounded conversational history, live Fact Lease grounding when an ftl_ identifier is present, a shared daily quota, allowlisted navigation, account-entitlement foundations, and no paid-model fallback."
   },
   servers: [{ url: BASE_URL }],
   paths: {
     "/health": { get: { summary: "Service health", responses: { "200": { description: "Health status" } } } },
     "/readiness": { get: { summary: "Deployment readiness", description: "Reports testnet subsystem readiness and intentionally separate production blockers without exposing secret values.", responses: { "200": { description: "Deployment readiness checks and score" } } } },
+    "/claims/decompose": {
+      post: {
+        summary: "Decompose long text into deterministic Claim Contracts",
+        description: "Free deterministic preflight. Performs no source retrieval or model inference and issues no SUPPORTED, CONTRADICTED, or UNKNOWN verdict. Requests must be application/json, are limited to 131072 bytes, and input text is limited to 30000 characters.",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { text: { type: "string", maxLength: 30000 }, input: { type: "string", maxLength: 30000 }, max_claims: { type: "integer", minimum: 1, maximum: 100, default: 25 } }, anyOf: [{ required: ["text"] }, { required: ["input"] }] } } } },
+        responses: { "200": { description: "Deterministic claim candidates and Claim Contracts; no verification verdict" }, "400": { description: "Invalid JSON or empty input" }, "413": { description: "Request body or text input exceeds a configured bound" }, "415": { description: "Request body is not application/json" } }
+      }
+    },
     "/verify": {
       post: {
         summary: "Issue a fact lease",
-        description: "Requires an x402 v2 payment on Base Sepolia during testnet validation. Requests must be application/json and are limited to 16384 bytes. New leases return issued_status and current_status equal to the issued verdict. If signing is configured, the response also includes issued_attestation and an Ed25519 signature envelope.",
+        description: "Requires an x402 v2 payment on Base Sepolia during testnet validation. Requests must be application/json and are limited to 16384 bytes. New leases return issued_status and current_status equal to the issued verdict. If signing is configured, the response includes the immutable issuance signature and, for leases carrying Claim Contract/TTL context, a separately versioned verification-context signature.",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["claim", "source_url"], properties: { claim: { type: "string", maxLength: 1000 }, source_url: { type: "string", format: "uri" }, ttl_seconds: { type: "integer", minimum: 60, maximum: 604800, default: 3600 } } } } } },
         responses: { "200": { description: "Fact lease or UNKNOWN source result after valid payment" }, "400": { description: "Invalid request" }, "402": { description: "x402 payment required" }, "413": { description: "Verification request body exceeds 16384 bytes" }, "415": { description: "Verification request body is not application/json" }, "429": { description: "Verification request rate limit exceeded" } }
       }
@@ -176,12 +192,12 @@ export const OPENAPI = {
     "/assistant/text": { post: { summary: "Ask the ProofTTL workspace assistant by text", description: "Accepts a general-purpose workspace request. Optional recent conversation history is bounded to six user/assistant messages of at most 600 characters each. When a valid Fact Lease ID is present, live Lease storage is used as authoritative context and the response includes Lease-grounding metadata. Deterministic navigation commands do not invoke the text model or consume AI quota.", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["message"], properties: { message: { type: "string", maxLength: 1200 }, history: { type: "array", maxItems: 6, items: { type: "object", required: ["role", "content"], additionalProperties: false, properties: { role: { type: "string", enum: ["user", "assistant"] }, content: { type: "string", maxLength: 600 } } } } } } } } }, responses: { "200": { description: "Text response, optional navigation action, context metadata, and quota state" }, "400": { description: "Invalid or empty message" }, "415": { description: "Request body is not application/json" }, "429": { description: "Assistant rate or daily quota exceeded" }, "503": { description: "Assistant safety binding or free AI capacity unavailable" } } } },
     "/assistant/usage": { get: { summary: "Read current assistant quota", description: "Returns current daily assistant usage without invoking AI inference. Anonymous requests use a keyed pseudonymous subject; credentialed clients may resolve an account entitlement.", responses: { "200": { description: "Assistant quota and plan state" } } } },
     "/account/entitlement": { get: { summary: "Read signed-in account entitlement", description: "Credentialed read-only endpoint for the signed-in account's server-controlled plan and assistant limit. This endpoint cannot grant or mutate membership.", responses: { "200": { description: "Account plan, membership status, assistant daily limit, and billing availability" }, "401": { description: "Authentication required" } } } },
-    "/lease/{lease_id}": { get: { summary: "Read a stored fact lease", description: "issued_status preserves the verdict at issuance. current_status is the latest observed verdict and should be preferred when evaluating the lease now. The legacy status field remains the original issued verdict for compatibility. Signed leases retain their immutable issuance attestation while monitoring state can evolve independently; newly signed monitoring events can include a cryptographic chain.", parameters: [{ name: "lease_id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "Stored Fact Lease including issued/current status, lease state, signature, history, and event-chain fields when available" }, "404": { description: "Lease not found" } } } },
+    "/lease/{lease_id}": { get: { summary: "Read a stored fact lease", description: "issued_status preserves the verdict at issuance. current_status is the latest observed verdict and should be preferred when evaluating the lease now. The legacy status field remains the original issued verdict for compatibility. Signed leases retain immutable issuance and verification-context attestations while monitoring state can evolve independently; newly signed monitoring events can include a cryptographic chain.", parameters: [{ name: "lease_id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "Stored Fact Lease including issued/current status, lease state, signatures, history, and event-chain fields when available" }, "404": { description: "Lease not found" } } } },
     "/lease/{lease_id}/reverify": { post: { summary: "Manual reverification disabled on the public API", description: "Active leases are automatically reverified by ProofTTL. This public endpoint is disabled to prevent unmetered source-fetch and AI compute abuse.", parameters: [{ name: "lease_id", in: "path", required: true, schema: { type: "string" } }], responses: { "403": { description: "Manual reverification disabled" } } } },
     "/monitor/status": { get: { summary: "Automatic monitor status", responses: { "200": { description: "Last automatic monitor run" } } } },
     "/.well-known/proofttl.json": { get: { summary: "Machine-readable ProofTTL discovery document", responses: { "200": { description: "Discovery metadata including current capabilities and payment terms" } } } },
     "/.well-known/proofttl-assistant.json": { get: { summary: "Machine-readable ProofTTL Assistant contract", responses: { "200": { description: "Assistant interaction, context, quota, model, retention, grounding, and navigation metadata" } } } },
-    "/.well-known/proofttl-keys.json": { get: { summary: "Public Fact Lease verification keys", description: "Returns the active public Ed25519 verification key when issuance signing is configured. Never exposes the private signing key.", responses: { "200": { description: "Public signing-key metadata" } } } },
+    "/.well-known/proofttl-keys.json": { get: { summary: "Public Fact Lease verification keys and signature versions", description: "Returns the active public Ed25519 verification key plus issuance and verification-context signature/attestation versions when signing is configured. Never exposes the private signing key.", responses: { "200": { description: "Public signing-key and signed-payload version metadata" } } } },
     "/pricing": { get: { summary: "Machine-readable pricing status", responses: { "200": { description: "Current pricing and payment mode" } } } },
     "/openapi.json": { get: { summary: "OpenAPI document", responses: { "200": { description: "OpenAPI 3.1 schema" } } } }
   }
