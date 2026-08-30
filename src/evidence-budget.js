@@ -33,7 +33,8 @@ export function reserveEvidenceAction(state, action) {
   const reserveUsd = finiteUsd(action?.reserve_cost_usd, "reserve_cost_usd");
   const costCeiling = state.ceiling.hard_cost_ceiling_usd;
   const nextReserved = roundUsd(state.reserved_cost_usd + reserveUsd);
-  if (nextReserved > costCeiling) throw new Error("evidence_budget_hard_cost_ceiling_exceeded");
+  const committedCost = roundUsd(state.actual_cost_usd + nextReserved);
+  if (committedCost > costCeiling) throw new Error("evidence_budget_hard_cost_ceiling_exceeded");
 
   return {
     ...state,
