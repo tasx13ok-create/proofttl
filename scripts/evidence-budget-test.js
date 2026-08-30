@@ -63,6 +63,16 @@ check("hard dollar ceiling fails closed before work starts", () => {
   );
 });
 
+check("settled spend remains committed when later work reserves budget", () => {
+  let state = createEvidenceBudgetState(budget);
+  state = reserveEvidenceAction(state, { kind: "SEMANTIC_EVALUATION", reserve_cost_usd: 0.006 });
+  state = settleEvidenceAction(state, { reserved_cost_usd: 0.006, actual_cost_usd: 0.006 });
+  assert.throws(
+    () => reserveEvidenceAction(state, { kind: "SEMANTIC_EVALUATION", reserve_cost_usd: 0.004000000001 }),
+    /hard_cost_ceiling_exceeded/
+  );
+});
+
 check("unknown or invalid cost reservations are rejected", () => {
   const state = createEvidenceBudgetState(budget);
   assert.throws(
