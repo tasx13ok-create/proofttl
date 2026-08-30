@@ -7,6 +7,7 @@
 - Budget denials are structured events carrying denial code, action kind, idempotency key, requested reservation, and remaining capacity.
 - Added a budgeted evidence executor boundary. Provider callbacks are only invoked after a granted reservation; denied work never reaches a provider. A settled logical unit cannot invoke the provider twice through the executor.
 - Added verification-outcome semantics so budget truncation is not confused with world-level insufficient evidence: evidence verdict/confidence remain inspectable, but overall confidence is withheld when execution is incomplete. If a required contradiction pass is incomplete, the final verdict is forced to `UNKNOWN`.
+- Post-write CI inspection found that the staged core workflow bypassed `test:local` and omitted `test:evidence-budget`. The workflow now invokes the evidence executor/budget regression suite explicitly, so this slice cannot receive a green staged check without running its own coverage.
 - No retrieval provider or all-in dollar policy was invented. Source discovery remains the next real blocker.
 
 ## CURRENT FLAGSHIP
