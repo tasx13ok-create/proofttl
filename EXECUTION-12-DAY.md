@@ -25,9 +25,12 @@ This file is the operating record for the 12-day launch sprint. It is not a spec
 - Added a separate `proofttl-verification-context-v1` Ed25519 attestation/signature that binds Claim Contract, TTL rationale, lease identity, issuance time, and source fingerprint while preserving the existing `proofttl-issuance-v1` signed payload byte-for-byte for compatibility.
 - Added tamper tests for the verification-context signature: monitoring-state updates remain valid, while changing the bound source fingerprint or TTL rationale invalidates the context proof.
 - Verified the integration in `ProofTTL Code Checks` run 534: every staged suite and the Worker bundle completed successfully on commit `cb9041f29efffb9eb2c3d057fd1fdb740027d4cb`.
+- Added a bounded deterministic `POST /claims/decompose` API slice on the sprint branch. It accepts JSON text/input, emits Claim Contracts and triage metadata, performs zero external/model calls, explicitly states that billable verification has not started, rejects non-JSON/oversized/empty input, and never issues a truth verdict.
+- Added dedicated claim-decomposition API regression coverage and wired it into the canonical local/CI chain.
 
 ## IN PROGRESS
 
+- Driving the new `POST /claims/decompose` slice through the canonical GitHub Actions checks and Worker dry-run before wiring the web Stress Test to it.
 - Exposing the new verification-context signature/version truthfully through discovery and lease responses without implying that policy TTL is already enforced.
 - Building the orchestration layer above the existing one-source Fact Lease primitive.
 
@@ -52,6 +55,10 @@ This file is the operating record for the 12-day launch sprint. It is not a spec
 The public protocol-level `POST /verify` currently requires both an exact claim and a `source_url`. It verifies a claim against one supplied source and monitors that source over time. That is a strong Fact Lease primitive, but it is not yet the desired top-level experience of `claim/text/URL -> claim decomposition -> multi-source evidence -> contradiction pass -> verdict -> TTL`.
 
 The shortest path is therefore to preserve the existing lease engine and add an orchestration layer above it rather than replace it.
+
+### Claim-stage boundary
+
+The new decomposition endpoint is intentionally a cheap `CLAIMS`-stage preflight, not verification. It is deterministic and external-call-free so long inputs can be reduced before retrieval or paid inference. Backend Claim Contracts should become the canonical source for the web Stress Test once the endpoint is proven green; the existing browser-local extractor remains useful only as an explicitly labeled fallback/preflight aid.
 
 ### Reliability findings
 
@@ -82,11 +89,12 @@ The repos contain substantial assistant/workspace/studio/cinematics/Discord/Real
 
 ## NEXT
 
-1. Expose the verification-context signature/version truthfully through discovery and lease responses.
-2. Expose deterministic long-input claim decomposition as a guarded orchestration/preflight endpoint so the web product can submit text without paying to research filler/opinion claims.
+1. Get the deterministic `CLAIMS` API slice green in CI and Worker bundle validation.
+2. Expose the verification-context signature/version truthfully through discovery and lease responses.
 3. Add a source-discovery stage that produces provenance-preserving evidence candidates, then feed them through the evidence-quality ledger instead of counting search results.
 4. Add a distinct adversarial contradiction pass and record what was searched to defeat the provisional verdict.
-5. Connect the structured verification record to the web `/verify` experience, then public proof pages and monitoring history.
+5. Bind final evidence ledger + contradiction result + TTL policy into the signed lease context.
+6. Connect the proven backend decomposition stage to the web `/stress-test/`/future `/verify` experience, then move to public proof pages and monitoring history.
 
 ## Architecture decision
 

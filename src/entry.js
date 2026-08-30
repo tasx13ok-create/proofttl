@@ -25,6 +25,7 @@ import {
   attachLeaseIssuanceSignature,
   publicSigningJwk
 } from "./lease-signing.js";
+import { handleClaimDecompositionRequest } from "./claim-decomposition-api.js";
 
 const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
 const X402_NETWORK = "eip155:84532";
@@ -133,6 +134,8 @@ app.get("/.well-known/proofttl.json", (c) => machineJson(c, discoveryForEnv(c.en
 app.get("/.well-known/proofttl-keys.json", (c) => machineJson(c, signingKeysForEnv(c.env)));
 app.get("/openapi.json", (c) => machineJson(c, OPENAPI));
 app.get("/pricing", (c) => machineJson(c, PRICING));
+
+app.post("/claims/decompose", (c) => handleClaimDecompositionRequest(c.req.raw));
 
 // Manual reverification is intentionally disabled on the public surface for
 // now. Automatic scheduled monitoring remains active inside core.scheduled.
