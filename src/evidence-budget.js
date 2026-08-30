@@ -1,4 +1,4 @@
-const BUDGET_STATE_VERSION = "proofttl-evidence-budget-state-v1";
+const BUDGET_STATE_VERSION = "proofttl-evidence-budget-state-v2";
 
 const ACTION_LIMIT_FIELD = Object.freeze({
   CANDIDATE_QUERY: "max_candidate_queries",
@@ -13,6 +13,7 @@ export function createEvidenceBudgetState(executionBudget) {
     version: BUDGET_STATE_VERSION,
     ceiling: normalizeBudget(executionBudget),
     used: emptyUsage(),
+    reservations: {},
     reserved_cost_usd: 0,
     actual_cost_usd: 0,
     closed: false,
@@ -20,43 +21,112 @@ export function createEvidenceBudgetState(executionBudget) {
   };
 }
 
-export function reserveEvidenceAction(state, action) {
+export function attemptReserveEvidenceAction(state, action) {
   validateState(state);
-  if (state.closed) throw new Error(`evidence_budget_closed:${state.close_reason || "UNKNOWN"}`);
-
   const kind = normalizeActionKind(action?.kind);
+  const idempotencyKey = normalizeIdempotencyKey(action?.idempotency_key);
+  const reserveUsd = finiteUsd(action?.reserve_cost_usd, "reserve_cost_usd");
+  const existing = state.reservations[idempotencyKey];
+
+  if (existing) {
+    if (existing.kind !== kind || existing.reserved_cost_usd !== reserveUsd) {
+      return denied(state, "IDEMPOTENCY_CONFLICT", kind, idempotencyKey, reserveUsd);
+    }
+    return { state, granted: true, replay: true, grant: reservationGrant(existing), denial: null };
+  }
+
+  if (state.closed) return denied(state, `BUDGET_CLOSED:${state.close_reason || "UNKNOWN"}`, kind, idempotencyKey, reserveUsd);
+
   const field = ACTION_LIMIT_FIELD[kind];
   const nextCount = state.used[field] + 1;
-  const countCeiling = state.ceiling[field];
-  if (nextCount > countCeiling) throw new Error(`evidence_budget_${field}_exceeded`);
+  if (nextCount > state.ceiling[field]) return denied(state, field.toUpperCase() + "_EXCEEDED", kind, idempotencyKey, reserveUsd);
 
-  const reserveUsd = finiteUsd(action?.reserve_cost_usd, "reserve_cost_usd");
-  const costCeiling = state.ceiling.hard_cost_ceiling_usd;
   const nextReserved = roundUsd(state.reserved_cost_usd + reserveUsd);
   const committedCost = roundUsd(state.actual_cost_usd + nextReserved);
-  if (committedCost > costCeiling) throw new Error("evidence_budget_hard_cost_ceiling_exceeded");
+  if (committedCost > state.ceiling.hard_cost_ceiling_usd) {
+    return denied(state, "HARD_COST_CEILING_EXCEEDED", kind, idempotencyKey, reserveUsd);
+  }
 
-  return {
+  const reservation = Object.freeze({
+    idempotency_key: idempotencyKey,
+    kind,
+    reserved_cost_usd: reserveUsd,
+    actual_cost_usd: null,
+    status: "RESERVED",
+    outcome: null
+  });
+
+  const nextState = {
     ...state,
     used: { ...state.used, [field]: nextCount },
+    reservations: { ...state.reservations, [idempotencyKey]: reservation },
     reserved_cost_usd: nextReserved
   };
+
+  return { state: nextState, granted: true, replay: false, grant: reservationGrant(reservation), denial: null };
+}
+
+export function reserveEvidenceAction(state, action) {
+  const attempt = attemptReserveEvidenceAction(state, action);
+  if (!attempt.granted) throw new Error(`evidence_budget_${normalizeDenialForError(attempt.denial.code)}`);
+  return attempt.state;
 }
 
 export function settleEvidenceAction(state, settlement) {
   validateState(state);
-  const reservedUsd = finiteUsd(settlement?.reserved_cost_usd, "reserved_cost_usd");
-  const actualUsd = finiteUsd(settlement?.actual_cost_usd, "actual_cost_usd");
-  if (reservedUsd > state.reserved_cost_usd) throw new Error("evidence_budget_settlement_exceeds_reserved");
-  if (actualUsd > reservedUsd) throw new Error("evidence_budget_actual_exceeds_reservation");
+  const idempotencyKey = normalizeIdempotencyKey(settlement?.idempotency_key);
+  const reservation = state.reservations[idempotencyKey];
+  if (!reservation) throw new Error("evidence_budget_reservation_not_found");
 
-  const nextReserved = roundUsd(state.reserved_cost_usd - reservedUsd);
+  if (reservation.status === "SETTLED") {
+    const requestedActual = finiteUsd(settlement?.actual_cost_usd, "actual_cost_usd");
+    if (requestedActual !== reservation.actual_cost_usd) throw new Error("evidence_budget_settlement_conflict");
+    return state;
+  }
+
+  const actualUsd = finiteUsd(settlement?.actual_cost_usd, "actual_cost_usd");
+  if (actualUsd > reservation.reserved_cost_usd) throw new Error("evidence_budget_actual_exceeds_reservation");
+
+  const nextReserved = roundUsd(state.reserved_cost_usd - reservation.reserved_cost_usd);
   const nextActual = roundUsd(state.actual_cost_usd + actualUsd);
   if (nextActual + nextReserved > state.ceiling.hard_cost_ceiling_usd) {
     throw new Error("evidence_budget_hard_cost_ceiling_exceeded");
   }
 
-  return { ...state, reserved_cost_usd: nextReserved, actual_cost_usd: nextActual };
+  const settled = Object.freeze({
+    ...reservation,
+    actual_cost_usd: actualUsd,
+    status: "SETTLED",
+    outcome: normalizeOutcome(settlement?.outcome)
+  });
+
+  return {
+    ...state,
+    reservations: { ...state.reservations, [idempotencyKey]: settled },
+    reserved_cost_usd: nextReserved,
+    actual_cost_usd: nextActual
+  };
+}
+
+export function settleEvidenceActionConservatively(state, settlement) {
+  validateState(state);
+  const idempotencyKey = normalizeIdempotencyKey(settlement?.idempotency_key);
+  const reservation = state.reservations[idempotencyKey];
+  if (!reservation) throw new Error("evidence_budget_reservation_not_found");
+  const actualCost = settlement?.actual_cost_usd == null
+    ? reservation.reserved_cost_usd
+    : finiteUsd(settlement.actual_cost_usd, "actual_cost_usd");
+  return settleEvidenceAction(state, {
+    idempotency_key: idempotencyKey,
+    actual_cost_usd: actualCost,
+    outcome: settlement?.outcome || "FAILED"
+  });
+}
+
+export function getEvidenceReservation(state, idempotencyKey) {
+  validateState(state);
+  const key = normalizeIdempotencyKey(idempotencyKey);
+  return state.reservations[key] || null;
 }
 
 export function closeEvidenceBudget(state, reason = "COMPLETED") {
@@ -75,6 +145,33 @@ export function evidenceBudgetRemaining(state) {
   };
 }
 
+function denied(state, code, kind, idempotencyKey, reserveUsd) {
+  return {
+    state,
+    granted: false,
+    replay: false,
+    grant: null,
+    denial: Object.freeze({
+      version: "proofttl-evidence-budget-denial-v1",
+      code,
+      kind,
+      idempotency_key: idempotencyKey,
+      reserve_cost_usd: reserveUsd,
+      remaining: evidenceBudgetRemaining(state)
+    })
+  };
+}
+
+function reservationGrant(reservation) {
+  return Object.freeze({
+    version: "proofttl-evidence-reservation-grant-v1",
+    idempotency_key: reservation.idempotency_key,
+    kind: reservation.kind,
+    reserved_cost_usd: reservation.reserved_cost_usd,
+    status: reservation.status
+  });
+}
+
 function validateExecutionBudget(budget) {
   if (!budget || typeof budget !== "object") throw new Error("evidence_budget_required");
   for (const field of Object.values(ACTION_LIMIT_FIELD)) {
@@ -88,6 +185,7 @@ function validateExecutionBudget(budget) {
 function validateState(state) {
   if (!state || state.version !== BUDGET_STATE_VERSION) throw new Error("evidence_budget_state_required");
   validateExecutionBudget(state.ceiling);
+  if (!state.reservations || typeof state.reservations !== "object") throw new Error("evidence_budget_reservations_required");
 }
 
 function normalizeBudget(budget) {
@@ -116,10 +214,25 @@ function normalizeActionKind(value) {
   return kind;
 }
 
+function normalizeIdempotencyKey(value) {
+  const key = String(value || "").trim();
+  if (!key || key.length > 240) throw new Error("evidence_budget_idempotency_key_required");
+  return key;
+}
+
+function normalizeOutcome(value) {
+  const outcome = String(value || "COMPLETED").trim().toUpperCase();
+  return outcome.slice(0, 80) || "COMPLETED";
+}
+
 function finiteUsd(value, field) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) throw new Error(`evidence_budget_invalid_${field}`);
   return roundUsd(number);
+}
+
+function normalizeDenialForError(code) {
+  return String(code || "denied").toLowerCase().replace(/[^a-z0-9:_-]+/g, "_");
 }
 
 function roundUsd(value) {
