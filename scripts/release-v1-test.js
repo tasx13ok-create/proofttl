@@ -22,13 +22,19 @@ async function run() {
   const discovery = await text("src/discovery.js");
   assert(discovery.includes('version: "1.0.1"'), "discovery reports product version 1.0.1");
   assert(discovery.includes('protocol: "ProofTTL/0.3.1"'), "v1 retains the compatible ProofTTL/0.3.1 wire protocol");
-  assert(discovery.includes('"signed_monitoring_event_chain"'), "discovery advertises signed monitoring-event chains");
+  assert(!discovery.includes('"signed_monitoring_event_chain"'), "base discovery does not unconditionally advertise signing-dependent capabilities");
   assert(discovery.includes('"independent_lease_verification"'), "discovery advertises independent Lease verification");
+  assert(discovery.includes('"deterministic_claim_decomposition"'), "discovery advertises deterministic claim decomposition");
   assert(discovery.includes('"lease_grounded_assistant"'), "discovery advertises Lease-grounded assistant behavior");
   assert(discovery.includes('scope: "general_workspace_assistant_with_connected_capability_boundaries"'), "discovery assistant scope matches the runtime workspace contract");
   assert(!discovery.includes('scope: "proofttl_product_only"'), "stale product-only assistant scope is absent");
   assert(discovery.includes('mode: "testnet"'), "discovery explicitly marks payment mode as testnet");
   assert(discovery.includes('production_enabled: false'), "production payment settlement remains disabled");
+
+  const entry = await text("src/entry.js");
+  assert(entry.includes('"signed_monitoring_event_chain"'), "runtime discovery can advertise signed monitoring-event chains when signing is configured");
+  assert(entry.includes('"signed_verification_context"'), "runtime discovery can advertise signed verification context when signing is configured");
+  assert(entry.includes("signing.signing_enabled"), "signing-dependent discovery is gated by actual signing readiness");
 
   const eventSigning = await text("src/event-signing.js");
   for (const expected of [
@@ -43,6 +49,7 @@ async function run() {
   const leaseStore = await text("src/lease-store.js");
   assert(leaseStore.includes("attachLeaseEventSignatures"), "Lease persistence signs monitoring history");
   assert(leaseStore.includes("attachLeaseIssuanceSignature"), "Lease persistence signs issuance attestation");
+  assert(leaseStore.includes("attachLeaseVerificationContextSignature"), "Lease persistence signs Claim Contract and TTL context");
 
   const textAssistant = await text("src/assistant-text.js");
   assert(textAssistant.includes("lease_grounding"), "text L.O.V.E. returns Lease-grounding metadata");
