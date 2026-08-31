@@ -1,6 +1,7 @@
 import { getOptionalProofTTLSession } from './auth.js';
 
 const VALID_STATES = new Set(['received', 'scoped', 'payment_ready', 'paid', 'fulfilled', 'cancelled']);
+const FACT_AUDIT_PRICE_USD = 1500;
 
 function productionAuthConfigured(env) {
   return Boolean(env?.BETTER_AUTH_SECRET && (env?.PROOFTTL_AUTH_PUBLIC_URL || env?.PROOFTTL_WEB_URL || env?.BETTER_AUTH_URL));
@@ -32,34 +33,29 @@ export async function handleAuditStatus(request, env) {
             created_at_ms, scoped_at_ms, paid_at_ms, fulfilled_at_ms
        FROM audit_intakes WHERE id = ? LIMIT 1`
   ).bind(id).first();
-
   if (!row) return json({ error: 'audit_intake_not_found' }, 404);
 
   if (session?.user?.id) {
     const linked = await env.MONITOR_DB.prepare(
       'SELECT 1 AS linked FROM account_audit_links WHERE user_id = ? AND intake_id = ? LIMIT 1'
     ).bind(session.user.id, id).first();
-
     if (!linked?.linked) {
       const sessionEmail = normalizeEmail(session.user.email);
       const intakeEmail = normalizeEmail(row.email);
-      if (!sessionEmail || sessionEmail !== intakeEmail) {
-        return json({ error: 'audit_intake_not_found' }, 404);
-      }
+      if (!sessionEmail || sessionEmail !== intakeEmail) return json({ error: 'audit_intake_not_found' }, 404);
       await env.MONITOR_DB.prepare(
         'INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)'
       ).bind(session.user.id, id, new Date().toISOString()).run();
     }
-  } else {
-    // Local/unit environments without production auth retain the legacy ID + email contract.
-    if (!suppliedEmail || suppliedEmail !== normalizeEmail(row.email)) return json({ error: 'audit_intake_not_found' }, 404);
+  } else if (!suppliedEmail || suppliedEmail !== normalizeEmail(row.email)) {
+    return json({ error: 'audit_intake_not_found' }, 404);
   }
 
   return json({
     ok: true,
     audit_intake_id: row.id,
     status: row.status,
-    offer_type: row.offer_type,
+    offer_type: 'fact_audit',
     scope: row.scope_summary ? {
       summary: row.scope_summary,
       price_usd: row.scoped_price_usd,
@@ -115,36 +111,20 @@ export async function handleAuditAdmin(request, env, pathname) {
     const summary = clean(body?.scope_summary, 5000);
     const turnaround = clean(body?.scope_turnaround, 180);
     const price = Number(body?.price_usd);
-    if (!summary || !turnaround || !Number.isInteger(price) || price < 1 || price > 100000) {
-      return json({ error: 'invalid_scope' }, 400);
-    }
-    if (existing.offer_type === 'stress_test' && price !== 129) return json({ error: 'stress_test_price_must_be_129' }, 400);
-    if (existing.offer_type === 'full_audit' && existing.approximate_claims !== '25+' && price !== 500) {
-      return json({ error: 'full_audit_price_must_be_500' }, 400);
-    }
-    const credit = Number(existing.prior_credit_usd || 0);
-    const amountDue = price - credit;
-    if (amountDue <= 0) return json({ error: 'invalid_amount_due' }, 409);
+    if (!summary || !turnaround || !Number.isInteger(price)) return json({ error: 'invalid_scope' }, 400);
+    if (price !== FACT_AUDIT_PRICE_USD) return json({ error: 'fact_audit_price_must_be_1500' }, 400);
+    if (!['10-15', '16-25'].includes(existing.approximate_claims)) return json({ error: 'fact_audit_claim_count_out_of_range' }, 409);
+
     await env.MONITOR_DB.prepare(
       `UPDATE audit_intakes SET status = 'scoped', scope_summary = ?, scoped_price_usd = ?,
-       amount_due_usd = ?, scope_turnaround = ?, scoped_at_ms = ?, payment_url = NULL,
+       prior_credit_usd = 0, amount_due_usd = ?, scope_turnaround = ?, scoped_at_ms = ?, payment_url = NULL,
        payment_provider = NULL, payment_state = 'not_requested' WHERE id = ?`
-    ).bind(summary, price, amountDue, turnaround, now, id).run();
-    return json({ ok: true, audit_intake_id: id, status: 'scoped', amount_due_usd: amountDue });
+    ).bind(summary, FACT_AUDIT_PRICE_USD, FACT_AUDIT_PRICE_USD, turnaround, now, id).run();
+    return json({ ok: true, audit_intake_id: id, status: 'scoped', amount_due_usd: FACT_AUDIT_PRICE_USD });
   }
 
   if (action === 'upgrade') {
-    if (existing.offer_type !== 'stress_test' || !['paid', 'fulfilled'].includes(existing.status)) {
-      return json({ error: 'stress_test_must_be_paid_before_upgrade' }, 409);
-    }
-    await env.MONITOR_DB.prepare(
-      `UPDATE audit_intakes SET offer_type = 'full_audit', approximate_claims = '10-15',
-       status = 'scoped', scoped_price_usd = 500, prior_credit_usd = 129, amount_due_usd = 371,
-       scope_turnaround = '3–5 business days', payment_state = 'not_requested', payment_url = NULL,
-       payment_provider = NULL, stripe_checkout_session_id = NULL, stripe_payment_intent_id = NULL
-       WHERE id = ?`
-    ).bind(id).run();
-    return json({ ok: true, audit_intake_id: id, status: 'scoped', offer_type: 'full_audit', prior_credit_usd: 129, amount_due_usd: 371 });
+    return json({ error: 'offer_upgrade_retired', message: 'ProofTTL now has one flagship $1,500 Fact Audit offer.' }, 410);
   }
 
   if (action === 'mark-paid') {
@@ -163,15 +143,11 @@ export async function handleAuditAdmin(request, env, pathname) {
     return json({ ok: true, audit_intake_id: id, status: 'fulfilled' });
   }
 
-  await env.MONITOR_DB.prepare(
-    `UPDATE audit_intakes SET status = 'cancelled' WHERE id = ?`
-  ).bind(id).run();
+  await env.MONITOR_DB.prepare(`UPDATE audit_intakes SET status = 'cancelled' WHERE id = ?`).bind(id).run();
   return json({ ok: true, audit_intake_id: id, status: 'cancelled' });
 }
 
-export function auditAdminAuthorized(request, env) {
-  return authorized(request, env);
-}
+export function auditAdminAuthorized(request, env) { return authorized(request, env); }
 
 function authorized(request, env) {
   const expected = typeof env?.PROOFTTL_ADMIN_TOKEN === 'string' ? env.PROOFTTL_ADMIN_TOKEN.trim() : '';
