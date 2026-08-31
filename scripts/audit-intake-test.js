@@ -55,36 +55,29 @@ const fullAudit = {
   company_site: ''
 };
 
-const stressTest = {
-  ...fullAudit,
-  offer_type: 'stress_test',
-  approximate_claims: '3-5'
-};
-
 async function run() {
   console.log('ProofTTL audit intake tests\n');
 
   const db = fakeDb();
   const response = await handleAuditIntake(request(fullAudit), { MONITOR_DB: db });
   const body = await response.json();
-  assert(response.status === 201, 'valid full audit intake returns HTTP 201');
+  assert(response.status === 201, 'valid Fact Audit intake returns HTTP 201');
   assert(body.ok === true && body.status === 'received', 'valid intake reports received');
   assert(/^ati_[a-f0-9]{32}$/.test(body.audit_intake_id), 'valid intake gets opaque audit reference');
-  assert(body.offer?.type === 'full_audit' && body.offer?.price_usd === 500, 'full audit keeps the $500 flagship offer');
+  assert(body.offer?.type === 'full_audit' && body.offer?.price_usd === 1500, 'Fact Audit keeps the $1,500 launch contract');
+  assert(body.offer?.name === 'ProofTTL Fact Audit', 'Fact Audit uses the current buyer-facing offer name');
+  assert(body.offer?.included_claims === '10-25', 'Fact Audit covers 10-25 outputs or claims');
+  assert(body.offer?.monitoring_days === 7, 'Fact Audit includes the seven-day watch');
+  assert(body.offer?.upgrade === null, 'Fact Audit exposes no retired upgrade path');
   assert(body.payment?.required_now === false, 'intake does not request payment before scope review');
   assert(db.rows.length === 1, 'valid intake is persisted exactly once');
   assert(db.rows[0].at(-1) === 'full_audit', 'selected offer type is persisted');
 
-  const stressDb = fakeDb();
-  const stressResponse = await handleAuditIntake(request(stressTest), { MONITOR_DB: stressDb });
-  const stressBody = await stressResponse.json();
-  assert(stressResponse.status === 201, 'valid stress-test intake returns HTTP 201');
-  assert(stressBody.offer?.price_usd === 129, 'stress test is priced at $129');
-  assert(stressBody.offer?.included_claims === '3-5', 'stress test is limited to 3-5 claims');
-  assert(stressBody.offer?.upgrade?.additional_usd === 371, 'stress-test buyer can upgrade by paying only the $371 difference');
+  const retiredOffer = await handleAuditIntake(request({ ...fullAudit, offer_type: 'stress_test', approximate_claims: '3-5' }), { MONITOR_DB: fakeDb() });
+  assert(retiredOffer.status === 400, 'retired stress-test offer is rejected');
 
-  const mismatch = await handleAuditIntake(request({ ...stressTest, approximate_claims: '16-25' }), { MONITOR_DB: fakeDb() });
-  assert(mismatch.status === 400, 'claim count must match the selected offer');
+  const mismatch = await handleAuditIntake(request({ ...fullAudit, approximate_claims: '3-5' }), { MONITOR_DB: fakeDb() });
+  assert(mismatch.status === 400, 'retired 3-5 claim bucket is rejected');
 
   const badOffer = await handleAuditIntake(request({ ...fullAudit, offer_type: 'enterprise_magic' }), { MONITOR_DB: fakeDb() });
   assert(badOffer.status === 400, 'unknown offer type is rejected');
