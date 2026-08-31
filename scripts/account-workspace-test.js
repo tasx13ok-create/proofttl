@@ -18,7 +18,7 @@ const checks = [
   [migration.includes('REFERENCES audit_intakes(id) ON DELETE CASCADE'), 'audit ownership links have canonical foreign-key integrity'],
   [worker.includes('ACCOUNT_AUDITS_PATH') && worker.includes('STUDIO_PROJECTS_PATH') && worker.includes('handleAccountWorkspace'), 'credentialed workspace routes wired through Worker'],
   [worker.includes('authPreflightResponse') && worker.includes('applyAuthCors'), 'credentialed browser CORS path preserved'],
-  [intake.includes('sessionEmail === email') && intake.includes('account_audit_links'), 'new signed-in audit intake auto-link requires matching provider email'],
+  [intake.includes('sessionEmail !== email') && intake.includes('audit_email_must_match_account') && intake.includes('account_audit_links'), 'new signed-in audit intake requires normalized provider email match before account linking'],
 ]
 
 const failed = checks.filter(([ok]) => !ok).map(([, label]) => label)
