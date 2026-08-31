@@ -46,7 +46,7 @@ async function run() {
 
   const textAssistant = await text("src/assistant-text.js");
   assert(textAssistant.includes("lease_grounding"), "text L.O.V.E. returns Lease-grounding metadata");
-  assert(textAssistant.includes("authoritative"), "text L.O.V.E. is instructed to treat live Lease data as authoritative");
+  assert(/authoritative/i.test(textAssistant), "text L.O.V.E. is instructed to treat live Lease data as authoritative");
 
   const voiceAssistant = await text("src/assistant.js");
   assert(voiceAssistant.includes("lease_grounding"), "voice L.O.V.E. returns Lease-grounding metadata");
