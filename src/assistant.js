@@ -429,7 +429,7 @@ function proofTtlFallback() {
   return "I can help with ProofTTL Fact Audits, claims, evidence, sources, audit status, account access, and payment or fulfillment questions.";
 }
 
-function assistantSystemPrompt() {
+export function assistantSystemPrompt() {
   return [
     "You are the ProofTTL product assistant.",
     "Only help with ProofTTL, the $1,500 Fact Audit, claim verification, evidence and source quality, audit status, ProofTTL account access, ProofTTL payment and fulfillment, Fact Leases, and navigation inside ProofTTL.",
