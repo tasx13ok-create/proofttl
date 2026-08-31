@@ -1,5 +1,13 @@
 # ProofTTL 12-Day Execution Log
 
+## 2026-08-31 MONITOR / REVERIFY RELIABILITY CHECKPOINT
+
+- Inspected both sprint branch heads. Core CI was green at `8462442f56977c9c024773cbadd8739a266afeac`; web CI was green at `d1d26277644ab5eaf33d560eb2d183c87f4146d8` before this core reliability change.
+- Found a real repair-path starvation bug in the D1 monitor scheduler reconciliation. The sharded reconciliation performed a single 1,000-key KV list, and `reconcileMonitorScheduleBatch` silently truncated that page to the first 100 rows. If normal D1 schedule upserts had failed, leases beyond those rows could remain absent from the due-time index and therefore miss automatic reverification.
+- Fixed reconciliation to paginate every KV page in the selected shard and fixed the D1 reconciliation helper to process every valid row in bounded batches of 100 statements rather than truncating the input.
+- Added regression coverage with 1,001 selected-shard leases. The test requires two KV pages, verifies cursor propagation, verifies all 1,001 rows are reconciled, and verifies every D1 batch remains capped at 100 statements.
+- This preserves KV as source of truth while making the D1 repair path match the reliability claim in `MONITORING.md`: scheduler-index failures can now be repaired beyond the first page / first 100 rows.
+
 ## 2026-08-30 EXECUTOR SAFETY CHECKPOINT
 
 - Evidence reservations are now identity-bound by logical idempotency key. Replaying the same logical work does not increment call counts or reserved spend; conflicting reuse is rejected.
