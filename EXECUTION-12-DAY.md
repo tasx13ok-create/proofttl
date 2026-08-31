@@ -1,5 +1,15 @@
 # ProofTTL 12-Day Execution Log
 
+## 2026-08-31 PUBLIC FACT AUDIT / RESPONSIVE CONTRACT CHECKPOINT
+
+- Rechecked the current web sprint branch after the hard reset and confirmed the user-reported FAQ defect was real current-branch state: the FAQ still advertised the retired $129 Claim Stress Test, $500 Full Verification Audit, and $371 upgrade path.
+- Replaced the FAQ commercial contract with the single $1,500 Fact Audit: up to 25 real outputs or claims, consequence-ranked review, deep verification of the highest-risk findings, proof/report deliverables, seven-day monitoring of important findings, and explicit human approval before customer-facing publication.
+- Found a second conversion split-brain in the free claim preflight. It still capped selection at five claims, wrote `stress_test` drafts, and handed users into a retired $129 checkout path. The preflight now selects up to 25 candidates, requires at least 10 for the Fact Audit handoff, writes the canonical `full_audit` compatibility identifier used by current intake, and carries the selected claims into the $1,500 scope-review flow.
+- Fixed the cramped public-page geometry instead of page-specific padding hacks. Fact Audit surfaces now use larger desktop outer gutters and shared internal responsive gutters; tablet/mobile gutters step down deliberately, FAQ line length is bounded, narrow-screen text wraps safely, and the preflight metric grid uses shrink-safe tracks.
+- Retired-offer drift also existed in public machine discovery: `llms.txt`, `llms-full.txt`, `.well-known/proofttl.json`, and `.well-known/proofttl-intents.json` still taught crawlers/AI systems the $129/$500/$371 offer stack. All four now describe the canonical $1,500 Fact Audit and its actual scope/approval/monitoring contract.
+- Strengthened frontend regression checks so exported buyer pages, the claim preflight, and machine-discovery surfaces fail CI if retired $129/$371/$500 offer fragments return, and canonical FAQ/preflight/discovery outputs must carry the Fact Audit identity and $1,500 contract.
+- Current web sprint head for this slice: `9365c48cd7d4b8b4b1db2282f7adfebf5da05fc4`. Typecheck had passed on the immediately preceding CI snapshot; a fresh workflow had not yet attached to the newest head at log-write time, so this checkpoint is not being called deployment-green yet.
+
 ## 2026-08-31 PROOFTTL-ONLY AI / GREEN COMMERCIAL CHECKPOINT
 
 - Rechecked the live sprint state instead of acting on retired website extensions. The current text assistant was still explicitly configured as a general-purpose AI, including coding, planning, ordinary-life questions, games, and unrelated conversation.
