@@ -1,9 +1,12 @@
 import {
   attachLeaseIssuanceSignature,
+  attachLeaseVerificationContextSignature,
   buildLeaseIssuanceAttestation,
+  buildLeaseVerificationContextAttestation,
   canonicalizeJson,
   publicSigningJwk,
-  verifyLeaseIssuanceSignature
+  verifyLeaseIssuanceSignature,
+  verifyLeaseVerificationContextSignature
 } from "../src/lease-signing.js";
 
 let passed = 0;
@@ -18,11 +21,11 @@ function sampleLease() {
   return {
     lease_id: "ftl_test_signature_001",
     protocol: "ProofTTL/0.3.1",
-    claim: "Example.com is intended for illustrative examples in documents.",
+    claim: "Example.com currently costs $20 per month.",
     status: "SUPPORTED",
     source_url: "https://example.com",
     final_url: "https://example.com/",
-    evidence: "This domain is for use in illustrative examples in documents.",
+    evidence: "The current plan costs $20 per month.",
     reason: "semantic_support",
     issued_at: "2026-08-18T07:00:00.000Z",
     observed_at: "2026-08-18T07:00:00.000Z",
@@ -35,7 +38,21 @@ function sampleLease() {
     proof_basis: "SEMANTIC",
     lease_state: "ACTIVE",
     verification_count: 1,
-    current_status: "SUPPORTED"
+    current_status: "SUPPORTED",
+    claim_contract: {
+      version: "proofttl-claim-contract-v1",
+      original_claim: "Example.com currently costs $20 per month.",
+      normalized_claim: "Example.com currently costs $20 per month",
+      volatility: { level: "HIGH", reason: "COMMERCIAL_DYNAMIC" }
+    },
+    ttl_policy: {
+      version: "proofttl-ttl-policy-v1",
+      volatility: "HIGH",
+      ttl_seconds: 17280,
+      mode: "ADVISORY_V1",
+      effective_ttl_seconds: 300,
+      applied_to_lease: false
+    }
   };
 }
 
@@ -55,6 +72,11 @@ async function run() {
   assert(attestation.issued_status === "SUPPORTED", "attestation preserves issued verdict");
   assert(!("lease_state" in attestation), "mutable lease_state is excluded from issuance attestation");
   assert(!("current_status" in attestation), "mutable current_status is excluded from issuance attestation");
+  assert(!("claim_contract" in attestation), "v1 issuance attestation remains byte-compatible with existing clients");
+
+  const context = buildLeaseVerificationContextAttestation(lease);
+  assert(context.claim_contract.version === "proofttl-claim-contract-v1", "context attestation binds Claim Contract");
+  assert(context.ttl_policy.mode === "ADVISORY_V1", "context attestation binds TTL rationale");
 
   const canonicalA = canonicalizeJson({ z: 1, a: { y: 2, x: 3 } });
   const canonicalB = canonicalizeJson({ a: { x: 3, y: 2 }, z: 1 });
@@ -66,12 +88,23 @@ async function run() {
     "proofttl-test-key",
     "2026-08-18T07:00:01.000Z"
   );
+  await attachLeaseVerificationContextSignature(
+    lease,
+    privateJwk,
+    "proofttl-test-key",
+    "2026-08-18T07:00:01.000Z"
+  );
   assert(lease.signature?.algorithm === "Ed25519", "lease receives Ed25519 signature metadata");
   assert(lease.signature?.key_id === "proofttl-test-key", "signature records key ID");
   assert(Boolean(lease.signature?.value), "signature contains base64url value");
+  assert(Boolean(lease.verification_context_signature?.value), "verification context receives separate signature");
   assert(
     await verifyLeaseIssuanceSignature(lease, publicJwk),
     "fresh lease signature verifies with public key"
+  );
+  assert(
+    await verifyLeaseVerificationContextSignature(lease, publicJwk),
+    "Claim Contract and TTL context verify with public key"
   );
 
   lease.lease_state = "REVOKED";
@@ -81,6 +114,10 @@ async function run() {
   assert(
     await verifyLeaseIssuanceSignature(lease, publicJwk),
     "monitoring state changes do not invalidate issuance signature"
+  );
+  assert(
+    await verifyLeaseVerificationContextSignature(lease, publicJwk),
+    "monitoring state changes do not invalidate verification-context signature"
   );
 
   const tamperedClaim = structuredClone(lease);
@@ -95,6 +132,17 @@ async function run() {
   assert(
     !(await verifyLeaseIssuanceSignature(tamperedFingerprint, publicJwk)),
     "tampering with source fingerprint invalidates signature"
+  );
+  assert(
+    !(await verifyLeaseVerificationContextSignature(tamperedFingerprint, publicJwk)),
+    "tampering with context-bound source fingerprint invalidates context signature"
+  );
+
+  const tamperedContext = structuredClone(lease);
+  tamperedContext.ttl_policy.effective_ttl_seconds = 999999;
+  assert(
+    !(await verifyLeaseVerificationContextSignature(tamperedContext, publicJwk)),
+    "tampering with TTL rationale invalidates context signature"
   );
 
   const advertised = publicSigningJwk(privateJwk, "proofttl-test-key");

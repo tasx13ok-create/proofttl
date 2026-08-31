@@ -55,13 +55,16 @@ export async function reconcileMonitorScheduleBatch(db, keys, updatedAtMs = Date
   if (!db || !Array.isArray(keys) || keys.length === 0) return 0;
 
   const rows = keys
-    .slice(0, MAX_RECONCILE_BATCH)
     .map((key) => monitorScheduleRowFromKvKey(key, updatedAtMs))
     .filter(Boolean);
 
-  if (rows.length === 0) return 0;
-  await db.batch(rows.map((row) => upsertStatement(db, row)));
-  return rows.length;
+  let reconciled = 0;
+  for (let offset = 0; offset < rows.length; offset += MAX_RECONCILE_BATCH) {
+    const batch = rows.slice(offset, offset + MAX_RECONCILE_BATCH);
+    await db.batch(batch.map((row) => upsertStatement(db, row)));
+    reconciled += batch.length;
+  }
+  return reconciled;
 }
 
 export async function listDueLeaseIds(db, nowMs = Date.now(), limit = DEFAULT_DUE_LIMIT) {

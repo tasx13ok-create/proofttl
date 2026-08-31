@@ -1,5 +1,7 @@
 export const LEASE_SIGNATURE_VERSION = "proofttl-ed25519-v1";
 export const LEASE_ATTESTATION_VERSION = "proofttl-issuance-v1";
+export const VERIFICATION_CONTEXT_SIGNATURE_VERSION = "proofttl-context-ed25519-v1";
+export const VERIFICATION_CONTEXT_ATTESTATION_VERSION = "proofttl-verification-context-v1";
 export const DEFAULT_SIGNING_KEY_ID = "proofttl-testnet-2026-01";
 
 const textEncoder = new TextEncoder();
@@ -40,6 +42,28 @@ export function buildLeaseIssuanceAttestation(lease) {
   };
 }
 
+export function buildLeaseVerificationContextAttestation(lease) {
+  if (!lease || typeof lease !== "object") {
+    throw new Error("lease_required_for_context_signing");
+  }
+  if (!lease.claim_contract || typeof lease.claim_contract !== "object") {
+    throw new Error("lease_context_missing_claim_contract");
+  }
+  if (!lease.ttl_policy || typeof lease.ttl_policy !== "object") {
+    throw new Error("lease_context_missing_ttl_policy");
+  }
+
+  return {
+    attestation_version: VERIFICATION_CONTEXT_ATTESTATION_VERSION,
+    lease_id: lease.lease_id,
+    protocol: lease.protocol,
+    issued_at: lease.issued_at || lease.observed_at,
+    source_fingerprint: lease.source_fingerprint,
+    claim_contract: lease.claim_contract,
+    ttl_policy: lease.ttl_policy
+  };
+}
+
 export function canonicalizeJson(value) {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
@@ -65,30 +89,37 @@ export async function attachLeaseIssuanceSignature(
   if (!privateJwk) return lease;
 
   const attestation = buildLeaseIssuanceAttestation(lease);
-  const canonicalPayload = canonicalizeJson(attestation);
-  const privateKey = await crypto.subtle.importKey(
-    "jwk",
-    privateJwk,
-    { name: "Ed25519" },
-    false,
-    ["sign"]
-  );
-  const signatureBytes = await crypto.subtle.sign(
-    { name: "Ed25519" },
-    privateKey,
-    textEncoder.encode(canonicalPayload)
-  );
-
   lease.issued_attestation = attestation;
-  lease.signature = {
-    version: LEASE_SIGNATURE_VERSION,
-    algorithm: "Ed25519",
-    key_id: normalizeKeyId(keyId),
-    signed_payload: "issued_attestation",
-    signed_at: signedAt || attestation.issued_at,
-    value: base64UrlEncode(new Uint8Array(signatureBytes))
-  };
+  lease.signature = await signAttestation(
+    attestation,
+    privateJwk,
+    LEASE_SIGNATURE_VERSION,
+    keyId,
+    signedAt || attestation.issued_at,
+    "issued_attestation"
+  );
+  return lease;
+}
 
+export async function attachLeaseVerificationContextSignature(
+  lease,
+  privateJwkInput,
+  keyId = DEFAULT_SIGNING_KEY_ID,
+  signedAt = null
+) {
+  const privateJwk = parsePrivateJwk(privateJwkInput);
+  if (!privateJwk || !lease?.claim_contract || !lease?.ttl_policy) return lease;
+
+  const attestation = buildLeaseVerificationContextAttestation(lease);
+  lease.verification_context_attestation = attestation;
+  lease.verification_context_signature = await signAttestation(
+    attestation,
+    privateJwk,
+    VERIFICATION_CONTEXT_SIGNATURE_VERSION,
+    keyId,
+    signedAt || attestation.issued_at,
+    "verification_context_attestation"
+  );
   return lease;
 }
 
@@ -97,29 +128,28 @@ export async function verifyLeaseIssuanceSignature(lease, publicJwkInput = null)
   if (lease.signature.algorithm !== "Ed25519") return false;
   if (lease.signature.version !== LEASE_SIGNATURE_VERSION) return false;
 
-  const publicJwk = publicJwkInput
-    ? parsePublicJwk(publicJwkInput)
-    : publicJwkFromLeaseOrPrivate(lease);
-  if (!publicJwk) return false;
-
   const expectedAttestation = buildLeaseIssuanceAttestation(lease);
-  const expectedCanonical = canonicalizeJson(expectedAttestation);
-  const storedCanonical = canonicalizeJson(lease.issued_attestation);
-  if (expectedCanonical !== storedCanonical) return false;
-
-  const publicKey = await crypto.subtle.importKey(
-    "jwk",
-    publicJwk,
-    { name: "Ed25519" },
-    false,
-    ["verify"]
+  return verifyStoredAttestation(
+    expectedAttestation,
+    lease.issued_attestation,
+    lease.signature,
+    publicJwkInput,
+    lease
   );
+}
 
-  return crypto.subtle.verify(
-    { name: "Ed25519" },
-    publicKey,
-    base64UrlDecode(lease.signature.value),
-    textEncoder.encode(storedCanonical)
+export async function verifyLeaseVerificationContextSignature(lease, publicJwkInput = null) {
+  if (!lease?.verification_context_attestation || !lease?.verification_context_signature?.value) return false;
+  if (lease.verification_context_signature.algorithm !== "Ed25519") return false;
+  if (lease.verification_context_signature.version !== VERIFICATION_CONTEXT_SIGNATURE_VERSION) return false;
+
+  const expectedAttestation = buildLeaseVerificationContextAttestation(lease);
+  return verifyStoredAttestation(
+    expectedAttestation,
+    lease.verification_context_attestation,
+    lease.verification_context_signature,
+    publicJwkInput,
+    lease
   );
 }
 
@@ -145,6 +175,57 @@ export function signingIsConfigured(privateJwkInput) {
   }
 }
 
+async function signAttestation(attestation, privateJwk, version, keyId, signedAt, signedPayload) {
+  const canonicalPayload = canonicalizeJson(attestation);
+  const privateKey = await crypto.subtle.importKey(
+    "jwk",
+    privateJwk,
+    { name: "Ed25519" },
+    false,
+    ["sign"]
+  );
+  const signatureBytes = await crypto.subtle.sign(
+    { name: "Ed25519" },
+    privateKey,
+    textEncoder.encode(canonicalPayload)
+  );
+
+  return {
+    version,
+    algorithm: "Ed25519",
+    key_id: normalizeKeyId(keyId),
+    signed_payload: signedPayload,
+    signed_at: signedAt,
+    value: base64UrlEncode(new Uint8Array(signatureBytes))
+  };
+}
+
+async function verifyStoredAttestation(expected, stored, signature, publicJwkInput, lease) {
+  const publicJwk = publicJwkInput
+    ? parsePublicJwk(publicJwkInput)
+    : publicJwkFromLeaseOrPrivate(lease, signature);
+  if (!publicJwk) return false;
+
+  const expectedCanonical = canonicalizeJson(expected);
+  const storedCanonical = canonicalizeJson(stored);
+  if (expectedCanonical !== storedCanonical) return false;
+
+  const publicKey = await crypto.subtle.importKey(
+    "jwk",
+    publicJwk,
+    { name: "Ed25519" },
+    false,
+    ["verify"]
+  );
+
+  return crypto.subtle.verify(
+    { name: "Ed25519" },
+    publicKey,
+    base64UrlDecode(signature.value),
+    textEncoder.encode(storedCanonical)
+  );
+}
+
 function parsePrivateJwk(value) {
   if (value === undefined || value === null || value === "") return null;
   const jwk = typeof value === "string" ? JSON.parse(value) : value;
@@ -162,8 +243,8 @@ function parsePublicJwk(value) {
   return { kty: "OKP", crv: "Ed25519", x: jwk.x };
 }
 
-function publicJwkFromLeaseOrPrivate(lease) {
-  const embedded = lease?.signature?.public_key_jwk;
+function publicJwkFromLeaseOrPrivate(lease, signature = null) {
+  const embedded = signature?.public_key_jwk || lease?.signature?.public_key_jwk;
   return embedded ? parsePublicJwk(embedded) : null;
 }
 

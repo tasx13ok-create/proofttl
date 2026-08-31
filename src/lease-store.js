@@ -4,7 +4,12 @@ import {
   reconcileMonitorScheduleBatch,
   upsertMonitorSchedule
 } from "./monitor-schedule.js";
-import { attachLeaseIssuanceSignature } from "./lease-signing.js";
+import { buildClaimContract } from "./claim-contract.js";
+import { deriveTtlPolicy } from "./ttl-policy.js";
+import {
+  attachLeaseIssuanceSignature,
+  attachLeaseVerificationContextSignature
+} from "./lease-signing.js";
 import { attachLeaseEventSignatures } from "./event-signing.js";
 
 const LEASE_PREFIX = "lease:";
@@ -54,10 +59,18 @@ export function createLeaseStoreBinding(kv, db, options = {}) {
         }));
       }
 
+      if (lease && typeof lease === "object") {
+        attachImmutableVerificationContext(lease);
+        storedValue = JSON.stringify(lease);
+      }
+
       if (lease && typeof lease === "object" && signingPrivateJwk) {
         try {
           if (!lease.signature) {
             await attachLeaseIssuanceSignature(lease, signingPrivateJwk, signingKeyId);
+          }
+          if (!lease.verification_context_signature && lease.claim_contract && lease.ttl_policy) {
+            await attachLeaseVerificationContextSignature(lease, signingPrivateJwk, signingKeyId);
           }
           await attachLeaseEventSignatures(lease, signingPrivateJwk, signingKeyId);
           storedValue = JSON.stringify(lease);
@@ -129,29 +142,92 @@ export async function reconcileMonitorScheduleFromKv(env, scheduledTime = Date.n
   const shardIndex = Math.floor(scheduledMinute / RECONCILE_EVERY_MINUTES) % HEX_SHARDS.length;
   const shard = HEX_SHARDS[shardIndex];
   const prefix = `${LEASE_PREFIX}ftl_${shard}`;
+  let cursor = undefined;
+  let reconciled = 0;
+  let keysSeen = 0;
+  let pages = 0;
 
   try {
-    const listed = await env.LEASES.list({ prefix, limit: 1000 });
-    const reconciled = await reconcileMonitorScheduleBatch(
-      env.MONITOR_DB,
-      listed.keys || [],
-      now
-    );
+    do {
+      const listed = await env.LEASES.list({
+        prefix,
+        limit: 1000,
+        ...(cursor ? { cursor } : {})
+      });
+      const keys = listed.keys || [];
+      keysSeen += keys.length;
+      pages += 1;
+      reconciled += await reconcileMonitorScheduleBatch(env.MONITOR_DB, keys, now);
+      cursor = listed.list_complete ? undefined : listed.cursor;
+    } while (cursor);
+
     console.log(JSON.stringify({
       event: "monitor_schedule_reconciled",
       shard,
-      keys_seen: listed.keys?.length || 0,
+      pages,
+      keys_seen: keysSeen,
       reconciled
     }));
-    return { attempted: true, shard, reconciled };
+    return { attempted: true, shard, pages, reconciled };
   } catch (error) {
     console.error(JSON.stringify({
       event: "monitor_schedule_reconcile_failed",
       shard,
+      pages,
+      keys_seen: keysSeen,
+      reconciled,
       error: error?.message || String(error)
     }));
-    return { attempted: true, shard, reconciled: 0, error: true };
+    return { attempted: true, shard, pages, reconciled, error: true };
   }
+}
+
+export function attachImmutableVerificationContext(lease) {
+  if (!lease?.lease_id || !lease?.claim || !lease?.issued_at || !lease?.source_fingerprint) return lease;
+
+  if (!lease.claim_contract) {
+    try {
+      lease.claim_contract = buildClaimContract(lease.claim, {
+        nowMs: Date.parse(lease.issued_at || lease.observed_at)
+      });
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "lease_claim_contract_build_failed",
+        lease_id: lease.lease_id,
+        error: error?.message || String(error)
+      }));
+    }
+  }
+
+  if (!lease.ttl_policy && lease.claim_contract) {
+    try {
+      const recommendation = deriveTtlPolicy({
+        claimContract: lease.claim_contract,
+        confidence: Number.isFinite(Number(lease.confidence)) ? Number(lease.confidence) : null,
+        contradictionCount: 0,
+        sourceCount: 1,
+        requestedTtlSeconds: null
+      });
+      const effectiveTtl = Number(lease.ttl_seconds);
+      lease.ttl_policy = {
+        ...recommendation,
+        mode: "ADVISORY_V1",
+        effective_ttl_seconds: Number.isFinite(effectiveTtl) ? effectiveTtl : null,
+        applied_to_lease: false,
+        effective_within_recommendation: Number.isFinite(effectiveTtl)
+          ? effectiveTtl <= recommendation.ttl_seconds
+          : null
+      };
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "lease_ttl_policy_build_failed",
+        lease_id: lease.lease_id,
+        error: error?.message || String(error)
+      }));
+    }
+  }
+
+  return lease;
 }
 
 async function fallbackMonitorList(kv, options, monitorNow) {

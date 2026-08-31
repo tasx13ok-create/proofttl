@@ -18,17 +18,29 @@ import {
 import { validatePublicSourceUrl } from "./security.js";
 import { createPreSettledX402Middleware } from "./x402-gate.js";
 import {
+  attachImmutableVerificationContext,
   createLeaseStoreBinding,
   reconcileMonitorScheduleFromKv
 } from "./lease-store.js";
 import {
+  LEASE_ATTESTATION_VERSION,
+  LEASE_SIGNATURE_VERSION,
+  VERIFICATION_CONTEXT_ATTESTATION_VERSION,
+  VERIFICATION_CONTEXT_SIGNATURE_VERSION,
   attachLeaseIssuanceSignature,
+  attachLeaseVerificationContextSignature,
   publicSigningJwk
 } from "./lease-signing.js";
+import { handleClaimDecompositionRequest } from "./claim-decomposition-api.js";
 
 const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
 const X402_NETWORK = "eip155:84532";
 const X402_PRICE = "$0.001";
+const DYNAMIC_SIGNING_CAPABILITIES = [
+  "ed25519_issuance_signatures",
+  "signed_verification_context",
+  "signed_monitoring_event_chain"
+];
 
 const x402Routes = {
   "POST /verify": {
@@ -133,6 +145,8 @@ app.get("/.well-known/proofttl.json", (c) => machineJson(c, discoveryForEnv(c.en
 app.get("/.well-known/proofttl-keys.json", (c) => machineJson(c, signingKeysForEnv(c.env)));
 app.get("/openapi.json", (c) => machineJson(c, OPENAPI));
 app.get("/pricing", (c) => machineJson(c, PRICING));
+
+app.post("/claims/decompose", (c) => handleClaimDecompositionRequest(c.req.raw));
 
 // Manual reverification is intentionally disabled on the public surface for
 // now. Automatic scheduled monitoring remains active inside core.scheduled.
@@ -318,40 +332,54 @@ function signingKeysForEnv(env) {
       env?.PROOFTTL_SIGNING_PRIVATE_JWK,
       env?.PROOFTTL_SIGNING_KEY_ID
     );
-    return {
-      service: "ProofTTL",
-      signing_enabled: Boolean(key),
-      signature_version: "proofttl-ed25519-v1",
-      attestation_version: "proofttl-issuance-v1",
-      keys: key ? [key] : []
-    };
+    return signingKeyDocument(key);
   } catch (error) {
     console.error(JSON.stringify({
       event: "lease_signing_key_discovery_failed",
       error: error?.message || String(error)
     }));
-    return {
-      service: "ProofTTL",
-      signing_enabled: false,
-      signature_version: "proofttl-ed25519-v1",
-      attestation_version: "proofttl-issuance-v1",
-      keys: []
-    };
+    return signingKeyDocument(null);
   }
+}
+
+function signingKeyDocument(key) {
+  return {
+    service: "ProofTTL",
+    signing_enabled: Boolean(key),
+    algorithm: key ? "Ed25519" : null,
+    signature_version: LEASE_SIGNATURE_VERSION,
+    attestation_version: LEASE_ATTESTATION_VERSION,
+    verification_context_signature_version: VERIFICATION_CONTEXT_SIGNATURE_VERSION,
+    verification_context_attestation_version: VERIFICATION_CONTEXT_ATTESTATION_VERSION,
+    keys: key ? [key] : []
+  };
 }
 
 function discoveryForEnv(env) {
   const signing = signingKeysForEnv(env);
+  const baseCapabilities = DISCOVERY.capabilities.filter(
+    (name) => !DYNAMIC_SIGNING_CAPABILITIES.includes(name)
+  );
+
   return {
     ...DISCOVERY,
     capabilities: signing.signing_enabled
-      ? [...DISCOVERY.capabilities, "ed25519_issuance_signatures"]
-      : DISCOVERY.capabilities,
+      ? [...baseCapabilities, ...DYNAMIC_SIGNING_CAPABILITIES]
+      : baseCapabilities,
     signing: {
       enabled: signing.signing_enabled,
-      algorithm: signing.signing_enabled ? "Ed25519" : null,
+      algorithm: signing.algorithm,
       signature_version: signing.signature_version,
       attestation_version: signing.attestation_version,
+      issuance: {
+        signature_version: signing.signature_version,
+        attestation_version: signing.attestation_version
+      },
+      verification_context: {
+        signature_version: signing.verification_context_signature_version,
+        attestation_version: signing.verification_context_attestation_version,
+        ttl_policy_mode: "ADVISORY_V1"
+      },
       keys_endpoint: "/.well-known/proofttl-keys.json"
     }
   };
@@ -384,13 +412,34 @@ async function enrichLeaseVerdictSemantics(response, signingEnv = null) {
     current_status: currentStatus
   };
 
-  if (signingEnv?.PROOFTTL_SIGNING_PRIVATE_JWK && !enriched.signature) {
+  // The core lease-store adapter attaches this same immutable context before
+  // persistence. Doing it on the newly issued response keeps the paid response
+  // byte-for-byte truthful about the Claim Contract/TTL rationale that was just
+  // stored, rather than making clients fetch the lease a second time.
+  if (signingEnv) {
+    attachImmutableVerificationContext(enriched);
+  }
+
+  if (signingEnv?.PROOFTTL_SIGNING_PRIVATE_JWK) {
     try {
-      await attachLeaseIssuanceSignature(
-        enriched,
-        signingEnv.PROOFTTL_SIGNING_PRIVATE_JWK,
-        signingEnv.PROOFTTL_SIGNING_KEY_ID
-      );
+      if (!enriched.signature) {
+        await attachLeaseIssuanceSignature(
+          enriched,
+          signingEnv.PROOFTTL_SIGNING_PRIVATE_JWK,
+          signingEnv.PROOFTTL_SIGNING_KEY_ID
+        );
+      }
+      if (
+        !enriched.verification_context_signature &&
+        enriched.claim_contract &&
+        enriched.ttl_policy
+      ) {
+        await attachLeaseVerificationContextSignature(
+          enriched,
+          signingEnv.PROOFTTL_SIGNING_PRIVATE_JWK,
+          signingEnv.PROOFTTL_SIGNING_KEY_ID
+        );
+      }
     } catch (error) {
       console.error(JSON.stringify({
         event: "lease_response_signing_failed",
