@@ -2,6 +2,7 @@ import { getOptionalProofTTLSession } from './auth.js';
 
 const VALID_STATES = new Set(['received', 'scoped', 'payment_ready', 'paid', 'fulfilled', 'cancelled']);
 const FACT_AUDIT_PRICE_USD = 1500;
+const WATCH_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 function productionAuthConfigured(env) {
   return Boolean(env?.BETTER_AUTH_SECRET && (env?.PROOFTTL_AUTH_PUBLIC_URL || env?.PROOFTTL_WEB_URL || env?.BETTER_AUTH_URL));
@@ -30,7 +31,9 @@ export async function handleAuditStatus(request, env) {
   const row = await env.MONITOR_DB.prepare(
     `SELECT id, email, status, offer_type, scoped_price_usd, scope_summary, scope_turnaround,
             payment_url, payment_state, payment_provider, amount_due_usd, prior_credit_usd,
-            created_at_ms, scoped_at_ms, paid_at_ms, fulfilled_at_ms
+            created_at_ms, scoped_at_ms, paid_at_ms, fulfilled_at_ms,
+            human_approved_at_ms, report_url, report_sha256, report_delivered_at_ms,
+            watch_started_at_ms, watch_ends_at_ms
        FROM audit_intakes WHERE id = ? LIMIT 1`
   ).bind(id).first();
 
@@ -44,16 +47,13 @@ export async function handleAuditStatus(request, env) {
     if (!linked?.linked) {
       const sessionEmail = normalizeEmail(session.user.email);
       const intakeEmail = normalizeEmail(row.email);
-      if (!sessionEmail || sessionEmail !== intakeEmail) {
-        return json({ error: 'audit_intake_not_found' }, 404);
-      }
+      if (!sessionEmail || sessionEmail !== intakeEmail) return json({ error: 'audit_intake_not_found' }, 404);
       await env.MONITOR_DB.prepare(
         'INSERT OR IGNORE INTO account_audit_links (user_id,intake_id,created_at) VALUES (?,?,?)'
       ).bind(session.user.id, id, new Date().toISOString()).run();
     }
-  } else {
-    // Local/unit environments without production auth retain the ID + email contract.
-    if (!suppliedEmail || suppliedEmail !== normalizeEmail(row.email)) return json({ error: 'audit_intake_not_found' }, 404);
+  } else if (!suppliedEmail || suppliedEmail !== normalizeEmail(row.email)) {
+    return json({ error: 'audit_intake_not_found' }, 404);
   }
 
   return json({
@@ -76,6 +76,22 @@ export async function handleAuditStatus(request, env) {
       url: row.payment_state === 'ready' ? row.payment_url : null,
       paid_at_ms: row.paid_at_ms
     },
+    human_review: {
+      approved: Boolean(row.human_approved_at_ms),
+      approved_at_ms: row.human_approved_at_ms || null
+    },
+    delivery: {
+      delivered: Boolean(row.report_delivered_at_ms),
+      report_url: row.report_delivered_at_ms ? row.report_url : null,
+      report_sha256: row.report_delivered_at_ms ? row.report_sha256 : null,
+      delivered_at_ms: row.report_delivered_at_ms || null
+    },
+    watch: {
+      state: row.watch_started_at_ms ? (Date.now() < Number(row.watch_ends_at_ms || 0) ? 'active' : 'complete') : 'not_started',
+      started_at_ms: row.watch_started_at_ms || null,
+      ends_at_ms: row.watch_ends_at_ms || null,
+      duration_days: 7
+    },
     fulfilled_at_ms: row.fulfilled_at_ms
   });
 }
@@ -93,18 +109,21 @@ export async function handleAuditAdmin(request, env, pathname) {
       `SELECT id, created_at_ms, status, offer_type, email, company_or_project, website_url,
               claim_scope, approximate_claims, why_it_matters, deadline, scoped_price_usd,
               prior_credit_usd, amount_due_usd, scope_summary, scope_turnaround,
-              payment_state, payment_provider, payment_url, paid_at_ms, fulfilled_at_ms
+              payment_state, payment_provider, payment_url, paid_at_ms, human_approved_at_ms,
+              human_approved_by, report_url, report_sha256, report_delivered_at_ms,
+              watch_started_at_ms, watch_ends_at_ms, fulfilled_at_ms
          FROM audit_intakes WHERE status = ? ORDER BY created_at_ms ASC LIMIT ?`
     ).bind(status, limit).all();
     return json({ ok: true, status, intakes: result?.results || [] });
   }
 
-  const match = pathname.match(/^\/admin\/audit\/intakes\/(ati_[a-f0-9]{32})\/(scope|mark-paid|fulfill|cancel)$/);
+  const match = pathname.match(/^\/admin\/audit\/intakes\/(ati_[a-f0-9]{32})\/(scope|mark-paid|approve|fulfill|cancel)$/);
   if (!match || request.method !== 'POST') return json({ error: 'not_found' }, 404);
   const [, id, action] = match;
 
   const existing = await env.MONITOR_DB.prepare(
-    `SELECT id, status, offer_type, approximate_claims, scoped_price_usd, prior_credit_usd
+    `SELECT id, status, offer_type, approximate_claims, scoped_price_usd, prior_credit_usd,
+            human_approved_at_ms, human_approved_by, report_delivered_at_ms
        FROM audit_intakes WHERE id = ? LIMIT 1`
   ).bind(id).first();
   if (!existing) return json({ error: 'audit_intake_not_found' }, 404);
@@ -121,13 +140,14 @@ export async function handleAuditAdmin(request, env, pathname) {
     if (existing.approximate_claims === '25+') return json({ error: 'fact_audit_scope_exceeds_25_claims' }, 409);
     if (price !== FACT_AUDIT_PRICE_USD) return json({ error: 'fact_audit_price_must_be_1500' }, 400);
 
-    const amountDue = FACT_AUDIT_PRICE_USD;
     await env.MONITOR_DB.prepare(
       `UPDATE audit_intakes SET status = 'scoped', scope_summary = ?, scoped_price_usd = ?,
        prior_credit_usd = 0, amount_due_usd = ?, scope_turnaround = ?, scoped_at_ms = ?, payment_url = NULL,
-       payment_provider = NULL, payment_state = 'not_requested' WHERE id = ?`
-    ).bind(summary, FACT_AUDIT_PRICE_USD, amountDue, turnaround, now, id).run();
-    return json({ ok: true, audit_intake_id: id, status: 'scoped', amount_due_usd: amountDue });
+       payment_provider = NULL, payment_state = 'not_requested', human_approved_at_ms = NULL,
+       human_approved_by = NULL, report_url = NULL, report_sha256 = NULL, report_delivered_at_ms = NULL,
+       watch_started_at_ms = NULL, watch_ends_at_ms = NULL, fulfilled_at_ms = NULL WHERE id = ?`
+    ).bind(summary, FACT_AUDIT_PRICE_USD, FACT_AUDIT_PRICE_USD, turnaround, now, id).run();
+    return json({ ok: true, audit_intake_id: id, status: 'scoped', amount_due_usd: FACT_AUDIT_PRICE_USD });
   }
 
   if (action === 'mark-paid') {
@@ -135,20 +155,46 @@ export async function handleAuditAdmin(request, env, pathname) {
     await env.MONITOR_DB.prepare(
       `UPDATE audit_intakes SET status = 'paid', payment_state = 'paid', paid_at_ms = ? WHERE id = ?`
     ).bind(now, id).run();
-    return json({ ok: true, audit_intake_id: id, status: 'paid' });
+    return json({ ok: true, audit_intake_id: id, status: 'paid', next_step: 'human_approval_required' });
+  }
+
+  if (action === 'approve') {
+    if (existing.status !== 'paid') return json({ error: 'intake_not_paid' }, 409);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
+    const reviewer = clean(body?.reviewer, 160);
+    if (!reviewer) return json({ error: 'human_reviewer_required' }, 400);
+    await env.MONITOR_DB.prepare(
+      `UPDATE audit_intakes SET human_approved_at_ms = ?, human_approved_by = ? WHERE id = ? AND status = 'paid'`
+    ).bind(now, reviewer, id).run();
+    return json({ ok: true, audit_intake_id: id, status: 'paid', human_review: { approved: true, approved_at_ms: now } });
   }
 
   if (action === 'fulfill') {
     if (existing.status !== 'paid') return json({ error: 'intake_not_paid' }, 409);
+    if (!existing.human_approved_at_ms) return json({ error: 'human_approval_required_before_fulfillment' }, 409);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
+    const reportUrl = clean(body?.report_url, 1200);
+    const reportSha256 = clean(body?.report_sha256, 64).toLowerCase();
+    if (!isHttps(reportUrl)) return json({ error: 'valid_https_report_url_required' }, 400);
+    if (!/^[a-f0-9]{64}$/.test(reportSha256)) return json({ error: 'valid_report_sha256_required' }, 400);
+    const watchEnds = now + WATCH_DURATION_MS;
     await env.MONITOR_DB.prepare(
-      `UPDATE audit_intakes SET status = 'fulfilled', fulfilled_at_ms = ? WHERE id = ?`
-    ).bind(now, id).run();
-    return json({ ok: true, audit_intake_id: id, status: 'fulfilled' });
+      `UPDATE audit_intakes SET status = 'fulfilled', report_url = ?, report_sha256 = ?,
+       report_delivered_at_ms = ?, watch_started_at_ms = ?, watch_ends_at_ms = ?, fulfilled_at_ms = ?
+       WHERE id = ? AND status = 'paid' AND human_approved_at_ms IS NOT NULL`
+    ).bind(reportUrl, reportSha256, now, now, watchEnds, now, id).run();
+    return json({
+      ok: true,
+      audit_intake_id: id,
+      status: 'fulfilled',
+      delivery: { report_url: reportUrl, report_sha256: reportSha256, delivered_at_ms: now },
+      watch: { state: 'active', started_at_ms: now, ends_at_ms: watchEnds, duration_days: 7 }
+    });
   }
 
-  await env.MONITOR_DB.prepare(
-    `UPDATE audit_intakes SET status = 'cancelled' WHERE id = ?`
-  ).bind(id).run();
+  await env.MONITOR_DB.prepare(`UPDATE audit_intakes SET status = 'cancelled' WHERE id = ?`).bind(id).run();
   return json({ ok: true, audit_intake_id: id, status: 'cancelled' });
 }
 
@@ -170,4 +216,5 @@ function constantTimeEqual(a, b) {
   return mismatch === 0;
 }
 function clean(value, max) { return typeof value === 'string' ? value.trim().slice(0, max) : ''; }
+function isHttps(value) { try { return new URL(value).protocol === 'https:'; } catch { return false; } }
 function json(data, status = 200) { return Response.json(data, { status, headers: { 'cache-control': 'no-store' } }); }
