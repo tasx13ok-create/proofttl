@@ -1,6 +1,7 @@
 import { getOptionalProofTTLSession } from './auth.js';
 
 const VALID_STATES = new Set(['received', 'scoped', 'payment_ready', 'paid', 'fulfilled', 'cancelled']);
+const FACT_AUDIT_PRICE_USD = 1500;
 
 function productionAuthConfigured(env) {
   return Boolean(env?.BETTER_AUTH_SECRET && (env?.PROOFTTL_AUTH_PUBLIC_URL || env?.PROOFTTL_WEB_URL || env?.BETTER_AUTH_URL));
@@ -51,7 +52,7 @@ export async function handleAuditStatus(request, env) {
       ).bind(session.user.id, id, new Date().toISOString()).run();
     }
   } else {
-    // Local/unit environments without production auth retain the legacy ID + email contract.
+    // Local/unit environments without production auth retain the ID + email contract.
     if (!suppliedEmail || suppliedEmail !== normalizeEmail(row.email)) return json({ error: 'audit_intake_not_found' }, 404);
   }
 
@@ -98,7 +99,7 @@ export async function handleAuditAdmin(request, env, pathname) {
     return json({ ok: true, status, intakes: result?.results || [] });
   }
 
-  const match = pathname.match(/^\/admin\/audit\/intakes\/(ati_[a-f0-9]{32})\/(scope|upgrade|mark-paid|fulfill|cancel)$/);
+  const match = pathname.match(/^\/admin\/audit\/intakes\/(ati_[a-f0-9]{32})\/(scope|mark-paid|fulfill|cancel)$/);
   if (!match || request.method !== 'POST') return json({ error: 'not_found' }, 404);
   const [, id, action] = match;
 
@@ -115,36 +116,18 @@ export async function handleAuditAdmin(request, env, pathname) {
     const summary = clean(body?.scope_summary, 5000);
     const turnaround = clean(body?.scope_turnaround, 180);
     const price = Number(body?.price_usd);
-    if (!summary || !turnaround || !Number.isInteger(price) || price < 1 || price > 100000) {
-      return json({ error: 'invalid_scope' }, 400);
-    }
-    if (existing.offer_type === 'stress_test' && price !== 129) return json({ error: 'stress_test_price_must_be_129' }, 400);
-    if (existing.offer_type === 'full_audit' && existing.approximate_claims !== '25+' && price !== 500) {
-      return json({ error: 'full_audit_price_must_be_500' }, 400);
-    }
-    const credit = Number(existing.prior_credit_usd || 0);
-    const amountDue = price - credit;
-    if (amountDue <= 0) return json({ error: 'invalid_amount_due' }, 409);
+    if (!summary || !turnaround || !Number.isInteger(price)) return json({ error: 'invalid_scope' }, 400);
+    if (existing.offer_type !== 'full_audit') return json({ error: 'invalid_offer_type' }, 400);
+    if (existing.approximate_claims === '25+') return json({ error: 'fact_audit_scope_exceeds_25_claims' }, 409);
+    if (price !== FACT_AUDIT_PRICE_USD) return json({ error: 'fact_audit_price_must_be_1500' }, 400);
+
+    const amountDue = FACT_AUDIT_PRICE_USD;
     await env.MONITOR_DB.prepare(
       `UPDATE audit_intakes SET status = 'scoped', scope_summary = ?, scoped_price_usd = ?,
-       amount_due_usd = ?, scope_turnaround = ?, scoped_at_ms = ?, payment_url = NULL,
+       prior_credit_usd = 0, amount_due_usd = ?, scope_turnaround = ?, scoped_at_ms = ?, payment_url = NULL,
        payment_provider = NULL, payment_state = 'not_requested' WHERE id = ?`
-    ).bind(summary, price, amountDue, turnaround, now, id).run();
+    ).bind(summary, FACT_AUDIT_PRICE_USD, amountDue, turnaround, now, id).run();
     return json({ ok: true, audit_intake_id: id, status: 'scoped', amount_due_usd: amountDue });
-  }
-
-  if (action === 'upgrade') {
-    if (existing.offer_type !== 'stress_test' || !['paid', 'fulfilled'].includes(existing.status)) {
-      return json({ error: 'stress_test_must_be_paid_before_upgrade' }, 409);
-    }
-    await env.MONITOR_DB.prepare(
-      `UPDATE audit_intakes SET offer_type = 'full_audit', approximate_claims = '10-15',
-       status = 'scoped', scoped_price_usd = 500, prior_credit_usd = 129, amount_due_usd = 371,
-       scope_turnaround = '3–5 business days', payment_state = 'not_requested', payment_url = NULL,
-       payment_provider = NULL, stripe_checkout_session_id = NULL, stripe_payment_intent_id = NULL
-       WHERE id = ?`
-    ).bind(id).run();
-    return json({ ok: true, audit_intake_id: id, status: 'scoped', offer_type: 'full_audit', prior_credit_usd: 129, amount_due_usd: 371 });
   }
 
   if (action === 'mark-paid') {
