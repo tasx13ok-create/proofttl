@@ -42,8 +42,9 @@ try {
     };
     const response = await createAuditCheckoutSession(new Request('https://proofttl.test/admin'), envFor(db), INTAKE);
     assert.equal(response.status, 201);
-    assert.match(postedBody, /unit_amount=150000/, 'Stripe checkout charges exactly $1,500');
-    assert.match(postedBody, /ProofTTL\+Fact\+Audit/, 'Stripe line item uses the flagship Fact Audit name');
+    const checkoutForm = new URLSearchParams(postedBody);
+    assert.equal(checkoutForm.get('line_items[0][price_data][unit_amount]'), '150000', 'Stripe checkout charges exactly $1,500');
+    assert.equal(checkoutForm.get('line_items[0][price_data][product_data][name]'), 'ProofTTL Fact Audit', 'Stripe line item uses the flagship Fact Audit name');
     assert.equal(db.state.row.amount_due_usd, 1500);
   }
 
