@@ -1,5 +1,15 @@
 # ProofTTL 12-Day Execution Log
 
+## 2026-08-31 FLAGSHIP OFFER / PAYMENT CONTRACT CHECKPOINT
+
+- Inspected current sprint heads after the website hard reset; treated current repo/deployment state as authoritative and did not touch retired `/studio` surfaces.
+- Found a payment-critical split-brain bug in core: the web sprint had already moved to the single $1,500 Fact Audit, while backend intake still advertised `$129` Claim Stress Test / `$500` Full Verification Audit, admin scoping enforced those legacy prices, and Stripe checkout only accepted `$129`, `$371`, or `$500`.
+- Replaced new-intake commercial behavior with one canonical Fact Audit contract: 10-25 claims, $1,500, seven-day monitoring, explicit human approval. The persisted `full_audit` identifier remains only for backwards-compatible schema/query behavior; new `stress_test` intake is rejected and `fact_audit` is accepted.
+- Admin scoping now fails closed unless the amount is exactly $1,500 and the declared claim bucket is within 10-25. The legacy upgrade endpoint returns `410 offer_upgrade_retired` instead of creating a $371 balance.
+- Stripe checkout now fails closed unless scoped price, credit, and amount due resolve exactly to $1,500. Checkout metadata and line-item naming identify `ProofTTL Fact Audit`; paid webhooks reject non-$1,500 records and amount mismatches.
+- Open Stripe checkout reuse now validates intake identity and available amount metadata before reusing a session rather than trusting any open stored session URL.
+- Updated audit intake, sales-lifecycle, and Stripe regression tests for the canonical offer. New head after test updates: `9fa233e62a716d7192fe8a18ec2f6775c5aded87`. CI status had not populated at the time of this checkpoint, so this slice is not yet marked green.
+
 ## 2026-08-31 MONITOR / REVERIFY RELIABILITY CHECKPOINT
 
 - Inspected both sprint branch heads. Core CI was green at `8462442f56977c9c024773cbadd8739a266afeac`; web CI was green at `d1d26277644ab5eaf33d560eb2d183c87f4146d8` before this core reliability change.
@@ -24,8 +34,8 @@
 
 ## NEXT
 
-1. Select/implement a provenance-preserving source-discovery adapter with explicit request economics and primary-source preference.
-2. Route discovery/fetch/semantic/contradiction provider access only through the budgeted executor boundary.
-3. Persist execution denials/failures alongside the evidence ledger and signed verification context.
-4. Bind the final ledger + contradiction result + TTL policy into the Fact Lease path.
-5. Connect the backend path to the web stress-test/verify surface only after real source discovery exists.
+1. Get the canonical $1,500 intake/sales/Stripe slice green in CI; fix any regression before moving on.
+2. Select/implement a provenance-preserving source-discovery adapter with explicit request economics and primary-source preference.
+3. Route discovery/fetch/semantic/contradiction provider access only through the budgeted executor boundary.
+4. Persist execution denials/failures alongside the evidence ledger and signed verification context.
+5. Bind the final ledger + contradiction result + TTL policy into the Fact Lease path.
