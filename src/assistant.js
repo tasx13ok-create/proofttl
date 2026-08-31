@@ -11,7 +11,6 @@ const DEFAULT_LOVE_SPEAKER = "atlas";
 const DEFAULT_MAX_AUDIO_BYTES = 512 * 1024;
 const MAX_TRANSCRIPT_CHARS = 700;
 const LEASE_ID_PATTERN = /\bftl_[a-f0-9]{16,64}\b/i;
-export const LOVE_CREATOR_RESPONSE = "Anderson, Collin. CEO. Orchestrator. Raised in New York. Born November 2006.";
 
 const NAVIGATION_RULES = [
   { section: "payments", route: "/console/", label: "Payments", patterns: [/\bpayments?\b/i, /\btransactions?\b/i, /\bbilling\b/i] },
@@ -108,7 +107,7 @@ export async function handleVoiceAssistant(request, env) {
       language: "en",
       vad_filter: true,
       condition_on_previous_text: false,
-      initial_prompt: "Natural conversational English addressed to an AI assistant named L.O.V.E. Common phrases include can you hear me, hello, yeah, do you, open the main menu, open Workspace, ProofTTL, Studio, Files, Work, Money, and Automations."
+      initial_prompt: "Natural English about ProofTTL Fact Audits, evidence, sources, claims, audit status, account access, payments, Fact Leases, and ProofTTL navigation."
     });
     transcript = normalizeTranscript(transcription?.text);
   } catch (error) {
@@ -121,19 +120,6 @@ export async function handleVoiceAssistant(request, env) {
       { error: "speech_not_recognized", message: "I could not confidently hear that. Try saying it again.", quota },
       422
     );
-  }
-
-  if (isLoveCreatorQuestion(transcript)) {
-    return jsonResponse({
-      transcript,
-      response: LOVE_CREATOR_RESPONSE,
-      action: null,
-      quota,
-      love: loveCapability(quota, env),
-      speech: await synthesizeLoveSpeech(LOVE_CREATOR_RESPONSE, quota, env),
-      context: { lease_grounding: { requested: false, found: false, lease_id: null } },
-      inference: { transcription_model: WHISPER_MODEL, response_model: null, speech_model: LOVE_TTS_MODEL, deterministic_route: true }
-    });
   }
 
   const action = matchAssistantNavigation(transcript);
@@ -188,7 +174,7 @@ export async function handleVoiceAssistant(request, env) {
     const completion = await runAssistantResponse(env, {
       messages,
       max_tokens: 170,
-      temperature: leaseGrounding.found ? 0.1 : 0.42
+      temperature: leaseGrounding.found ? 0.1 : 0.2
     });
     responseText = cleanAssistantResponse(extractAssistantResponse(completion));
   } catch (error) {
@@ -196,7 +182,7 @@ export async function handleVoiceAssistant(request, env) {
     return aiCapacityResponse(transcript, quota);
   }
 
-  const finalText = responseText || conversationalFallback(transcript);
+  const finalText = responseText || proofTtlFallback();
 
   return jsonResponse({
     transcript,
@@ -439,26 +425,19 @@ function cleanAssistantResponse(value) {
   return value.trim().replace(/\s+/g, " ").slice(0, 900);
 }
 
-function conversationalFallback(transcript) {
-  const normalized = transcript.toLowerCase().replace(/[^a-z0-9\s']/g, " ").replace(/\s+/g, " ").trim();
-  if (/^(hi|hey|hello|yo|sup|what's up|whats up|you there|are you there)$/.test(normalized)) {
-    return "I'm here. What do you want to work on?";
-  }
-  if (/\b(can you hear me|do you hear me|are you listening)\b/.test(normalized)) {
-    return "Yeah, I can hear you. Go ahead.";
-  }
-  return "I'm with you. Keep going.";
+function proofTtlFallback() {
+  return "I can help with ProofTTL Fact Audits, claims, evidence, sources, audit status, account access, and payment or fulfillment questions.";
 }
 
 function assistantSystemPrompt() {
   return [
-    "You are L.O.V.E., the general-purpose intelligence and control layer for the ProofTTL Workspace.",
-    "You are not limited to ProofTTL product support. Answer normal conversation and substantive questions naturally when you can.",
-    "Be concise, natural, competent, and context-aware.",
-    "Do not repeatedly introduce yourself, advertise ProofTTL, or force unrelated conversation back to the product.",
-    "Never invent private account data, transactions, emails, files, balances, provider state, or actions that were not actually supplied by a trusted tool or application context.",
-    "If authoritative Fact Lease context is supplied, use it for those specific facts and do not invent missing fields.",
-    "Never pretend to execute an action unless the capability layer confirms it."
+    "You are the ProofTTL product assistant.",
+    "Only help with ProofTTL, the $1,500 Fact Audit, claim verification, evidence and source quality, audit status, ProofTTL account access, ProofTTL payment and fulfillment, Fact Leases, and navigation inside ProofTTL.",
+    "For requests unrelated to ProofTTL, briefly say you can only assist with ProofTTL and offer the closest relevant ProofTTL action. Do not answer the unrelated substantive question.",
+    "Never invent private account data, transactions, emails, files, balances, provider state, audit results, evidence, or actions that were not actually supplied by a trusted tool or application context.",
+    "If authoritative Fact Lease or audit context is supplied, use it for those specific facts and do not invent missing fields.",
+    "Never pretend to execute an action unless the capability layer confirms it.",
+    "Do not expose legacy general-purpose workspace behavior or describe retired offers. The only paid audit offer is the $1,500 Fact Audit."
   ].join(" ");
 }
 
@@ -466,7 +445,7 @@ async function aiCapacityResponse(transcript, quota) {
   return jsonResponse(
     {
       error: "assistant_capacity_unavailable",
-      message: "L.O.V.E. is temporarily unavailable. No paid fallback was used.",
+      message: "ProofTTL assistance is temporarily unavailable. No paid fallback was used.",
       transcript,
       quota
     },
