@@ -12,12 +12,12 @@ function dbFor(row = {}) {
     row: {
       id: 'ati_11111111111111111111111111111111',
       status: 'received',
-      offer_type: 'stress_test',
-      approximate_claims: '3-5',
+      offer_type: 'full_audit',
+      approximate_claims: '16-25',
       email: 'buyer@example.com',
       company_or_project: 'Example',
       website_url: 'https://example.com',
-      claim_scope: 'Three launch claims',
+      claim_scope: 'High-consequence launch claims',
       why_it_matters: 'Launch risk',
       payment_state: 'not_requested',
       payment_provider: null,
@@ -46,15 +46,9 @@ function dbFor(row = {}) {
           if (sql.includes("SET status = 'scoped', scope_summary")) {
             const [summary, price, amountDue, turnaround, scopedAt] = this.args;
             Object.assign(state.row, {
-              status: 'scoped',
-              scope_summary: summary,
-              scoped_price_usd: price,
-              amount_due_usd: amountDue,
-              scope_turnaround: turnaround,
-              scoped_at_ms: scopedAt,
-              payment_url: null,
-              payment_provider: null,
-              payment_state: 'not_requested'
+              status: 'scoped', scope_summary: summary, scoped_price_usd: price, prior_credit_usd: 0,
+              amount_due_usd: amountDue, scope_turnaround: turnaround, scoped_at_ms: scopedAt,
+              payment_url: null, payment_provider: null, payment_state: 'not_requested'
             });
           } else if (sql.includes("SET status = 'paid'")) {
             Object.assign(state.row, { status: 'paid', payment_state: 'paid', paid_at_ms: this.args[0] });
@@ -90,17 +84,17 @@ async function run() {
   assert(list.status === 200, 'authorized admin can read sales queue');
 
   const scoped = await handleAuditAdmin(adminRequest(`/admin/audit/intakes/${id}/scope`, {
-    scope_summary: 'Verify three launch claims against first-party documentation.',
-    price_usd: 129,
-    scope_turnaround: '48 hours after payment',
-    payment_url: 'https://payments.example/checkout/abc'
+    scope_summary: 'Verify the highest-risk launch claims against authoritative evidence.',
+    price_usd: 1500,
+    scope_turnaround: '3–5 business days after payment'
   }), env, `/admin/audit/intakes/${id}/scope`);
   const scopedBody = await scoped.json();
-  assert(scopedBody.status === 'scoped', 'scoping prepares the intake without creating or trusting an arbitrary payment URL');
-  assert(scopedBody.amount_due_usd === 129, 'scoping returns the exact amount due');
-  assert(env.MONITOR_DB.state.row.scoped_price_usd === 129, 'stress-test price is stored as $129');
+  assert(scopedBody.status === 'scoped', 'scoping prepares the Fact Audit without creating or trusting an arbitrary payment URL');
+  assert(scopedBody.amount_due_usd === 1500, 'scoping returns the exact $1,500 amount due');
+  assert(env.MONITOR_DB.state.row.scoped_price_usd === 1500, 'Fact Audit price is stored as $1,500');
+  assert(env.MONITOR_DB.state.row.prior_credit_usd === 0, 'Fact Audit has no retired upgrade credit');
   assert(env.MONITOR_DB.state.row.payment_url === null, 'scope flow does not persist caller-supplied payment URLs');
-  assert(env.MONITOR_DB.state.row.payment_state === 'not_requested', 'payment stays not-requested until the payment provider creates checkout');
+  assert(env.MONITOR_DB.state.row.payment_state === 'not_requested', 'payment stays not-requested until Stripe creates checkout');
 
   const statusRequest = new Request('https://proofttl.test/audit/intake/status', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -108,14 +102,17 @@ async function run() {
   });
   const status = await handleAuditStatus(statusRequest, env);
   const statusBody = await status.json();
-  assert(statusBody.scope?.amount_due_usd === 129, 'buyer can retrieve scoped amount with intake ID plus matching email');
-  assert(statusBody.payment?.url === null, 'buyer status does not expose a payment URL before provider checkout exists');
+  assert(statusBody.scope?.amount_due_usd === 1500, 'buyer can retrieve the exact $1,500 scoped amount');
+  assert(statusBody.payment?.url === null, 'buyer status does not expose a payment URL before Stripe checkout exists');
   assert(statusBody.payment?.state === 'not_requested', 'buyer status reports payment not requested before checkout creation');
 
   const badPrice = await handleAuditAdmin(adminRequest(`/admin/audit/intakes/${id}/scope`, {
-    scope_summary: 'Bad price', price_usd: 500, scope_turnaround: '48 hours'
+    scope_summary: 'Bad price', price_usd: 500, scope_turnaround: '3–5 business days'
   }), env, `/admin/audit/intakes/${id}/scope`);
-  assert(badPrice.status === 400, 'stress test cannot silently be repriced away from $129');
+  assert(badPrice.status === 400, 'Fact Audit cannot silently regress to retired $500 pricing');
+
+  const retiredUpgrade = await handleAuditAdmin(adminRequest(`/admin/audit/intakes/${id}/upgrade`, {}), env, `/admin/audit/intakes/${id}/upgrade`);
+  assert(retiredUpgrade.status === 404, 'retired upgrade route is quarantined');
 
   const paid = await handleAuditAdmin(adminRequest(`/admin/audit/intakes/${id}/mark-paid`, {}), env, `/admin/audit/intakes/${id}/mark-paid`);
   assert(paid.status === 200 && env.MONITOR_DB.state.row.status === 'paid', 'payment can be marked after scope is ready');
