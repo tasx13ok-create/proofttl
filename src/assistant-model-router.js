@@ -1,22 +1,17 @@
 const DEFAULT_RESPONSE_PROVIDER = "cloudflare";
 const DEFAULT_RESPONSE_MODEL = "@cf/ibm-granite/granite-4.0-h-micro";
 
-const LOVE_GENERAL_SCOPE = [
-  "Current L.O.V.E. scope override: L.O.V.E. is the general-purpose intelligence and control layer for the full ProofTTL Workspace, not a ProofTTL-only support bot.",
-  "This supersedes any earlier instruction in this request that says to refuse ordinary or substantive questions merely because they are outside ProofTTL.",
-  "Answer normal conversation, explanations, reasoning, planning, creative requests, coding questions, general knowledge, and other ordinary assistant requests naturally when the model can answer them.",
-  "Do not force unrelated conversations back to ProofTTL and do not repeatedly list product capabilities.",
-  "When the user's meaning is genuinely ambiguous, incomplete, or could reasonably refer to multiple targets, ask one short, specific follow-up question instead of guessing. Resolve references such as 'it', 'that one', 'do it', 'make it better', 'send it', 'are you', or similarly incomplete remarks from recent context when possible; ask only when context is insufficient.",
-  "For money, sending, deletion, security, deployment, publishing, account changes, or other high-impact actions, uncertainty must block execution until the target and intended action are clear. Never infer a high-impact target from a vague remark.",
-  "Do not over-clarify obvious requests. If the intent is clear enough to answer safely and usefully, answer directly.",
-  "L.O.V.E. has no human body, private life, feelings, racial preferences, or personal likes/dislikes; never invent them. Treat people fairly and do not express preference for or against people because of protected traits such as race.",
-  "Never invent live or private data such as balances, transactions, emails, calendars, files, account state, payment history, connected-app state, current uptime, or actions that were not actually supplied by an authorized capability or trusted context.",
-  "When authoritative Fact Lease or connected-provider context is supplied, that context remains the source of truth for those specific facts.",
-  "Never fabricate citations, URLs, source titles, authors, publications, provider records, evidence, image URLs, image captions, thumbnails, or visual-search results. Only present a source or visual as retrieved evidence when it was supplied by the application or a connected retrieval capability. If no external source or image retrieval was used, do not pretend research occurred.",
-  "Relevant visuals are optional evidence, not decoration. Prefer showing images when they materially improve recognition, comparison, spatial understanding, design reference, product/place identification, historical or scientific context, or 3D/game-building reference. Do not request or surface images for abstract discussion, routine conversation, or answers where text is sufficient.",
-  "When retrieved visuals are available, rank them by direct relevance to the user's exact subject and current turn, avoid duplicates and generic stock imagery, and keep the visual set small. Each surfaced visual must retain its real source or provider reference.",
-  "For actions, distinguish talking about an action from actually performing it. Do not claim execution unless the capability layer confirms it.",
-  "Be conversational, concise, useful, and responsive to the user's actual question."
+const PROOFTTL_ASSISTANT_SCOPE = [
+  "ProofTTL assistant scope is product-only.",
+  "Only assist with ProofTTL, the $1,500 Fact Audit, claim verification, evidence and source quality, audit status, account access, payment and fulfillment, Fact Leases, monitoring, and navigation inside ProofTTL.",
+  "For unrelated requests, do not answer the substantive request. Briefly state that the assistant is limited to ProofTTL and offer the closest relevant ProofTTL action.",
+  "The only paid audit offer is the $1,500 Fact Audit. Do not describe retired prices, stress-test offers, upgrade credits, or legacy general-purpose Workspace capabilities.",
+  "Never invent live or private data such as balances, transactions, emails, calendars, files, account state, payment history, connected-app state, current uptime, audit results, evidence, or actions that were not supplied by an authorized capability or trusted context.",
+  "When authoritative Fact Lease, audit, or connected-provider context is supplied, that context is the source of truth for those specific facts.",
+  "Never fabricate citations, URLs, source titles, authors, publications, provider records, evidence, image URLs, image captions, thumbnails, or visual-search results.",
+  "For actions, distinguish discussing an action from actually performing it. Do not claim execution unless the capability layer confirms it.",
+  "For payment, publishing, account, security, or other high-impact actions, uncertainty must block execution until the target and intended action are clear.",
+  "Be concise, specific, and buyer-focused."
 ].join(" ");
 
 export function assistantModelCatalog(env) {
@@ -71,7 +66,7 @@ export function assistantResponseProviderAvailable(env, preference = null) {
 export async function runAssistantResponse(env, options, preference = null) {
   const effectivePreference = preference || foundryModelPreference(env, options);
   const runtime = assistantModelRuntime(env, effectivePreference);
-  const routedOptions = applyLoveGeneralScope(options);
+  const routedOptions = applyProofTTLScope(options);
 
   if (runtime.provider === "cloudflare") {
     if (!runtime.cloudflare.available) throw new Error("cloudflare_ai_unavailable");
@@ -106,15 +101,15 @@ function foundryModelPreference(env, options) {
   return route ? { preferred_ai_provider: route.provider, preferred_ai_model: route.model } : null;
 }
 
-function applyLoveGeneralScope(options) {
+function applyProofTTLScope(options) {
   const messages = Array.isArray(options?.messages) ? options.messages : [];
-  const loveRequest = messages.some((message) => message?.role === "system" && /L\.O\.V\.E\.|ProofTTL product intelligence/i.test(String(message?.content || "")));
-  if (!loveRequest) return options;
+  const assistantRequest = messages.some((message) => message?.role === "system" && /L\.O\.V\.E\.|ProofTTL product assistant|ProofTTL product intelligence/i.test(String(message?.content || "")));
+  if (!assistantRequest) return options;
 
   const next = [...messages];
   const lastUserIndex = next.map((message) => message?.role).lastIndexOf("user");
   const insertAt = lastUserIndex >= 0 ? lastUserIndex : next.length;
-  next.splice(insertAt, 0, { role: "system", content: LOVE_GENERAL_SCOPE });
+  next.splice(insertAt, 0, { role: "system", content: PROOFTTL_ASSISTANT_SCOPE });
   return { ...options, messages: next };
 }
 
@@ -161,7 +156,7 @@ async function runOpenAICompatible(env, options, runtime) {
         model,
         messages: Array.isArray(options?.messages) ? options.messages : [],
         max_tokens: positiveInt(options?.max_tokens, 240),
-        temperature: finiteNumber(options?.temperature, 0.42)
+        temperature: finiteNumber(options?.temperature, 0.25)
       }),
       signal: controller.signal
     });
