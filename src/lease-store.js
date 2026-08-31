@@ -142,28 +142,43 @@ export async function reconcileMonitorScheduleFromKv(env, scheduledTime = Date.n
   const shardIndex = Math.floor(scheduledMinute / RECONCILE_EVERY_MINUTES) % HEX_SHARDS.length;
   const shard = HEX_SHARDS[shardIndex];
   const prefix = `${LEASE_PREFIX}ftl_${shard}`;
+  let cursor = undefined;
+  let reconciled = 0;
+  let keysSeen = 0;
+  let pages = 0;
 
   try {
-    const listed = await env.LEASES.list({ prefix, limit: 1000 });
-    const reconciled = await reconcileMonitorScheduleBatch(
-      env.MONITOR_DB,
-      listed.keys || [],
-      now
-    );
+    do {
+      const listed = await env.LEASES.list({
+        prefix,
+        limit: 1000,
+        ...(cursor ? { cursor } : {})
+      });
+      const keys = listed.keys || [];
+      keysSeen += keys.length;
+      pages += 1;
+      reconciled += await reconcileMonitorScheduleBatch(env.MONITOR_DB, keys, now);
+      cursor = listed.list_complete ? undefined : listed.cursor;
+    } while (cursor);
+
     console.log(JSON.stringify({
       event: "monitor_schedule_reconciled",
       shard,
-      keys_seen: listed.keys?.length || 0,
+      pages,
+      keys_seen: keysSeen,
       reconciled
     }));
-    return { attempted: true, shard, reconciled };
+    return { attempted: true, shard, pages, reconciled };
   } catch (error) {
     console.error(JSON.stringify({
       event: "monitor_schedule_reconcile_failed",
       shard,
+      pages,
+      keys_seen: keysSeen,
+      reconciled,
       error: error?.message || String(error)
     }));
-    return { attempted: true, shard, reconciled: 0, error: true };
+    return { attempted: true, shard, pages, reconciled, error: true };
   }
 }
 
