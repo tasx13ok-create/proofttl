@@ -14,10 +14,7 @@ function fakeDb(initialCount = 0) {
     prepare(sql) {
       return {
         args: [],
-        bind(...args) {
-          this.args = args;
-          return this;
-        },
+        bind(...args) { this.args = args; return this; },
         async first() {
           if (sql.includes('COUNT(*)')) return { count: initialCount };
           return null;
@@ -43,8 +40,8 @@ function request(body) {
   });
 }
 
-const fullAudit = {
-  offer_type: 'full_audit',
+const factAudit = {
+  offer_type: 'fact_audit',
   email: 'buyer@example.com',
   company_or_project: 'Example AI',
   website_url: 'https://example.com',
@@ -55,56 +52,48 @@ const fullAudit = {
   company_site: ''
 };
 
-const stressTest = {
-  ...fullAudit,
-  offer_type: 'stress_test',
-  approximate_claims: '3-5'
-};
-
 async function run() {
   console.log('ProofTTL audit intake tests\n');
 
   const db = fakeDb();
-  const response = await handleAuditIntake(request(fullAudit), { MONITOR_DB: db });
+  const response = await handleAuditIntake(request(factAudit), { MONITOR_DB: db });
   const body = await response.json();
-  assert(response.status === 201, 'valid full audit intake returns HTTP 201');
+  assert(response.status === 201, 'valid Fact Audit intake returns HTTP 201');
   assert(body.ok === true && body.status === 'received', 'valid intake reports received');
   assert(/^ati_[a-f0-9]{32}$/.test(body.audit_intake_id), 'valid intake gets opaque audit reference');
-  assert(body.offer?.type === 'full_audit' && body.offer?.price_usd === 500, 'full audit keeps the $500 flagship offer');
+  assert(body.offer?.type === 'fact_audit' && body.offer?.price_usd === 1500, 'intake exposes the canonical $1,500 Fact Audit');
+  assert(body.offer?.included_claims === '10-25', 'Fact Audit is limited to 10-25 claims');
+  assert(body.offer?.monitoring_days === 7, 'Fact Audit includes seven-day monitoring');
+  assert(body.offer?.human_approval_required === true, 'Fact Audit requires explicit human approval');
   assert(body.payment?.required_now === false, 'intake does not request payment before scope review');
   assert(db.rows.length === 1, 'valid intake is persisted exactly once');
-  assert(db.rows[0].at(-1) === 'full_audit', 'selected offer type is persisted');
+  assert(db.rows[0].at(-1) === 'full_audit', 'canonical offer persists with the backwards-compatible full_audit identifier');
 
-  const stressDb = fakeDb();
-  const stressResponse = await handleAuditIntake(request(stressTest), { MONITOR_DB: stressDb });
-  const stressBody = await stressResponse.json();
-  assert(stressResponse.status === 201, 'valid stress-test intake returns HTTP 201');
-  assert(stressBody.offer?.price_usd === 129, 'stress test is priced at $129');
-  assert(stressBody.offer?.included_claims === '3-5', 'stress test is limited to 3-5 claims');
-  assert(stressBody.offer?.upgrade?.additional_usd === 371, 'stress-test buyer can upgrade by paying only the $371 difference');
+  const compatibility = await handleAuditIntake(request({ ...factAudit, offer_type: 'full_audit' }), { MONITOR_DB: fakeDb() });
+  assert(compatibility.status === 201, 'legacy full_audit identifier remains accepted for compatible current clients');
 
-  const mismatch = await handleAuditIntake(request({ ...stressTest, approximate_claims: '16-25' }), { MONITOR_DB: fakeDb() });
-  assert(mismatch.status === 400, 'claim count must match the selected offer');
+  const retired = await handleAuditIntake(request({ ...factAudit, offer_type: 'stress_test', approximate_claims: '10-15' }), { MONITOR_DB: fakeDb() });
+  assert(retired.status === 400, 'retired stress-test offer cannot create new intake');
 
-  const badOffer = await handleAuditIntake(request({ ...fullAudit, offer_type: 'enterprise_magic' }), { MONITOR_DB: fakeDb() });
-  assert(badOffer.status === 400, 'unknown offer type is rejected');
+  const tooSmall = await handleAuditIntake(request({ ...factAudit, approximate_claims: '3-5' }), { MONITOR_DB: fakeDb() });
+  assert(tooSmall.status === 400, 'claim count below flagship scope is rejected');
 
-  const badEmail = await handleAuditIntake(request({ ...fullAudit, email: 'not-an-email' }), { MONITOR_DB: fakeDb() });
+  const tooLarge = await handleAuditIntake(request({ ...factAudit, approximate_claims: '25+' }), { MONITOR_DB: fakeDb() });
+  assert(tooLarge.status === 400, 'claim count above flagship scope is rejected instead of silently overpromising');
+
+  const badEmail = await handleAuditIntake(request({ ...factAudit, email: 'not-an-email' }), { MONITOR_DB: fakeDb() });
   assert(badEmail.status === 400, 'invalid email is rejected');
 
   const spamDb = fakeDb();
-  const spam = await handleAuditIntake(request({ ...fullAudit, company_site: 'spam.example' }), { MONITOR_DB: spamDb });
-  assert(spam.status === 200, 'honeypot submission receives neutral success response');
-  assert(spamDb.rows.length === 0, 'honeypot submission is not persisted');
+  const spam = await handleAuditIntake(request({ ...factAudit, company_site: 'spam.example' }), { MONITOR_DB: spamDb });
+  assert(spam.status === 200 && spamDb.rows.length === 0, 'honeypot submissions receive neutral success and are not persisted');
 
-  const belowLimit = await handleAuditIntake(request(fullAudit), { MONITOR_DB: fakeDb(9) });
+  const belowLimit = await handleAuditIntake(request(factAudit), { MONITOR_DB: fakeDb(9) });
   assert(belowLimit.status === 201, 'nine prior requests in the window still leave one burst slot');
+  const limited = await handleAuditIntake(request(factAudit), { MONITOR_DB: fakeDb(10) });
+  assert(limited.status === 429 && limited.headers.get('retry-after') === '600', 'the eleventh intake is rate limited with retry-after');
 
-  const limited = await handleAuditIntake(request(fullAudit), { MONITOR_DB: fakeDb(10) });
-  assert(limited.status === 429, 'the eleventh intake in a ten-request window is rate limited');
-  assert(limited.headers.get('retry-after') === '600', 'rate limit includes retry-after');
-
-  const noDb = await handleAuditIntake(request(fullAudit), {});
+  const noDb = await handleAuditIntake(request(factAudit), {});
   assert(noDb.status === 503, 'intake fails closed when D1 storage is unavailable');
 
   console.log(`\nSUCCESS: ${passed} audit-intake checks passed.`);
