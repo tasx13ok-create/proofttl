@@ -1,5 +1,6 @@
 const STRIPE_API = 'https://api.stripe.com/v1';
 const WEBHOOK_TOLERANCE_SECONDS = 300;
+const FACT_AUDIT_PRICE_USD = 1500;
 
 export async function createAuditCheckoutSession(request, env, intakeId) {
   if (!env?.MONITOR_DB) return json({ error: 'audit_intake_storage_unavailable' }, 503);
@@ -19,11 +20,14 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
   }
   if (!['scoped', 'payment_ready'].includes(row.status)) return json({ error: 'audit_intake_not_scoped' }, 409);
   if (!row.scope_summary || !Number.isInteger(Number(row.scoped_price_usd))) return json({ error: 'scope_not_complete' }, 409);
+  if (row.offer_type !== 'full_audit') return json({ error: 'invalid_offer_type' }, 409);
 
   const total = Number(row.scoped_price_usd);
   const credit = Number(row.prior_credit_usd || 0);
   const amountDue = total - credit;
-  if (![129, 371, 500].includes(amountDue)) return json({ error: 'invalid_payment_amount', amount_due_usd: amountDue }, 409);
+  if (total !== FACT_AUDIT_PRICE_USD || credit !== 0 || amountDue !== FACT_AUDIT_PRICE_USD) {
+    return json({ error: 'invalid_payment_amount', amount_due_usd: amountDue }, 409);
+  }
 
   const siteUrl = clean(env?.PROOFTTL_WEB_URL, 1000) || 'https://proofttl-web.vercel.app';
   if (!isHttps(siteUrl)) return json({ error: 'invalid_web_url_configuration' }, 503);
@@ -59,11 +63,7 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
     }
   }
 
-  const offerName = amountDue === 371
-    ? 'ProofTTL Full Verification Audit Upgrade'
-    : row.offer_type === 'stress_test'
-      ? 'ProofTTL Claim Stress Test'
-      : 'ProofTTL Full Verification Audit';
+  const offerName = 'ProofTTL Fact Audit';
 
   const returnBase = `${siteUrl.replace(/\/$/, '')}/audit/status/?request=${encodeURIComponent(row.id)}`;
   const params = new URLSearchParams();
