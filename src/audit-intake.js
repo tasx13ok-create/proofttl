@@ -1,27 +1,14 @@
 import { getOptionalProofTTLSession } from './auth.js';
 
-const OFFERS = {
-  stress_test: {
-    name: 'ProofTTL Claim Stress Test',
-    price_usd: 129,
-    included_claims: '3-5',
-    turnaround: '48 hours after payment and scope confirmation',
-    monitoring_days: 0,
-    upgrade_credit_usd: 129
-  },
-  full_audit: {
-    name: 'ProofTTL Verification Audit',
-    price_usd: 500,
-    included_claims: '10-25',
-    turnaround: '3-5 business days after payment and scope confirmation',
-    monitoring_days: 7,
-    upgrade_credit_usd: 0
-  }
+const FACT_AUDIT = {
+  name: 'ProofTTL Fact Audit',
+  price_usd: 1500,
+  included_claims: '10-25',
+  turnaround: '3-5 business days after payment and scope confirmation',
+  monitoring_days: 7,
+  human_approval_required: true
 };
-const CLAIM_BUCKETS = {
-  stress_test: new Set(['3-5']),
-  full_audit: new Set(['10-15', '16-25', '25+'])
-};
+const VALID_CLAIM_BUCKETS = new Set(['10-15', '16-25']);
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_PER_WINDOW = 10;
 
@@ -49,12 +36,19 @@ export async function handleAuditIntake(request, env) {
     const raw = await request.text();
     if (raw.length > 12000) return json({ error: 'request_too_large' }, 413);
     body = JSON.parse(raw);
-  } catch { return json({ error: 'invalid_json' }, 400); }
+  } catch {
+    return json({ error: 'invalid_json' }, 400);
+  }
 
   if (typeof body?.company_site === 'string' && body.company_site.trim()) return json({ ok: true, status: 'received' });
 
-  const offerType = clean(body?.offer_type, 30) || 'full_audit';
-  const offer = OFFERS[offerType];
+  // `full_audit` remains the persisted identifier for backwards-compatible schema/query behavior,
+  // but new intake accepts only the single flagship Fact Audit.
+  const requestedOffer = clean(body?.offer_type, 30) || 'full_audit';
+  if (requestedOffer !== 'full_audit' && requestedOffer !== 'fact_audit') {
+    return json({ error: 'invalid_offer_type' }, 400);
+  }
+  const offerType = 'full_audit';
   const email = clean(body?.email, 254).toLowerCase();
   const companyOrProject = clean(body?.company_or_project, 160);
   const websiteUrl = clean(body?.website_url, 600);
@@ -63,12 +57,10 @@ export async function handleAuditIntake(request, env) {
   const whyItMatters = clean(body?.why_it_matters, 2500);
   const deadline = clean(body?.deadline, 120);
 
-  if (!offer) return json({ error: 'invalid_offer_type' }, 400);
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'valid_email_required' }, 400);
 
   const sessionEmail = clean(authenticatedSession?.user?.email, 254).toLowerCase();
-  const accountEmailMatches = sessionEmail === email;
-  if (authenticatedSession?.user?.id && (!sessionEmail || !accountEmailMatches)) {
+  if (authenticatedSession?.user?.id && (!sessionEmail || sessionEmail !== email)) {
     return json({
       error: 'audit_email_must_match_account',
       message: 'Use the same email address as your signed-in ProofTTL account for this audit request.'
@@ -78,20 +70,24 @@ export async function handleAuditIntake(request, env) {
   if (!companyOrProject) return json({ error: 'company_or_project_required' }, 400);
   if (!claimScope) return json({ error: 'claim_scope_required' }, 400);
   if (!whyItMatters) return json({ error: 'why_it_matters_required' }, 400);
-  if (!CLAIM_BUCKETS[offerType].has(approximateClaims)) return json({ error: 'invalid_claim_count_for_offer' }, 400);
+  if (!VALID_CLAIM_BUCKETS.has(approximateClaims)) return json({ error: 'invalid_claim_count_for_offer' }, 400);
 
   if (websiteUrl) {
-    try { const parsed = new URL(websiteUrl); if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('bad protocol'); }
-    catch { return json({ error: 'invalid_website_url' }, 400); }
+    try {
+      const parsed = new URL(websiteUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('bad protocol');
+    } catch {
+      return json({ error: 'invalid_website_url' }, 400);
+    }
   }
 
   const now = Date.now();
-
   const duplicate = await env.MONITOR_DB.prepare(
     `SELECT id, status FROM audit_intakes
       WHERE lower(email) = ? AND offer_type = ? AND claim_scope = ? AND created_at_ms >= ?
       ORDER BY created_at_ms DESC LIMIT 1`
   ).bind(email, offerType, claimScope, now - WINDOW_MS).first();
+
   if (duplicate?.id) {
     const linked = await ensureAccountLink(env, authenticatedSession, duplicate.id, now);
     if (productionAuthConfigured(env) && !linked) {
@@ -103,19 +99,19 @@ export async function handleAuditIntake(request, env) {
       audit_intake_id: duplicate.id,
       status: duplicate.status || 'received',
       account: { linked },
-      offer: {
-        type: offerType,
-        ...offer,
-        upgrade: offerType === 'stress_test' ? { to: 'full_audit', additional_usd: 371, total_usd: 500 } : null
-      },
+      offer: { type: 'fact_audit', ...FACT_AUDIT },
       payment: { required_now: false, state: 'scope_review_before_payment' },
       next_step: 'Your original request is already stored and linked to this account. ProofTTL reviews the submitted scope before payment is requested.'
     }, 200);
   }
 
   const fingerprint = await requestFingerprint(request);
-  const recent = await env.MONITOR_DB.prepare('SELECT COUNT(*) AS count FROM audit_intakes WHERE request_fingerprint = ? AND created_at_ms >= ?').bind(fingerprint, now - WINDOW_MS).first();
-  if (Number(recent?.count || 0) >= MAX_PER_WINDOW) return json({ error: 'audit_intake_rate_limited', retry_after_seconds: 600 }, 429, { 'retry-after': '600' });
+  const recent = await env.MONITOR_DB.prepare(
+    'SELECT COUNT(*) AS count FROM audit_intakes WHERE request_fingerprint = ? AND created_at_ms >= ?'
+  ).bind(fingerprint, now - WINDOW_MS).first();
+  if (Number(recent?.count || 0) >= MAX_PER_WINDOW) {
+    return json({ error: 'audit_intake_rate_limited', retry_after_seconds: 600 }, 429, { 'retry-after': '600' });
+  }
 
   const id = `ati_${crypto.randomUUID().replaceAll('-', '')}`;
   await env.MONITOR_DB.prepare(
@@ -140,11 +136,7 @@ export async function handleAuditIntake(request, env) {
     audit_intake_id: id,
     status: 'received',
     account: { linked: linkedToAccount },
-    offer: {
-      type: offerType,
-      ...offer,
-      upgrade: offerType === 'stress_test' ? { to: 'full_audit', additional_usd: 371, total_usd: 500 } : null
-    },
+    offer: { type: 'fact_audit', ...FACT_AUDIT },
     payment: { required_now: false, state: 'scope_review_before_payment' },
     next_step: 'ProofTTL reviews the submitted scope within 24 hours before payment is requested.'
   }, 201);
@@ -172,4 +164,6 @@ async function requestFingerprint(request) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${ip}|${ua}`));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
-function json(data, status = 200, extraHeaders = {}) { return Response.json(data, { status, headers: { 'cache-control': 'no-store', ...extraHeaders } }); }
+function json(data, status = 200, extraHeaders = {}) {
+  return Response.json(data, { status, headers: { 'cache-control': 'no-store', ...extraHeaders } });
+}
