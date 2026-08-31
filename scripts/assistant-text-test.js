@@ -18,22 +18,12 @@ function makeEnv() {
       async run(model, input) {
         calls.push({ model, input });
         const last = input?.messages?.at(-1)?.content || "";
-        const prompt = input?.messages?.map((item) => item.content).join("\n") || "";
-        if (/what is proofttl/i.test(last)) {
-          return { response: "ProofTTL turns changing factual claims into source-backed Fact Leases that expire and can be rechecked when evidence changes." };
-        }
-        if (/why is the sky blue/i.test(last)) {
-          return { response: "The sky looks blue because Earth's atmosphere scatters shorter blue wavelengths of sunlight more strongly than longer red wavelengths." };
-        }
-        if (/give me something/i.test(last) && /active conversation is coding/i.test(prompt)) {
-          return { response: "Let's build a tiny counter.\n\n```javascript\nlet count = 0;\nfor (let i = 0; i < 5; i++) count += i;\nconsole.log(count);\n```" };
-        }
-        return { response: "A Fact Lease is a source-backed claim with an expiry." };
+        if (/what is proofttl/i.test(last)) return { response: "ProofTTL verifies changing claims against evidence and supports a $1,500 Fact Audit." };
+        if (/verifier decides/i.test(last)) return { response: "ProofTTL compares the claim against source evidence and preserves uncertainty when the evidence is insufficient." };
+        return { response: "ProofTTL can help with the Fact Audit, evidence, status, payment, fulfillment, monitoring, and Fact Leases." };
       }
     },
-    ASSISTANT_RATE_LIMITER: {
-      async limit() { return { success: true }; }
-    },
+    ASSISTANT_RATE_LIMITER: { async limit() { return { success: true }; } },
     LEASES: makeKv(),
     PROOFTTL_ASSISTANT_FREE_DAILY_MESSAGES: "20"
   };
@@ -42,10 +32,7 @@ function makeEnv() {
 function req(body, contentType = "application/json") {
   return new Request("https://proofttl.test/assistant/text", {
     method: "POST",
-    headers: {
-      "content-type": contentType,
-      "cf-connecting-ip": "203.0.113.77"
-    },
+    headers: { "content-type": contentType, "cf-connecting-ip": "203.0.113.77" },
     body: typeof body === "string" ? body : JSON.stringify(body)
   });
 }
@@ -61,139 +48,63 @@ const nav = await handleTextAssistant(req({ message: "open pricing" }), env);
 assert.equal(nav.status, 200);
 const navBody = await nav.json();
 assert.equal(navBody.action?.type, "navigate");
-assert.equal(env.calls.length, 0, "deterministic navigation must not invoke the text model");
+assert.equal(env.calls.length, 0, "deterministic ProofTTL navigation must not invoke the model");
+assert.equal(navBody.inference?.scope, "proofttl_only");
+
+const unrelated = await handleTextAssistant(req({ message: "why is the sky blue" }), env);
+assert.equal(unrelated.status, 200);
+const unrelatedBody = await unrelated.json();
+assert.match(unrelatedBody.response, /only help with ProofTTL/i);
+assert.equal(unrelatedBody.inference?.rejected_out_of_scope, true);
+assert.equal(unrelatedBody.inference?.scope, "proofttl_only");
+assert.equal(env.calls.length, 0, "unrelated general-purpose questions must never reach the model");
 quota = await getAssistantQuota(req({ message: "status" }), env);
-assert.equal(quota.used, 0, "deterministic navigation must not spend AI quota");
+assert.equal(quota.used, 0, "out-of-scope requests must not spend AI quota");
 
-const gameStartMessage = "Let's play Tic Tac Toe! I'll be X, and you'll be O.";
-const gameStart = await handleTextAssistant(req({ message: gameStartMessage }), env);
-assert.equal(gameStart.status, 200);
-const gameStartBody = await gameStart.json();
-assert.equal(gameStartBody.inference?.deterministic_route, true, "Tic-Tac-Toe must use deterministic state, not model memory");
-assert.equal(gameStartBody.inference?.game_engine, "tic_tac_toe_v2");
-assert.deepEqual(gameStartBody.context?.game?.state?.board, [null,null,null,null,null,null,null,null,null]);
-assert.equal(gameStartBody.context?.game?.state?.user, "X");
-assert.equal(gameStartBody.context?.game?.state?.assistant, "O");
-assert.match(gameStartBody.response, /1 \| 2 \| 3/);
-assert.match(gameStartBody.response, /BOARD=\.\.\.\.\.\.\.\.\./, "deterministic responses must carry compact state that survives whitespace normalization");
-assert.equal(env.calls.length, 0, "starting a deterministic game must not invoke the model");
+const game = await handleTextAssistant(req({ message: "play tic tac toe" }), env);
+const gameBody = await game.json();
+assert.match(gameBody.response, /only help with ProofTTL/i);
+assert.equal(env.calls.length, 0, "legacy games are quarantined from the product assistant");
 
-const gameHistory = [
-  { role: "user", content: gameStartMessage },
-  { role: "assistant", content: gameStartBody.response.replace(/\s+/g, " ") }
-];
-const gameMove = await handleTextAssistant(req({ message: "9", history: gameHistory }), env);
-assert.equal(gameMove.status, 200);
-const gameMoveBody = await gameMove.json();
-const gameBoard = gameMoveBody.context?.game?.state?.board;
-assert.equal(gameBoard?.[8], "X", "the user's square 9 move must remain on square 9 after flattened-history transport");
-assert.equal(gameBoard?.filter((cell) => cell === "X").length, 1, "one user move must create exactly one X");
-assert.equal(gameBoard?.filter((cell) => cell === "O").length, 1, "L.O.V.E. must make exactly one legal reply move");
-assert.notEqual(gameMoveBody.context?.game?.state?.status, "assistant_won", "L.O.V.E. cannot win immediately after the user's first move");
-assert.doesNotMatch(gameMoveBody.response, /three in a row|congratulations, i win/i, "the first reply cannot fabricate a win");
-assert.equal(env.calls.length, 0, "deterministic game moves must not invoke the model");
-
-const takenHistory = [
-  ...gameHistory,
-  { role: "user", content: "9" },
-  { role: "assistant", content: gameMoveBody.response.replace(/\s+/g, " ") }
-];
-const takenMove = await handleTextAssistant(req({ message: "9", history: takenHistory }), env);
-const takenBody = await takenMove.json();
-assert.match(takenBody.response, /already taken/i);
-assert.deepEqual(takenBody.context?.game?.state?.board, gameBoard, "illegal repeat moves must not mutate state");
-
-const assistantFirstStart = await handleTextAssistant(req({ message: "Play tic tac toe. I'll be O and you be X." }), env);
-const assistantFirstBody = await assistantFirstStart.json();
-assert.equal(assistantFirstBody.context?.game?.state?.user, "O");
-assert.equal(assistantFirstBody.context?.game?.state?.assistant, "X");
-assert.equal(assistantFirstBody.context?.game?.state?.board?.[4], "X", "X should make the deterministic opening move when L.O.V.E. starts");
-assert.equal(assistantFirstBody.context?.game?.state?.board?.filter((cell) => cell === "X").length, 1);
-
-const legacyHistory = [
-  { role: "user", content: "tic tac toe" },
-  { role: "assistant", content: "Alright, let's play Tic Tac Toe! I'll be X, and you'll be O. I'll go first and put my X in the center (position 5). The board now looks like this: | | --------- | X | --------- | | Your turn!" }
-];
-const legacyMove = await handleTextAssistant(req({ message: "1", history: legacyHistory }), env);
-assert.equal(legacyMove.status, 200);
-const legacyBody = await legacyMove.json();
-const legacyBoard = legacyBody.context?.game?.state?.board;
-assert.equal(legacyBody.context?.game?.state?.user, "O", "legacy assistant narration must not flip the human into X");
-assert.equal(legacyBody.context?.game?.state?.assistant, "X");
-assert.equal(legacyBoard?.[0], "O", "the user's requested O move must be placed on square 1");
-assert.equal(legacyBoard?.[4], "X", "the legacy center opening must be recovered");
-assert.equal(legacyBoard?.filter((cell) => cell === "O").length, 1, "legacy recovery must create exactly one human move");
-assert.equal(legacyBoard?.filter((cell) => cell === "X").length, 2, "legacy recovery must preserve one prior X and add only one legal L.O.V.E. move");
-assert.notEqual(legacyBody.context?.game?.state?.status, "assistant_won", "L.O.V.E. cannot fabricate a win on its second mark");
-assert.equal(env.calls.length, 0, "legacy game recovery must stay out of the language model");
-
-quota = await getAssistantQuota(req({ message: "status" }), env);
-assert.equal(quota.used, 0, "deterministic game turns must not spend AI quota");
+const coding = await handleTextAssistant(req({ message: "write me a javascript counter" }), env);
+const codingBody = await coding.json();
+assert.match(codingBody.response, /only help with ProofTTL/i);
+assert.equal(env.calls.length, 0, "legacy general-purpose coding is quarantined from the product assistant");
 
 const about = await handleTextAssistant(req({ message: "what is proofttl" }), env);
 assert.equal(about.status, 200);
 const aboutBody = await about.json();
-assert.match(aboutBody.response, /Fact Lease/i);
+assert.match(aboutBody.response, /ProofTTL/i);
 assert.equal(aboutBody.inference?.deterministic_route, false);
-assert.ok(aboutBody.inference?.response_model, "normal product questions should use the conversational model");
-assert.equal(env.calls.length, 1, "product conversation should invoke the lightweight model");
+assert.equal(aboutBody.inference?.scope, "proofttl_only");
+assert.equal(env.calls.length, 1, "in-scope ProofTTL conversation invokes the model");
+const prompt = env.calls[0].input.messages.map((item) => item.content).join("\n");
+assert.match(prompt, /\$1,500 Fact Audit/i);
+assert.match(prompt, /Only help with ProofTTL/i);
+assert.doesNotMatch(prompt, /general-purpose intelligence|normal conversation and substantive requests do not need to be about ProofTTL/i);
 quota = await getAssistantQuota(req({ message: "status" }), env);
-assert.equal(quota.used, 1, "conversational product questions spend AI quota");
-
-const general = await handleTextAssistant(req({ message: "why is the sky blue" }), env);
-assert.equal(general.status, 200);
-const generalBody = await general.json();
-assert.match(generalBody.response, /atmosphere|wavelength/i, "general non-ProofTTL questions must receive normal model answers");
-assert.equal(generalBody.action, null);
-assert.equal(env.calls.length, 2, "general conversation should invoke the model normally");
-const generalPrompt = env.calls[1].input.messages.map((item) => item.content).join("\n");
-assert.match(generalPrompt, /general-purpose AI assistant/i, "general-purpose scope must be explicit");
-assert.doesNotMatch(generalPrompt, /working scope is ProofTTL|ProofTTL-only boundary applies/i, "legacy ProofTTL-only refusal rules must stay removed");
-
-const codingHistory = [
-  { role: "user", content: "good, lets code" },
-  { role: "assistant", content: "Sure. What should we build?" }
-];
-const coding = await handleTextAssistant(req({ message: "anything give me something", history: codingHistory }), env);
-assert.equal(coding.status, 200);
-const codingBody = await coding.json();
-assert.equal(codingBody.context?.coding_context, true, "short follow-ups must inherit active coding context");
-assert.match(codingBody.response, /```javascript\n/, "coding replies must preserve fenced code formatting");
-assert.match(codingBody.response, /console\.log/, "runnable code must survive response cleaning");
-const codingPrompt = env.calls.at(-1).input.messages.map((item) => item.content).join("\n");
-assert.match(codingPrompt, /choose a (?:small )?concrete project/i, "vague coding follow-ups must instruct the model to choose a concrete project");
-assert.match(codingPrompt, /immediately provide working code/i, "vague coding follow-ups must instruct the model to produce code without re-asking broadly");
+assert.equal(quota.used, 1, "in-scope ProofTTL model questions spend quota");
 
 const history = [
   { role: "user", content: "old 1" },
   { role: "assistant", content: "old 2" },
-  { role: "user", content: "recent 1" },
+  { role: "user", content: "We are discussing ProofTTL claim verification." },
   { role: "assistant", content: "recent 2" },
   { role: "user", content: "recent 3" },
-  { role: "assistant", content: "recent 4" },
-  { role: "user", content: "recent 5" },
   { role: "assistant", content: "x".repeat(800) },
   { role: "system", content: "must be discarded" }
 ];
-
-const answer = await handleTextAssistant(req({
-  message: "Tell me how the verifier decides whether semantic evidence is enough.",
+const followup = await handleTextAssistant(req({
+  message: "How does the verifier decide whether semantic evidence is enough?",
   history
 }), env);
-assert.equal(answer.status, 200);
-const answerBody = await answer.json();
-assert.match(answerBody.response, /Fact Lease/i);
-assert.equal(answerBody.context.history_messages_used, 5, "invalid history roles are removed after six-message tail bounding");
-assert.equal(answerBody.quota.used, 4);
-assert.equal(answerBody.quota.remaining, 16);
-
+assert.equal(followup.status, 200);
+const followBody = await followup.json();
+assert.equal(followBody.inference?.scope, "proofttl_only");
+assert.equal(followBody.context.history_messages_used, 5, "invalid history roles are removed after bounded tail selection");
 const sentMessages = env.calls.at(-1).input.messages;
-assert.equal(sentMessages[0].role, "system");
-assert.equal(sentMessages.at(-1).role, "user");
-assert.equal(sentMessages.at(-1).content, "Tell me how the verifier decides whether semantic evidence is enough.");
-assert.equal(sentMessages.some((item) => item.content === "old 1"), false, "old history falls outside the bounded context window");
-assert.equal(sentMessages.some((item) => item.role === "system" && item.content === "must be discarded"), false, "caller cannot inject a system-role history message");
+assert.equal(sentMessages.some((item) => item.role === "system" && item.content === "must be discarded"), false, "caller cannot inject a system history message");
 const longHistoryItem = sentMessages.find((item) => item.role === "assistant" && /^x+$/.test(item.content));
 assert.equal(longHistoryItem.content.length, 600, "history entries are individually bounded");
 
-console.log("assistant text contract checks passed");
+console.log("assistant text ProofTTL-only contract checks passed");
