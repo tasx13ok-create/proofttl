@@ -1,5 +1,5 @@
 import { runAssistantResponse, assistantResponseProviderAvailable } from "./assistant-model-router.js";
-import { LOVE_CREATOR_RESPONSE, isLoveCreatorQuestion } from "./assistant.js";
+import { assistantSystemPrompt } from "./assistant.js";
 
 const DISCORD_API = "https://discord.com/api/v10";
 const MAX_PROMPT_CHARS = 1200;
@@ -30,7 +30,7 @@ export async function handleDiscordInteractions(request, env, ctx) {
     return Response.json({
       type: 4,
       data: {
-        content: "**L.O.V.E. by ProofTTL**\nGeneral-purpose AI inside Discord with ProofTTL Fact Lease grounding when you reference a `ftl_...` lease ID. Use `/love`, `/lease`, or right-click a message → Apps → Ask L.O.V.E.",
+        content: "**ProofTTL Assistant**\nProduct-only assistance for the $1,500 Fact Audit, claims, evidence, audit status, payments, fulfillment, monitoring, and Fact Lease grounding. Use `/love`, `/lease`, or right-click a message → Apps → Ask L.O.V.E.",
         flags: 64
       }
     });
@@ -38,7 +38,7 @@ export async function handleDiscordInteractions(request, env, ctx) {
 
   if (commandName === "love-reset") {
     await clearHistory(interaction, env);
-    return Response.json({ type: 4, data: { content: "L.O.V.E. conversation context cleared for this channel.", flags: 64 } });
+    return Response.json({ type: 4, data: { content: "ProofTTL assistant context cleared for this channel.", flags: 64 } });
   }
 
   if (commandName === "lease") {
@@ -55,11 +55,8 @@ export async function handleDiscordInteractions(request, env, ctx) {
     ? selectedMessageContent(interaction)
     : stringOption(interaction, "prompt");
 
-  if (!prompt) return Response.json({ type: 4, data: { content: "Give L.O.V.E. something to respond to.", flags: 64 } });
+  if (!prompt) return Response.json({ type: 4, data: { content: "Ask about ProofTTL, a Fact Audit, evidence, a payment/status question, or a Fact Lease.", flags: 64 } });
   if (prompt.length > MAX_PROMPT_CHARS) return Response.json({ type: 4, data: { content: `Keep prompts under ${MAX_PROMPT_CHARS} characters.`, flags: 64 } });
-  if (isLoveCreatorQuestion(prompt)) {
-    return Response.json({ type: 4, data: { content: LOVE_CREATOR_RESPONSE, flags: 0 } });
-  }
 
   const userId = discordUserId(interaction);
   if (!userId) return Response.json({ type: 4, data: { content: "Could not resolve your Discord user.", flags: 64 } });
@@ -68,10 +65,10 @@ export async function handleDiscordInteractions(request, env, ctx) {
   if (limited) return Response.json({ type: 4, data: { content: "You're sending requests too quickly. Try again in a moment.", flags: 64 } });
 
   const quota = await consumeDiscordDailyQuota(userId, env);
-  if (!quota.allowed) return Response.json({ type: 4, data: { content: `You've reached today's Discord L.O.V.E. limit (${quota.limit}).`, flags: 64 } });
+  if (!quota.allowed) return Response.json({ type: 4, data: { content: `You've reached today's ProofTTL assistant limit (${quota.limit}).`, flags: 64 } });
 
   if (!assistantResponseProviderAvailable(env)) {
-    return Response.json({ type: 4, data: { content: "L.O.V.E. is temporarily unavailable.", flags: 64 } });
+    return Response.json({ type: 4, data: { content: "ProofTTL assistance is temporarily unavailable.", flags: 64 } });
   }
 
   ctx.waitUntil(finishLoveInteraction(interaction, prompt, env));
@@ -83,17 +80,10 @@ async function finishLoveInteraction(interaction, prompt, env) {
     const history = await loadHistory(interaction, env);
     const lease = await loadReferencedLease(prompt, env);
     const messages = [
+      { role: "system", content: assistantSystemPrompt() },
       {
         role: "system",
-        content: [
-          "You are L.O.V.E., the general-purpose AI intelligence layer for ProofTTL, speaking inside Discord.",
-          `If asked who made, created, built, developed, or designed you, answer exactly: ${LOVE_CREATOR_RESPONSE}`,
-          "Answer naturally and directly. Do not act like a corporate support bot unless the user asks about ProofTTL.",
-          "Keep Discord replies compact and readable. Markdown is allowed. Never use mass mentions such as @everyone or @here.",
-          "Do not claim you performed external actions unless an authoritative connected capability actually confirms it.",
-          "Do not invent live/private data, citations, files, account state, balances, messages, or deployments.",
-          "When authoritative Fact Lease JSON is supplied, it is the source of truth for that lease."
-        ].join(" ")
+        content: "You are speaking through ProofTTL's Discord surface. Keep replies compact and readable. Markdown is allowed. Never use mass mentions such as @everyone or @here. Do not expose or perform unrelated general-purpose assistant behavior."
       },
       ...(lease ? [{ role: "system", content: lease.found
         ? `Authoritative ProofTTL Fact Lease context: ${JSON.stringify(lease.data)}`
@@ -103,13 +93,13 @@ async function finishLoveInteraction(interaction, prompt, env) {
       { role: "user", content: prompt }
     ];
 
-    const completion = await runAssistantResponse(env, { messages, max_tokens: 420, temperature: lease?.found ? 0.25 : 0.45 });
-    const reply = sanitizeDiscordReply(extractCompletionText(completion)) || "I couldn't produce a usable reply. Try that again.";
+    const completion = await runAssistantResponse(env, { messages, max_tokens: 420, temperature: lease?.found ? 0.2 : 0.25 });
+    const reply = sanitizeDiscordReply(extractCompletionText(completion)) || "I can only help with ProofTTL Fact Audits, claims, evidence, status, payments, fulfillment, monitoring, and Fact Leases.";
     await saveHistory(interaction, prompt, reply, env);
     await editOriginal(interaction, reply);
   } catch (error) {
-    console.warn(JSON.stringify({ event: "discord_love_failed", error: error?.name || "Error" }));
-    await editOriginal(interaction, "L.O.V.E. hit a temporary error. Try that again in a moment.");
+    console.warn(JSON.stringify({ event: "discord_proofttl_assistant_failed", error: error?.name || "Error" }));
+    await editOriginal(interaction, "ProofTTL assistance hit a temporary error. Try that again in a moment.");
   }
 }
 
