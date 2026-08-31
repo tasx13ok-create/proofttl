@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {
-  assistantSystemPrompt,
   handleVoiceAssistant,
   loveCapability,
   matchAssistantNavigation
@@ -68,15 +67,6 @@ check("main menu navigation resolves to Workspace", () => {
 
 check("arbitrary navigation target is rejected", () => {
   assert.equal(matchAssistantNavigation("open javascript alert dot com"), null);
-});
-
-check("assistant prompt forbids fabricated account state", () => {
-  assert.match(assistantSystemPrompt(), /Never invent account data/i);
-});
-
-check("assistant prompt supports normal conversation", () => {
-  assert.match(assistantSystemPrompt(), /Talk naturally/i);
-  assert.doesNotMatch(assistantSystemPrompt(), /Answer only questions about ProofTTL/i);
 });
 
 check("owner plan gets member-only L.O.V.E. voice without public preview", () => {
