@@ -1,17 +1,9 @@
 import { getOptionalProofTTLSession } from './auth.js';
 
 const OFFERS = {
-  stress_test: {
-    name: 'ProofTTL Claim Stress Test',
-    price_usd: 129,
-    included_claims: '3-5',
-    turnaround: '48 hours after payment and scope confirmation',
-    monitoring_days: 0,
-    upgrade_credit_usd: 129
-  },
   full_audit: {
-    name: 'ProofTTL Verification Audit',
-    price_usd: 500,
+    name: 'ProofTTL Fact Audit',
+    price_usd: 1500,
     included_claims: '10-25',
     turnaround: '3-5 business days after payment and scope confirmation',
     monitoring_days: 7,
@@ -19,7 +11,6 @@ const OFFERS = {
   }
 };
 const CLAIM_BUCKETS = {
-  stress_test: new Set(['3-5']),
   full_audit: new Set(['10-15', '16-25', '25+'])
 };
 const WINDOW_MS = 10 * 60 * 1000;
@@ -103,11 +94,7 @@ export async function handleAuditIntake(request, env) {
       audit_intake_id: duplicate.id,
       status: duplicate.status || 'received',
       account: { linked },
-      offer: {
-        type: offerType,
-        ...offer,
-        upgrade: offerType === 'stress_test' ? { to: 'full_audit', additional_usd: 371, total_usd: 500 } : null
-      },
+      offer: { type: offerType, ...offer, upgrade: null },
       payment: { required_now: false, state: 'scope_review_before_payment' },
       next_step: 'Your original request is already stored and linked to this account. ProofTTL reviews the submitted scope before payment is requested.'
     }, 200);
@@ -140,11 +127,7 @@ export async function handleAuditIntake(request, env) {
     audit_intake_id: id,
     status: 'received',
     account: { linked: linkedToAccount },
-    offer: {
-      type: offerType,
-      ...offer,
-      upgrade: offerType === 'stress_test' ? { to: 'full_audit', additional_usd: 371, total_usd: 500 } : null
-    },
+    offer: { type: offerType, ...offer, upgrade: null },
     payment: { required_now: false, state: 'scope_review_before_payment' },
     next_step: 'ProofTTL reviews the submitted scope within 24 hours before payment is requested.'
   }, 201);
