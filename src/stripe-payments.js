@@ -1,5 +1,6 @@
 const STRIPE_API = 'https://api.stripe.com/v1';
 const WEBHOOK_TOLERANCE_SECONDS = 300;
+const FACT_AUDIT_PRICE_USD = 1500;
 
 export async function createAuditCheckoutSession(request, env, intakeId) {
   if (!env?.MONITOR_DB) return json({ error: 'audit_intake_storage_unavailable' }, 503);
@@ -23,7 +24,9 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
   const total = Number(row.scoped_price_usd);
   const credit = Number(row.prior_credit_usd || 0);
   const amountDue = total - credit;
-  if (![129, 371, 500].includes(amountDue)) return json({ error: 'invalid_payment_amount', amount_due_usd: amountDue }, 409);
+  if (total !== FACT_AUDIT_PRICE_USD || credit !== 0 || amountDue !== FACT_AUDIT_PRICE_USD) {
+    return json({ error: 'invalid_payment_amount', amount_due_usd: amountDue }, 409);
+  }
 
   const siteUrl = clean(env?.PROOFTTL_WEB_URL, 1000) || 'https://proofttl-web.vercel.app';
   if (!isHttps(siteUrl)) return json({ error: 'invalid_web_url_configuration' }, 503);
@@ -38,6 +41,8 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
       }
       await clearCheckoutIfCurrent(env, row.id, previousSessionId);
     } else if (existing.session?.status === 'open' && existing.session?.url) {
+      const validOpen = validateSessionIdentity(existing.session, row.id, amountDue);
+      if (!validOpen.ok) return json({ error: validOpen.error }, 409);
       return json({
         ok: true,
         reused: true,
@@ -59,12 +64,6 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
     }
   }
 
-  const offerName = amountDue === 371
-    ? 'ProofTTL Full Verification Audit Upgrade'
-    : row.offer_type === 'stress_test'
-      ? 'ProofTTL Claim Stress Test'
-      : 'ProofTTL Full Verification Audit';
-
   const returnBase = `${siteUrl.replace(/\/$/, '')}/audit/status/?request=${encodeURIComponent(row.id)}`;
   const params = new URLSearchParams();
   params.set('mode', 'payment');
@@ -74,14 +73,14 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
   params.set('cancel_url', `${returnBase}&cancelled=1`);
   params.set('line_items[0][price_data][currency]', 'usd');
   params.set('line_items[0][price_data][unit_amount]', String(amountDue * 100));
-  params.set('line_items[0][price_data][product_data][name]', offerName);
+  params.set('line_items[0][price_data][product_data][name]', 'ProofTTL Fact Audit');
   params.set('line_items[0][price_data][product_data][description]', row.scope_summary.slice(0, 500));
   params.set('line_items[0][quantity]', '1');
   params.set('metadata[audit_intake_id]', row.id);
-  params.set('metadata[offer_type]', row.offer_type);
+  params.set('metadata[offer_type]', 'fact_audit');
   params.set('metadata[amount_due_usd]', String(amountDue));
   params.set('payment_intent_data[metadata][audit_intake_id]', row.id);
-  params.set('payment_intent_data[metadata][offer_type]', row.offer_type);
+  params.set('payment_intent_data[metadata][offer_type]', 'fact_audit');
   params.set('payment_intent_data[metadata][amount_due_usd]', String(amountDue));
 
   const checkoutWindow = Math.floor(Date.now() / (60 * 60 * 1000));
@@ -91,7 +90,7 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
     headers: {
       authorization: `Bearer ${secret}`,
       'content-type': 'application/x-www-form-urlencoded',
-      'idempotency-key': `proofttl-audit-${row.id}-${amountDue}-${checkoutWindow}-${generation}`.slice(0, 255)
+      'idempotency-key': `proofttl-fact-audit-${row.id}-${amountDue}-${checkoutWindow}-${generation}`.slice(0, 255)
     },
     body: params.toString()
   });
@@ -168,7 +167,10 @@ export async function handleStripeWebhook(request, env) {
       return json({ ok: true, duplicate_payment_state: true });
     }
 
-    const completion = validatePaidSession(object, intakeId, Number(expected.amount_due_usd || 0));
+    if (Number(expected.amount_due_usd || 0) !== FACT_AUDIT_PRICE_USD) {
+      return json({ error: 'invalid_payment_amount', amount_due_usd: Number(expected.amount_due_usd || 0) }, 409);
+    }
+    const completion = validatePaidSession(object, intakeId, FACT_AUDIT_PRICE_USD);
     if (!completion.ok) return json({ error: completion.error }, 409);
 
     const siblingSessionId = clean(expected.stripe_checkout_session_id, 200);
@@ -189,12 +191,23 @@ export async function handleStripeWebhook(request, env) {
   return json({ ok: true });
 }
 
-function validatePaidSession(session, intakeId, expectedAmountUsd) {
+function validateSessionIdentity(session, intakeId, expectedAmountUsd) {
   const sessionIntakeId = clean(session?.metadata?.audit_intake_id || session?.client_reference_id, 80);
   if (sessionIntakeId !== intakeId) return { ok: false, error: 'stripe_audit_metadata_mismatch' };
+  if (Number(session?.amount_total || 0) && Number(session.amount_total) / 100 !== expectedAmountUsd) {
+    return { ok: false, error: 'stripe_amount_mismatch' };
+  }
+  const metadataAmount = Number(session?.metadata?.amount_due_usd || 0);
+  if (metadataAmount && metadataAmount !== expectedAmountUsd) return { ok: false, error: 'stripe_amount_mismatch' };
+  return { ok: true };
+}
+
+function validatePaidSession(session, intakeId, expectedAmountUsd) {
+  const identity = validateSessionIdentity(session, intakeId, expectedAmountUsd);
+  if (!identity.ok) return identity;
   if (session?.payment_status !== 'paid') return { ok: false, error: 'stripe_session_not_paid' };
   const paidUsd = Number(session?.amount_total || 0) / 100;
-  if (Number(expectedAmountUsd || 0) !== paidUsd) return { ok: false, error: 'stripe_amount_mismatch' };
+  if (expectedAmountUsd !== paidUsd) return { ok: false, error: 'stripe_amount_mismatch' };
   return { ok: true };
 }
 
