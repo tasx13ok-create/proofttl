@@ -32,18 +32,20 @@ async function run() {
   assert(assistantResponseProviderAvailable(cloudflareEnv), 'default provider is available with Workers AI binding');
   const nativeResult = await runAssistantResponse(cloudflareEnv, { messages: [{ role: 'user', content: 'hi' }] });
   assert(String(nativeResult.response).startsWith('ok:@cf/ibm-granite/'), 'default provider routes through configured Workers AI model');
-  assert(capturedMessages?.length === 1, 'non-L.O.V.E. model calls are not modified by the general-scope override');
+  assert(capturedMessages?.length === 1, 'non-assistant model calls are not modified by the ProofTTL scope override');
 
   await runAssistantResponse(cloudflareEnv, {
     messages: [
       { role: 'system', content: 'You are L.O.V.E., ProofTTL product intelligence.' },
-      { role: 'user', content: 'Do you like black people?' }
+      { role: 'user', content: 'why is the sky blue' }
     ]
   });
-  const scopeMessage = capturedMessages?.find((item) => item.role === 'system' && /general-purpose intelligence/i.test(String(item.content || '')));
-  assert(Boolean(scopeMessage), 'L.O.V.E. calls receive the general-purpose Workspace scope override');
-  assert(/no human body, private life, feelings, racial preferences/i.test(scopeMessage?.content || ''), 'L.O.V.E. scope prevents invented racial or personal preferences');
-  assert(/Never invent live or private data/i.test(scopeMessage?.content || ''), 'general scope preserves private/live-data grounding boundary');
+  const scopeMessage = capturedMessages?.find((item) => item.role === 'system' && /ProofTTL assistant scope is product-only/i.test(String(item.content || '')));
+  assert(Boolean(scopeMessage), 'assistant calls receive the ProofTTL-only scope override');
+  assert(/\$1,500 Fact Audit/i.test(scopeMessage?.content || ''), 'assistant scope pins the only paid audit offer');
+  assert(/For unrelated requests, do not answer the substantive request/i.test(scopeMessage?.content || ''), 'assistant scope blocks general-purpose answers');
+  assert(/Never invent live or private data/i.test(scopeMessage?.content || ''), 'assistant scope preserves private/live-data grounding boundary');
+  assert(!/general-purpose intelligence|normal conversation/i.test(scopeMessage?.content || ''), 'legacy general-purpose override is absent');
 
   const allowedPreference = {
     preferred_ai_provider: 'cloudflare',
@@ -92,7 +94,7 @@ async function run() {
     assert(assistantResponseProviderAvailable(externalEnv), 'HTTPS OpenAI-compatible provider becomes available only when all server configuration exists');
     assert(assistantModelCatalog(externalEnv).openai_compatible.some((item) => item.model === 'example-model'), 'configured HTTPS external model appears in safe catalog');
     const external = await runAssistantResponse(externalEnv, { messages: [{ role: 'user', content: 'hi' }] });
-    assert(external.response === 'external-ok', 'external provider response is normalized for L.O.V.E.');
+    assert(external.response === 'external-ok', 'external provider response is normalized');
   } finally {
     globalThis.fetch = previousFetch;
   }
