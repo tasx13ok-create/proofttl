@@ -98,11 +98,12 @@ check("voice test tracks current Whisper transcription contract", () => {
   });
   const body = await response.json();
 
-  check("voice transcription enables English conversational VAD", () => {
+  check("voice transcription is pinned to ProofTTL vocabulary with English VAD", () => {
     assert.equal(transcriptionOptions?.language, "en");
     assert.equal(transcriptionOptions?.vad_filter, true);
     assert.equal(transcriptionOptions?.condition_on_previous_text, false);
-    assert.match(transcriptionOptions?.initial_prompt || "", /can you hear me/i);
+    assert.match(transcriptionOptions?.initial_prompt || "", /ProofTTL Fact Audits/i);
+    assert.match(transcriptionOptions?.initial_prompt || "", /evidence/i);
   });
   check("deterministic navigation returns HTTP 200", () => assert.equal(response.status, 200));
   check("deterministic navigation skips text LLM", () => assert.equal(aiCalls, 1));
@@ -155,10 +156,11 @@ check("voice test tracks current Whisper transcription contract", () => {
     ASSISTANT_RATE_LIMITER: limiter()
   });
   const body = await response.json();
-  check("short ambiguous voice fragments never fall back to old ProofTTL capability list", () => {
+  check("ambiguous voice fragments fail into the ProofTTL-only capability boundary", () => {
     assert.equal(response.status, 200);
-    assert.match(body.response, /What about me|Finish the thought/i);
-    assert.doesNotMatch(body.response, /Fact Leases, the API, x402/i);
+    assert.match(body.response, /ProofTTL Fact Audits/i);
+    assert.match(body.response, /claims, evidence/i);
+    assert.doesNotMatch(body.response, /general-purpose|Studio|Files|Automations|Money/i);
   });
 }
 
