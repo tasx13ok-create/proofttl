@@ -1,5 +1,15 @@
 # ProofTTL 12-Day Execution Log
 
+## 2026-08-31 PROOFTTL-ONLY AI / GREEN COMMERCIAL CHECKPOINT
+
+- Rechecked the live sprint state instead of acting on retired website extensions. The current text assistant was still explicitly configured as a general-purpose AI, including coding, planning, ordinary-life questions, games, and unrelated conversation.
+- Rewired the text assistant boundary so obviously unrelated requests are rejected deterministically before model invocation and before daily AI quota is consumed. The allowed scope is ProofTTL verification and Fact Audit work: claim verification/decomposition, consequence ranking, source/evidence review, FOR/AGAINST analysis, contradiction checks, verdict/confidence reasoning, human-approval preparation, proof/report work, Fact Leases/TTL, monitoring, and reverification.
+- Added bounded ProofTTL-context inheritance for short follow-ups while explicit topic switches remain out of scope. Lease IDs still load authoritative stored Lease context; missing Lease fields are not invented.
+- Removed text-chat Tic-Tac-Toe/coding/general-purpose behavior from the production text path and replaced its regression suite with scope-boundary checks. Tests assert off-topic weather, travel, email, calendar, banking, coding, and game requests make zero model-provider calls and consume zero assistant quota.
+- While validating the branch, CI exposed two stale regression assertions unrelated to runtime behavior: the Stripe form test matched unescaped URL-encoded form keys, and the account-workspace invariant expected the pre-normalization email expression. Both tests were corrected to assert the actual canonical behavior rather than weakening runtime checks.
+- ProofTTL Code Checks are green at `9193c10481945ae338af9d5583c25c8be5463489`, including the commercial/account primitives, assistant text scope suite, remaining assistant/entitlement checks, regression suite, and Worker dry-run bundle validation.
+- Important remaining AI-scope work: voice and browser-client command routing still need the same narrow ProofTTL boundary before this can be described as end-to-end strict across every assistant surface.
+
 ## 2026-08-31 FLAGSHIP OFFER / PAYMENT CONTRACT CHECKPOINT
 
 - Inspected current sprint heads after the website hard reset; treated current repo/deployment state as authoritative and did not touch retired `/studio` surfaces.
@@ -8,7 +18,7 @@
 - Admin scoping now fails closed unless the amount is exactly $1,500 and the declared claim bucket is within 10-25. The legacy upgrade endpoint returns `410 offer_upgrade_retired` instead of creating a $371 balance.
 - Stripe checkout now fails closed unless scoped price, credit, and amount due resolve exactly to $1,500. Checkout metadata and line-item naming identify `ProofTTL Fact Audit`; paid webhooks reject non-$1,500 records and amount mismatches.
 - Open Stripe checkout reuse now validates intake identity and available amount metadata before reusing a session rather than trusting any open stored session URL.
-- Updated audit intake, sales-lifecycle, and Stripe regression tests for the canonical offer. New head after test updates: `9fa233e62a716d7192fe8a18ec2f6775c5aded87`. CI status had not populated at the time of this checkpoint, so this slice is not yet marked green.
+- Updated audit intake, sales-lifecycle, and Stripe regression tests for the canonical offer. Subsequent CI repair corrected stale test assertions without weakening runtime payment checks; the full staged code-check job is now green at the checkpoint above.
 
 ## 2026-08-31 MONITOR / REVERIFY RELIABILITY CHECKPOINT
 
@@ -34,8 +44,9 @@
 
 ## NEXT
 
-1. Get the canonical $1,500 intake/sales/Stripe slice green in CI; fix any regression before moving on.
-2. Select/implement a provenance-preserving source-discovery adapter with explicit request economics and primary-source preference.
-3. Route discovery/fetch/semantic/contradiction provider access only through the budgeted executor boundary.
-4. Persist execution denials/failures alongside the evidence ledger and signed verification context.
-5. Bind the final ledger + contradiction result + TTL policy into the Fact Lease path.
+1. Finish ProofTTL-only enforcement across voice and browser-client assistant routing; do not leave a general-purpose bypass beside the scoped text backend.
+2. Continue mobile/desktop parity checks on the canonical Fact Audit funnel and status/proof surfaces; fix concrete narrow-screen overflow and unreachable-control failures.
+3. Select/implement a provenance-preserving source-discovery adapter with explicit request economics and primary-source preference.
+4. Route discovery/fetch/semantic/contradiction provider access only through the budgeted executor boundary.
+5. Persist execution denials/failures alongside the evidence ledger and signed verification context.
+6. Bind the final ledger + contradiction result + TTL policy into the Fact Lease path.
