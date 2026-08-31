@@ -32,23 +32,29 @@ class FakeKV {
     this.listCalls.push(options);
     const prefix = options.prefix || "";
     const limit = options.limit || 1000;
-    const keys = [...this.entries.keys()]
-      .filter((name) => name.startsWith(prefix))
-      .slice(0, limit)
-      .map((name) => {
-        const raw = this.entries.get(name);
-        let metadata = null;
-        try {
-          const lease = JSON.parse(raw);
-          metadata = {
-            lease_state: lease.lease_state,
-            expires_at: lease.expires_at,
-            next_check_at: lease.next_check_at
-          };
-        } catch {}
-        return { name, metadata };
-      });
-    return { keys, list_complete: true };
+    const offset = options.cursor ? Number.parseInt(options.cursor, 10) || 0 : 0;
+    const names = [...this.entries.keys()].filter((name) => name.startsWith(prefix));
+    const page = names.slice(offset, offset + limit);
+    const keys = page.map((name) => {
+      const raw = this.entries.get(name);
+      let metadata = null;
+      try {
+        const lease = JSON.parse(raw);
+        metadata = {
+          lease_state: lease.lease_state,
+          expires_at: lease.expires_at,
+          next_check_at: lease.next_check_at
+        };
+      } catch {}
+      return { name, metadata };
+    });
+    const nextOffset = offset + page.length;
+    const listComplete = nextOffset >= names.length;
+    return {
+      keys,
+      list_complete: listComplete,
+      ...(listComplete ? {} : { cursor: String(nextOffset) })
+    };
   }
 }
 
@@ -122,16 +128,12 @@ async function run() {
   const kvFallback = new FakeKV();
   kvFallback.entries.set("lease:ftl_a1", JSON.stringify(makeLease("ftl_a1", base)));
 
-  const oddMinuteStore = createLeaseStoreBinding(kvFallback, null, {
-    monitorNow: base + 60_000
-  });
+  const oddMinuteStore = createLeaseStoreBinding(kvFallback, null, { monitorNow: base + 60_000 });
   const odd = await oddMinuteStore.list({ prefix: "lease:", limit: 1000 });
   assert(odd.keys.length === 0, "fallback skips KV list on odd scheduled minutes");
   assert(kvFallback.listCalls.length === 0, "odd-minute fallback consumes zero KV list calls");
 
-  const evenMinuteStore = createLeaseStoreBinding(kvFallback, null, {
-    monitorNow: base + 120_000
-  });
+  const evenMinuteStore = createLeaseStoreBinding(kvFallback, null, { monitorNow: base + 120_000 });
   const even = await evenMinuteStore.list({ prefix: "lease:", limit: 1000 });
   assert(even.keys.length === 1, "fallback lists leases every two minutes");
   assert(kvFallback.listCalls.length === 1, "two-minute fallback consumes one KV list call");
@@ -146,74 +148,47 @@ async function run() {
   assert(kvIndexed.listCalls.length === 0, "D1 monitor path does not list KV");
 
   const lease = makeLease("ftl_write", base);
-  await indexedStore.put(`lease:${lease.lease_id}`, JSON.stringify(lease), {
-    metadata: { lease_state: "ACTIVE" }
-  });
+  await indexedStore.put(`lease:${lease.lease_id}`, JSON.stringify(lease), { metadata: { lease_state: "ACTIVE" } });
   assert(kvIndexed.putCalls.length === 1, "lease write persists to KV");
-  assert(
-    db.runs.some((item) => item.sql.includes("INSERT INTO monitor_schedule")),
-    "lease write upserts D1 schedule index"
-  );
+  assert(db.runs.some((item) => item.sql.includes("INSERT INTO monitor_schedule")), "lease write upserts D1 schedule index");
 
   await indexedStore.get("lease:ftl_missing");
-  assert(
-    db.runs.some((item) => item.sql.includes("SET lease_state = 'MISSING'")),
-    "missing KV lease is marked inactive in D1"
-  );
+  assert(db.runs.some((item) => item.sql.includes("SET lease_state = 'MISSING'")), "missing KV lease is marked inactive in D1");
 
-  const signingPair = await crypto.subtle.generateKey(
-    { name: "Ed25519" },
-    true,
-    ["sign", "verify"]
-  );
+  const signingPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
   const signingPrivateJwk = await crypto.subtle.exportKey("jwk", signingPair.privateKey);
   const signingPublicJwk = await crypto.subtle.exportKey("jwk", signingPair.publicKey);
   const kvSigned = new FakeKV();
-  const signedStore = createLeaseStoreBinding(kvSigned, null, {
-    signingPrivateJwk,
-    signingKeyId: "proofttl-test-key"
-  });
+  const signedStore = createLeaseStoreBinding(kvSigned, null, { signingPrivateJwk, signingKeyId: "proofttl-test-key" });
   const signableLease = makeLease("ftl_signed", base);
   await signedStore.put(`lease:${signableLease.lease_id}`, JSON.stringify(signableLease));
   const storedSignedLease = JSON.parse(kvSigned.entries.get("lease:ftl_signed"));
   assert(storedSignedLease.signature?.algorithm === "Ed25519", "KV adapter persists Ed25519 signature envelope");
   assert(storedSignedLease.signature?.key_id === "proofttl-test-key", "stored signature preserves configured key ID");
-  assert(
-    await verifyLeaseIssuanceSignature(storedSignedLease, signingPublicJwk),
-    "stored Fact Lease signature verifies with public key"
-  );
+  assert(await verifyLeaseIssuanceSignature(storedSignedLease, signingPublicJwk), "stored Fact Lease signature verifies with public key");
 
   const shardChars = "0123456789abcdef";
-  const expectedShard = shardChars[
-    Math.floor(Math.floor(base / 60_000) / 5) % shardChars.length
-  ];
+  const expectedShard = shardChars[Math.floor(Math.floor(base / 60_000) / 5) % shardChars.length];
   const kvReconcile = new FakeKV();
-  kvReconcile.entries.set(
-    `lease:ftl_${expectedShard}abc`,
-    JSON.stringify(makeLease(`ftl_${expectedShard}abc`, base))
-  );
+  for (let index = 0; index < 1001; index += 1) {
+    const id = `ftl_${expectedShard}${String(index).padStart(4, "0")}`;
+    kvReconcile.entries.set(`lease:${id}`, JSON.stringify(makeLease(id, base)));
+  }
   const otherShard = expectedShard === "f" ? "0" : shardChars[shardChars.indexOf(expectedShard) + 1];
-  kvReconcile.entries.set(
-    `lease:ftl_${otherShard}abc`,
-    JSON.stringify(makeLease(`ftl_${otherShard}abc`, base))
-  );
-  const reconcileDb = new FakeD1();
-  const reconcile = await reconcileMonitorScheduleFromKv(
-    { LEASES: kvReconcile, MONITOR_DB: reconcileDb },
-    base
-  );
-  assert(reconcile.attempted === true, "five-minute boundary runs reconciliation");
-  assert(kvReconcile.listCalls.length === 1, "reconciliation uses one KV list call");
-  assert(
-    kvReconcile.listCalls[0].prefix === `lease:ftl_${expectedShard}`,
-    "reconciliation rotates through deterministic hex shards"
-  );
-  assert(reconcile.reconciled === 1, "reconciliation indexes the selected shard");
+  kvReconcile.entries.set(`lease:ftl_${otherShard}abc`, JSON.stringify(makeLease(`ftl_${otherShard}abc`, base)));
 
-  const skipped = await reconcileMonitorScheduleFromKv(
-    { LEASES: kvReconcile, MONITOR_DB: reconcileDb },
-    base + 60_000
-  );
+  const reconcileDb = new FakeD1();
+  const reconcile = await reconcileMonitorScheduleFromKv({ LEASES: kvReconcile, MONITOR_DB: reconcileDb }, base);
+  assert(reconcile.attempted === true, "five-minute boundary runs reconciliation");
+  assert(kvReconcile.listCalls.length === 2, "reconciliation paginates past the first 1,000 KV keys");
+  assert(kvReconcile.listCalls[0].prefix === `lease:ftl_${expectedShard}`, "reconciliation rotates through deterministic hex shards");
+  assert(kvReconcile.listCalls[1].cursor === "1000", "reconciliation forwards the KV cursor to the next page");
+  assert(reconcile.pages === 2, "reconciliation reports every KV page visited");
+  assert(reconcile.reconciled === 1001, "reconciliation indexes every selected-shard lease without 100-row truncation");
+  assert(reconcileDb.batches.length === 11, "D1 reconciliation remains chunked to batches of at most 100 statements");
+  assert(reconcileDb.batches.every((size) => size <= 100), "every D1 reconciliation batch respects the 100-row cap");
+
+  const skipped = await reconcileMonitorScheduleFromKv({ LEASES: kvReconcile, MONITOR_DB: reconcileDb }, base + 60_000);
   assert(skipped.attempted === false, "non-boundary minute skips reconciliation");
 
   console.log(`\nSUCCESS: ${passed} lease-store scheduler checks passed.`);
