@@ -52,6 +52,18 @@ export function buildLeaseVerificationContextAttestation(lease) {
   if (!lease.ttl_policy || typeof lease.ttl_policy !== "object") {
     throw new Error("lease_context_missing_ttl_policy");
   }
+  if (
+    lease.verification_outcome !== undefined &&
+    lease.verification_outcome !== null &&
+    (
+      typeof lease.verification_outcome !== "object" ||
+      lease.verification_outcome.version !== "proofttl-verification-outcome-v1" ||
+      !lease.verification_outcome.evidence_ledger ||
+      lease.verification_outcome.evidence_ledger.version !== "proofttl-evidence-ledger-v1"
+    )
+  ) {
+    throw new Error("lease_context_invalid_verification_outcome");
+  }
 
   return {
     attestation_version: VERIFICATION_CONTEXT_ATTESTATION_VERSION,
@@ -60,7 +72,8 @@ export function buildLeaseVerificationContextAttestation(lease) {
     issued_at: lease.issued_at || lease.observed_at,
     source_fingerprint: lease.source_fingerprint,
     claim_contract: lease.claim_contract,
-    ttl_policy: lease.ttl_policy
+    ttl_policy: lease.ttl_policy,
+    ...(lease.verification_outcome ? { verification_outcome: lease.verification_outcome } : {})
   };
 }
 
@@ -143,7 +156,12 @@ export async function verifyLeaseVerificationContextSignature(lease, publicJwkIn
   if (lease.verification_context_signature.algorithm !== "Ed25519") return false;
   if (lease.verification_context_signature.version !== VERIFICATION_CONTEXT_SIGNATURE_VERSION) return false;
 
-  const expectedAttestation = buildLeaseVerificationContextAttestation(lease);
+  let expectedAttestation;
+  try {
+    expectedAttestation = buildLeaseVerificationContextAttestation(lease);
+  } catch {
+    return false;
+  }
   return verifyStoredAttestation(
     expectedAttestation,
     lease.verification_context_attestation,
