@@ -1,5 +1,14 @@
 # ProofTTL 12-Day Execution Log
 
+## 2026-09-01 SIGNED VERIFICATION OUTCOME CHECKPOINT
+
+- Re-inspected both sprint branches before changing core. The web sprint head `d9ebb64a88c3ee0b0dc2b969b93c5b63cb8922e6` has a successful Vercel deployment whose postbuild guards passed the canonical $1,500 Fact Audit export, discovery identity, authenticated intake, auth/trust, public-sales-shell, and product invariants. No web code was changed in this slice because the load-bearing gap was in the verification trust boundary.
+- Found that the separate Ed25519 verification-context signature covered the immutable Claim Contract and TTL rationale, but an eventual `proofttl-verification-outcome-v1` could still carry the final FOR/AGAINST ledger, contradiction-pass state, budget denials, and execution failures outside that signed context.
+- Extended the existing verification-context attestation additively: when a verification outcome is present, it must be a valid `proofttl-verification-outcome-v1` containing a `proofttl-evidence-ledger-v1`, and the entire outcome is included in the signed context alongside the Claim Contract and TTL policy. Existing leases without an outcome preserve the previous context shape, so this does not rewrite legacy lease/signature semantics.
+- Verification now fails closed for malformed attached outcomes instead of throwing through the signature check. Regression coverage asserts that normal mutable monitoring state does not invalidate the signature, while tampering with the evidence-ledger verdict, adding a budget denial after signing, or replacing the outcome with a malformed object makes context verification fail.
+- Core sprint head after this code/test slice is `70bd17e60acff93822af4246e0a6e1188f7e4225`. The repository's last attached ProofTTL Code Checks run is still the prior green `2cfd9dcadd58aac0fab5c138b9c2c0bded77875f` snapshot; connector-authored commits did not trigger a new Actions run, and the execution sandbox could not reach GitHub directly to clone and run npm locally. This checkpoint therefore does **not** claim the new head is CI-green yet.
+- Important runtime boundary remains explicit: the current public single-source `/verify` path does not yet construct the multi-source evidence ledger / verification outcome. This change makes that outcome tamper-evident once orchestration attaches it; it does not claim automated multi-source verification is live.
+
 ## 2026-08-31 PUBLIC FACT AUDIT / RESPONSIVE CONTRACT CHECKPOINT
 
 - Rechecked the current web sprint branch after the hard reset and confirmed the user-reported FAQ defect was real current-branch state: the FAQ still advertised the retired $129 Claim Stress Test, $500 Full Verification Audit, and $371 upgrade path.
@@ -50,7 +59,7 @@
 
 ## CURRENT FLAGSHIP
 
-`INPUT -> CLAIM CONTRACTS -> TRIAGE -> EVIDENCE PLAN -> BUDGETED EVIDENCE EXECUTOR -> EVIDENCE FOR/AGAINST -> PROVISIONAL VERDICT -> CONTRADICTION PASS -> FINAL VERDICT -> TTL POLICY -> FACT LEASE -> MONITOR -> REVERIFY/HISTORY`
+`INPUT -> CLAIM CONTRACTS -> TRIAGE -> EVIDENCE PLAN -> BUDGETED EVIDENCE EXECUTOR -> EVIDENCE FOR/AGAINST -> PROVISIONAL VERDICT -> CONTRADICTION PASS -> FINAL VERDICT -> TTL POLICY -> SIGNED VERIFICATION OUTCOME -> FACT LEASE -> MONITOR -> REVERIFY/HISTORY`
 
 ## NEXT
 
@@ -58,5 +67,5 @@
 2. Continue mobile/desktop parity checks on the canonical Fact Audit funnel and status/proof surfaces; fix concrete narrow-screen overflow and unreachable-control failures.
 3. Select/implement a provenance-preserving source-discovery adapter with explicit request economics and primary-source preference.
 4. Route discovery/fetch/semantic/contradiction provider access only through the budgeted executor boundary.
-5. Persist execution denials/failures alongside the evidence ledger and signed verification context.
-6. Bind the final ledger + contradiction result + TTL policy into the Fact Lease path.
+5. Attach the real multi-source evidence ledger / verification outcome to lease issuance so the newly signed context is exercised by production orchestration rather than only by the trust primitive.
+6. Derive the effective TTL policy from the attached final outcome (confidence, contradiction count, accepted independent-source coverage) before Fact Lease issuance, while preserving existing lease compatibility and monitor semantics.
