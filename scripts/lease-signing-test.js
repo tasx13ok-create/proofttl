@@ -52,6 +52,36 @@ function sampleLease() {
       mode: "ADVISORY_V1",
       effective_ttl_seconds: 300,
       applied_to_lease: false
+    },
+    verification_outcome: {
+      version: "proofttl-verification-outcome-v1",
+      verdict: "SUPPORTED",
+      evidence_verdict: "SUPPORTED",
+      confidence: 0.91,
+      evidence_confidence: 0.91,
+      execution_status: "COMPLETE",
+      confidence_status: "REPORTABLE",
+      contradiction_pass: { required: true, completed: true },
+      budget_denials: [],
+      execution_failures: [],
+      evidence_ledger: {
+        version: "proofttl-evidence-ledger-v1",
+        verdict: "SUPPORTED",
+        confidence: 0.91,
+        metrics: {
+          support_strength: 0.95,
+          contradiction_strength: 0,
+          independent_support_groups: 1,
+          independent_contradiction_groups: 0,
+          accepted_count: 1,
+          rejected_count: 0,
+          ambiguous_count: 0
+        },
+        evidence_for: [{ source_url: "https://example.com/", stance: "FOR", quality_score: 0.95 }],
+        evidence_against: [],
+        ambiguous_evidence: [],
+        rejected_evidence: []
+      }
     }
   };
 }
@@ -77,6 +107,9 @@ async function run() {
   const context = buildLeaseVerificationContextAttestation(lease);
   assert(context.claim_contract.version === "proofttl-claim-contract-v1", "context attestation binds Claim Contract");
   assert(context.ttl_policy.mode === "ADVISORY_V1", "context attestation binds TTL rationale");
+  assert(context.verification_outcome.version === "proofttl-verification-outcome-v1", "context attestation binds final verification outcome");
+  assert(context.verification_outcome.evidence_ledger.version === "proofttl-evidence-ledger-v1", "context attestation binds FOR/AGAINST evidence ledger");
+  assert(context.verification_outcome.contradiction_pass.completed === true, "context attestation binds contradiction-pass completion");
 
   const canonicalA = canonicalizeJson({ z: 1, a: { y: 2, x: 3 } });
   const canonicalB = canonicalizeJson({ a: { x: 3, y: 2 }, z: 1 });
@@ -98,52 +131,40 @@ async function run() {
   assert(lease.signature?.key_id === "proofttl-test-key", "signature records key ID");
   assert(Boolean(lease.signature?.value), "signature contains base64url value");
   assert(Boolean(lease.verification_context_signature?.value), "verification context receives separate signature");
-  assert(
-    await verifyLeaseIssuanceSignature(lease, publicJwk),
-    "fresh lease signature verifies with public key"
-  );
-  assert(
-    await verifyLeaseVerificationContextSignature(lease, publicJwk),
-    "Claim Contract and TTL context verify with public key"
-  );
+  assert(await verifyLeaseIssuanceSignature(lease, publicJwk), "fresh lease signature verifies with public key");
+  assert(await verifyLeaseVerificationContextSignature(lease, publicJwk), "full verification context verifies with public key");
 
   lease.lease_state = "REVOKED";
   lease.current_status = "UNKNOWN";
   lease.verification_count = 4;
   lease.last_checked_at = "2026-08-18T07:02:00.000Z";
-  assert(
-    await verifyLeaseIssuanceSignature(lease, publicJwk),
-    "monitoring state changes do not invalidate issuance signature"
-  );
-  assert(
-    await verifyLeaseVerificationContextSignature(lease, publicJwk),
-    "monitoring state changes do not invalidate verification-context signature"
-  );
+  assert(await verifyLeaseIssuanceSignature(lease, publicJwk), "monitoring state changes do not invalidate issuance signature");
+  assert(await verifyLeaseVerificationContextSignature(lease, publicJwk), "monitoring state changes do not invalidate verification-context signature");
 
   const tamperedClaim = structuredClone(lease);
   tamperedClaim.claim = "Example.com is a production payments domain.";
-  assert(
-    !(await verifyLeaseIssuanceSignature(tamperedClaim, publicJwk)),
-    "tampering with signed claim invalidates signature"
-  );
+  assert(!(await verifyLeaseIssuanceSignature(tamperedClaim, publicJwk)), "tampering with signed claim invalidates signature");
 
   const tamperedFingerprint = structuredClone(lease);
   tamperedFingerprint.source_fingerprint = "sha256:deadbeef";
-  assert(
-    !(await verifyLeaseIssuanceSignature(tamperedFingerprint, publicJwk)),
-    "tampering with source fingerprint invalidates signature"
-  );
-  assert(
-    !(await verifyLeaseVerificationContextSignature(tamperedFingerprint, publicJwk)),
-    "tampering with context-bound source fingerprint invalidates context signature"
-  );
+  assert(!(await verifyLeaseIssuanceSignature(tamperedFingerprint, publicJwk)), "tampering with source fingerprint invalidates signature");
+  assert(!(await verifyLeaseVerificationContextSignature(tamperedFingerprint, publicJwk)), "tampering with context-bound source fingerprint invalidates context signature");
 
   const tamperedContext = structuredClone(lease);
   tamperedContext.ttl_policy.effective_ttl_seconds = 999999;
-  assert(
-    !(await verifyLeaseVerificationContextSignature(tamperedContext, publicJwk)),
-    "tampering with TTL rationale invalidates context signature"
-  );
+  assert(!(await verifyLeaseVerificationContextSignature(tamperedContext, publicJwk)), "tampering with TTL rationale invalidates context signature");
+
+  const tamperedLedger = structuredClone(lease);
+  tamperedLedger.verification_outcome.evidence_ledger.verdict = "UNKNOWN";
+  assert(!(await verifyLeaseVerificationContextSignature(tamperedLedger, publicJwk)), "tampering with evidence ledger invalidates context signature");
+
+  const tamperedExecution = structuredClone(lease);
+  tamperedExecution.verification_outcome.budget_denials.push({ code: "CALL_LIMIT", kind: "semantic", idempotency_key: "late-edit" });
+  assert(!(await verifyLeaseVerificationContextSignature(tamperedExecution, publicJwk)), "tampering with execution denials invalidates context signature");
+
+  const malformedOutcome = structuredClone(lease);
+  malformedOutcome.verification_outcome = { version: "wrong" };
+  assert(!(await verifyLeaseVerificationContextSignature(malformedOutcome, publicJwk)), "malformed verification outcome fails closed during context verification");
 
   const advertised = publicSigningJwk(privateJwk, "proofttl-test-key");
   assert(advertised.kty === "OKP" && advertised.crv === "Ed25519", "public discovery key is Ed25519 OKP");
