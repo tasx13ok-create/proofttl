@@ -6,6 +6,7 @@ import {
 } from "./monitor-schedule.js";
 import { buildClaimContract } from "./claim-contract.js";
 import { deriveTtlPolicy } from "./ttl-policy.js";
+import { attachDerivedVerificationOutcome } from "./verification-context.js";
 import {
   attachLeaseIssuanceSignature,
   attachLeaseVerificationContextSignature
@@ -199,13 +200,32 @@ export function attachImmutableVerificationContext(lease) {
     }
   }
 
+  if (!lease.verification_outcome && lease.claim_contract) {
+    try {
+      attachDerivedVerificationOutcome(lease);
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "lease_verification_outcome_build_failed",
+        lease_id: lease.lease_id,
+        error: error?.message || String(error)
+      }));
+    }
+  }
+
   if (!lease.ttl_policy && lease.claim_contract) {
     try {
+      const outcomeLedger = lease.verification_outcome?.evidence_ledger;
       const recommendation = deriveTtlPolicy({
         claimContract: lease.claim_contract,
-        confidence: Number.isFinite(Number(lease.confidence)) ? Number(lease.confidence) : null,
-        contradictionCount: 0,
-        sourceCount: 1,
+        confidence: Number.isFinite(Number(lease.verification_outcome?.confidence))
+          ? Number(lease.verification_outcome.confidence)
+          : Number.isFinite(Number(lease.confidence))
+            ? Number(lease.confidence)
+            : null,
+        contradictionCount: Array.isArray(outcomeLedger?.evidence_against)
+          ? outcomeLedger.evidence_against.length
+          : 0,
+        sourceCount: outcomeLedger?.metrics?.accepted_count || 1,
         requestedTtlSeconds: null
       });
       const effectiveTtl = Number(lease.ttl_seconds);
