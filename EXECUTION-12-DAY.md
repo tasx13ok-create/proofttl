@@ -1,5 +1,16 @@
 # ProofTTL 12-Day Execution Log
 
+## 2026-09-02 FAIL-CLOSED ISSUANCE OUTCOME CHECKPOINT
+
+- Re-inspected both launch branches before changing core. `proofttl-web/10xeffort-12-day-sprint` was a strict ancestor of `main` with no unique sprint commits and was 156 commits behind, so it was safely fast-forwarded (no force) from `d9ebb64a88c3ee0b0dc2b969b93c5b63cb8922e6` to current main `95bfab59fafc88b2077d1759c16676e26f8f8a75`. The resulting sprint preview deployment `dpl_CkoYvrWEP25qUnNsFvKdGTREjKcE` is READY and its postbuild guards passed the flagship Fact Audit export, authenticated intake, discovery identity, 42 product invariants, public-sales-shell/internal-link checks, mobile regression checks, and the quarantined Reality Engine invariants.
+- Core sprint and main have diverged, so core was deliberately not reset or fast-forwarded. Preserving the sprint-only verification primitives is safer than replacing them with unrelated mainline changes.
+- Wired the existing Claim Contract, triage/evidence-plan, evidence-quality ledger, and verification-outcome primitives into lease issuance through `src/verification-context.js` and `attachImmutableVerificationContext`. A newly issued single-source lease now gets a structured `proofttl-verification-outcome-v1` with a `proofttl-evidence-ledger-v1`, triage, evidence plan, and explicit `CALLER_PROVIDED_SOURCE` provenance before the verification context is signed.
+- Closed the most important correctness hole without pretending multi-source retrieval exists: a caller-provided source is evidence for/against the proposition, but it does **not** count as an adversarial contradiction pass. If triage requires that pass (for example high-assurance/high-consequence claims), the final outcome fails closed to `UNKNOWN`, confidence is withheld in the outcome, the original one-source semantic verdict is preserved separately as `source_verdict`, and the public lease status is aligned to the conservative final outcome.
+- TTL policy remains explicitly `ADVISORY_V1`, but its recommendation now consumes the attached outcome when available: final outcome confidence, accepted evidence count, and contradiction count replace the previous hard-coded one-source/zero-contradiction inputs. This advances VERDICT -> TTL without claiming TTL enforcement that does not exist.
+- Added integration coverage for outcome attachment, high-assurance fail-closed behavior, provenance, and idempotency. Also fixed the CI trigger so pushes to `10xeffort-12-day-sprint` actually execute the complete ProofTTL Code Checks suite instead of leaving connector-authored sprint commits unvalidated.
+- Full core code checks are green at `f86ddde88f330a685469b29df6c1b248bf20d89c` (Actions run `33632827629`), including the new verification-context test, existing security/limits/economics/lease/signing/evidence/claim tests, commercial/account/auth/payment suites, regression/release checks, and Worker dry-run bundle validation.
+- Remaining runtime boundary is still explicit: public `/verify` has not yet executed source discovery plus multi-source fetch/semantic/contradiction actions through the budgeted evidence executor. This checkpoint makes the current single-source path structurally honest and fail-closed; it does not claim automated multi-source verification is live.
+
 ## 2026-09-01 SIGNED VERIFICATION OUTCOME CHECKPOINT
 
 - Re-inspected both sprint branches before changing core. The web sprint head `d9ebb64a88c3ee0b0dc2b969b93c5b63cb8922e6` has a successful Vercel deployment whose postbuild guards passed the canonical $1,500 Fact Audit export, discovery identity, authenticated intake, auth/trust, public-sales-shell, and product invariants. No web code was changed in this slice because the load-bearing gap was in the verification trust boundary.
@@ -63,9 +74,9 @@
 
 ## NEXT
 
-1. Finish ProofTTL-only enforcement across voice and browser-client assistant routing; do not leave a general-purpose bypass beside the scoped text backend.
-2. Continue mobile/desktop parity checks on the canonical Fact Audit funnel and status/proof surfaces; fix concrete narrow-screen overflow and unreachable-control failures.
-3. Select/implement a provenance-preserving source-discovery adapter with explicit request economics and primary-source preference.
-4. Route discovery/fetch/semantic/contradiction provider access only through the budgeted executor boundary.
-5. Attach the real multi-source evidence ledger / verification outcome to lease issuance so the newly signed context is exercised by production orchestration rather than only by the trust primitive.
-6. Derive the effective TTL policy from the attached final outcome (confidence, contradiction count, accepted independent-source coverage) before Fact Lease issuance, while preserving existing lease compatibility and monitor semantics.
+1. Select/implement a provenance-preserving source-discovery adapter with explicit request economics and primary-source preference; do not claim multi-source verification until this executes in `/verify`.
+2. Route discovery/fetch/semantic/contradiction provider access only through the budgeted executor boundary and persist budget denials/failures into the signed outcome.
+3. Replace the current fail-closed incomplete contradiction pass with a completed contradiction pass only when independent counterevidence retrieval has actually executed.
+4. Carry attached outcome/ledger semantics through MONITOR -> REVERIFY so source changes re-run the same evidence standard rather than only the legacy single-source semantic check.
+5. Finish ProofTTL-only enforcement across voice and browser-client assistant routing; do not leave a general-purpose bypass beside the scoped text backend.
+6. Continue mobile/desktop parity checks on the canonical Fact Audit funnel and status/proof surfaces only when they expose a concrete functional or accessibility blocker.
