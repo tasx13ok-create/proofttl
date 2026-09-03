@@ -45,9 +45,15 @@ export function attachDerivedVerificationOutcome(lease) {
   lease.verification_outcome = outcome;
   lease.source_verdict = sourceVerdict;
 
-  // Keep the public lease verdict aligned with the signed final outcome. The
-  // original single-source semantic result remains preserved above for audit.
+  // Keep every public issuance-status alias aligned with the signed final
+  // outcome. The paid /verify response derives issued_status/current_status
+  // before this immutable context is attached, so only changing lease.status
+  // could otherwise leak a stale single-source SUPPORTED value beside a final
+  // fail-closed UNKNOWN verdict. The original one-source result remains in
+  // source_verdict for auditability.
   lease.status = outcome.verdict;
+  lease.issued_status = outcome.verdict;
+  lease.current_status = outcome.verdict;
   lease.confidence = Number.isFinite(Number(outcome.confidence))
     ? Number(outcome.confidence)
     : 0;
