@@ -41,6 +41,9 @@ check("ordinary single-source claim gets a structured signed-context outcome can
   assert.equal(lease.verification_outcome.source_verdict.status, "SUPPORTED");
   assert.equal(lease.verification_outcome.input_source.provenance, "CALLER_PROVIDED_SOURCE");
   assert.equal(lease.ttl_policy.mode, "ADVISORY_V1");
+  assert.equal(lease.status, lease.verification_outcome.verdict);
+  assert.equal(lease.issued_status, lease.verification_outcome.verdict);
+  assert.equal(lease.current_status, lease.verification_outcome.verdict);
 });
 
 check("high-assurance claim fails closed until contradiction pass actually runs", () => {
@@ -60,8 +63,28 @@ check("high-assurance claim fails closed until contradiction pass actually runs"
   assert.equal(lease.verification_outcome.confidence, null);
   assert.equal(lease.source_verdict.status, "SUPPORTED");
   assert.equal(lease.status, "UNKNOWN");
+  assert.equal(lease.issued_status, "UNKNOWN");
+  assert.equal(lease.current_status, "UNKNOWN");
   assert.equal(lease.confidence, 0);
   assert.equal(lease.proof_basis, "EVIDENCE_LEDGER");
+});
+
+check("pre-existing response status aliases cannot preserve a stale one-source verdict", () => {
+  const lease = baseLease({
+    claim: "Acme is SOC 2 certified and costs $99 per month",
+    evidence: "Acme is SOC 2 certified and costs $99 per month",
+    source_fingerprint: "sha256:aliasguard",
+    issued_status: "SUPPORTED",
+    current_status: "SUPPORTED"
+  });
+
+  attachImmutableVerificationContext(lease);
+
+  assert.equal(lease.source_verdict.status, "SUPPORTED");
+  assert.equal(lease.verification_outcome.verdict, "UNKNOWN");
+  assert.equal(lease.status, "UNKNOWN");
+  assert.equal(lease.issued_status, "UNKNOWN");
+  assert.equal(lease.current_status, "UNKNOWN");
 });
 
 check("context enrichment is idempotent and does not rewrite the original source verdict", () => {
@@ -73,10 +96,14 @@ check("context enrichment is idempotent and does not rewrite the original source
 
   attachImmutableVerificationContext(lease);
   const first = JSON.stringify(lease.verification_outcome);
+  const issued = lease.issued_status;
+  const current = lease.current_status;
   attachImmutableVerificationContext(lease);
 
   assert.equal(JSON.stringify(lease.verification_outcome), first);
   assert.equal(lease.source_verdict.status, "SUPPORTED");
+  assert.equal(lease.issued_status, issued);
+  assert.equal(lease.current_status, current);
 });
 
 console.log(`SUCCESS: ${checks} verification-context integration checks passed.`);
