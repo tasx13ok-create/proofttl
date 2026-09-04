@@ -48,6 +48,7 @@ export function assessEvidence(input = {}, context = {}) {
           : 0.55;
 
   const qualityScore = clamp01((weighted - conflictPenalty) * entailmentMultiplier);
+  const accepted = traceableSource && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
 
   return {
     version: "proofttl-evidence-quality-v1",
@@ -61,12 +62,12 @@ export function assessEvidence(input = {}, context = {}) {
     stance,
     entailment,
     quality_score: round3(qualityScore),
-    accepted: traceableSource && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT",
+    accepted,
     components: mapRound3(components),
     conflict_of_interest: Boolean(input.conflict_of_interest),
     underlying_source_id: cleanText(input.underlying_source_id, 200),
     provenance: input.provenance && typeof input.provenance === "object" ? input.provenance : null,
-    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence })
+    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, accepted })
   };
 }
 
@@ -216,7 +217,7 @@ function normalizeStance(value, entailment) {
   return "AMBIGUOUS";
 }
 
-function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence }) {
+function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, accepted }) {
   return [
     `SOURCE_${sourceType}`,
     `ENTAILMENT_${entailment}`,
@@ -227,7 +228,8 @@ function evidenceReasons({ sourceType, entailment, freshness, independence, conf
     freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS",
     independence < 0.5 ? "LOW_INDEPENDENCE" : "INDEPENDENT_OR_NEUTRAL",
     ...(conflict ? ["DISCLOSED_SOURCE_CONFLICT"] : []),
-    qualityScore < 0.45 ? "REJECTED_LOW_COMPOSITE_QUALITY" : "ACCEPTED_FOR_LEDGER"
+    qualityScore < 0.45 ? "REJECTED_LOW_COMPOSITE_QUALITY" : "COMPOSITE_QUALITY_PASSED",
+    accepted ? "ACCEPTED_FOR_LEDGER" : "REJECTED_FROM_LEDGER"
   ];
 }
 
