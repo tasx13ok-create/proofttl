@@ -1,4 +1,5 @@
 import core from "../src/index.js";
+import { attachImmutableVerificationContext } from "../src/lease-store.js";
 
 let passed = 0;
 
@@ -266,6 +267,47 @@ async function testChangedExactEvidenceRevokes() {
   assert(summary.errors === 0, "revocation monitor path completes without errors");
 }
 
+async function testChangedHighAssuranceSourceUsesFinalOutcomeStandard() {
+  const now = Date.now();
+  const kv = new MemoryKV();
+  const claim = "Acme is SOC 2 certified and costs $99 per month";
+  const originalSource = `Primary record: ${claim}.`;
+  const changedSource = `Updated primary record: ${claim}. Additional wording changed.`;
+  const lease = await makeLease({
+    id: "ftl_regression_high_assurance_changed",
+    nowMs: now,
+    claim,
+    sourceText: originalSource
+  });
+
+  attachImmutableVerificationContext(lease);
+  assert(lease.status === "UNKNOWN", "high-assurance issuance is fail-closed before contradiction retrieval");
+  assert(lease.source_verdict?.status === "SUPPORTED", "high-assurance issuance preserves the provisional source verdict");
+  await seedLease(kv, lease);
+
+  await withMockFetch(
+    async () => new Response(changedSource, {
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" }
+    }),
+    async () => runScheduled({ LEASES: kv }, now)
+  );
+
+  const stored = await readLease(kv, lease.lease_id);
+  assert(stored.lease_state === "ACTIVE", "changed high-assurance source does not spuriously revoke UNKNOWN issuance on provisional support");
+  assert(stored.last_check?.result === "SOURCE_CHANGED_STILL_CONSISTENT", "changed high-assurance source is compared at the final outcome standard");
+  assert(stored.last_check?.status === "UNKNOWN", "monitor check preserves fail-closed UNKNOWN final status");
+  assert(stored.last_check?.source_verdict?.status === "SUPPORTED", "monitor check retains changed-source provisional support for auditability");
+  assert(stored.last_check?.verification_outcome?.execution_status === "CONTRADICTION_PASS_INCOMPLETE", "monitor check records why final status remains UNKNOWN");
+  assert(stored.current_status === "UNKNOWN", "lease current_status stays aligned with the normalized monitor outcome");
+  assert(Date.parse(stored.next_check_at) > now, "non-revoked high-assurance lease remains scheduled for monitoring");
+
+  const summary = JSON.parse(await kv.get("monitor:last_run"));
+  assert(summary.checked === 1, "monitor summary counts the normalized high-assurance check");
+  assert(summary.revoked === 0, "monitor summary does not count a false high-assurance revocation");
+  assert(summary.errors === 0, "high-assurance changed-source monitor path completes without errors");
+}
+
 async function testHistoryIsCapped() {
   const now = Date.now();
   const kv = new MemoryKV();
@@ -311,6 +353,7 @@ async function run() {
   await testRevokedLeaseStaysRevokedAfterExpiry();
   await testUnchangedSourceMonitorPath();
   await testChangedExactEvidenceRevokes();
+  await testChangedHighAssuranceSourceUsesFinalOutcomeStandard();
   await testHistoryIsCapped();
 
   console.log(`\nSUCCESS: ${passed} ProofTTL lease lifecycle regression checks passed.`);
