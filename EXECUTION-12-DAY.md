@@ -1,5 +1,15 @@
 # ProofTTL 12-Day Execution Log
 
+## 2026-09-04 MONITOR VERDICT-STANDARD COHERENCE CHECKPOINT
+
+- Closed the changed-source monitor correctness boundary identified in the prior checkpoint. Scheduled reverification no longer compares a provisional one-source verdict directly against the signed/final issuance status. Changed-source evidence is now normalized through the existing Claim Contract -> triage -> evidence plan -> evidence ledger -> verification outcome path before any status-change or revocation decision.
+- This specifically prevents a false revocation class for high-assurance leases: an issuance that correctly failed closed to `UNKNOWN` because a required contradiction pass has not executed will no longer be treated as changed merely because the refreshed caller source provisionally returns `SUPPORTED`. The refreshed source result remains separately inspectable as `source_verdict`, while the monitor check uses the same final fail-closed standard as issuance.
+- Monitor checks and revocation records now retain the changed-source `source_verdict` plus the derived `verification_outcome` when available, so operators can distinguish source-level entailment from the final execution-aware verdict. `current_status` is updated from the normalized outcome rather than the provisional source result.
+- Added helper-level coverage for both changed-source `SUPPORTED` and `CONTRADICTED` high-assurance evidence, plus an end-to-end scheduled-monitor regression proving a changed high-assurance source remains ACTIVE, records `SOURCE_CHANGED_STILL_CONSISTENT`, stays final `UNKNOWN`, preserves provisional `SUPPORTED` for auditability, and remains scheduled instead of being spuriously revoked.
+- Full `ProofTTL Code Checks` are green at `b804fd154bc750d48434674e7ed7d43d0391d3ca` (Actions run `33881677705`). Core verification-context coverage, the lifecycle regression suite, signing/event invariants, commercial/account/assistant/auth/payment/research/release suites, and the Wrangler Worker dry-run bundle all passed.
+- Rechecked the web sprint branch after the core change: `proofttl-web/10xeffort-12-day-sprint` remains identical to web `main` at `ce43f9eb4000048547e3451aac836c68da0678dd`. No visual/code churn was introduced without a concrete web defect.
+- Important boundary remains explicit: this fixes MONITOR -> REVERIFY verdict-standard coherence. It does **not** claim that automated independent source discovery or the required adversarial contradiction retrieval pass is live. High-assurance outcomes still correctly fail closed until that work actually executes.
+
 ## 2026-09-04 DEPLOY-GATE / MONITOR STANDARD CHECKPOINT
 
 - Re-inspected both launch branches before changing code. `proofttl-web/10xeffort-12-day-sprint` is identical to web `main` at `ce43f9eb4000048547e3451aac836c68da0678dd`, so no web merge or cosmetic churn was justified. Core remains intentionally diverged from `main`; the sprint-only verification primitives must not be discarded by a reset or blind fast-forward.
@@ -94,6 +104,6 @@
 1. Select/implement a provenance-preserving source-discovery adapter with explicit request economics and primary-source preference; do not claim multi-source verification until this executes in `/verify`.
 2. Route discovery/fetch/semantic/contradiction provider access only through the budgeted executor boundary and persist budget denials/failures into the signed outcome.
 3. Replace the current fail-closed incomplete contradiction pass with a completed contradiction pass only when independent counterevidence retrieval has actually executed.
-4. Carry attached outcome/ledger semantics through MONITOR -> REVERIFY so source changes re-run the same evidence standard rather than only the legacy single-source semantic check.
+4. Extend the normalized MONITOR -> REVERIFY path from current caller-source evidence into the eventual independent evidence/contradiction execution path; preserve provisional source results separately from final outcomes.
 5. Finish ProofTTL-only enforcement across voice and browser-client assistant routing; do not leave a general-purpose bypass beside the scoped text backend.
 6. Continue mobile/desktop parity checks on the canonical Fact Audit funnel and status/proof surfaces only when they expose a concrete functional or accessibility blocker.
