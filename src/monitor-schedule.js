@@ -70,6 +70,11 @@ export async function reconcileMonitorScheduleBatch(db, keys, updatedAtMs = Date
 export async function listDueLeaseIds(db, nowMs = Date.now(), limit = DEFAULT_DUE_LIMIT) {
   if (!db) return [];
   const safeNow = Number.isFinite(nowMs) ? Math.trunc(nowMs) : Date.now();
+  // This is a hard safety ceiling, not merely a caller preference. The core
+  // monitor historically capped successful checks at 10, which meant a run of
+  // failing reverifications could request far more due leases and create an
+  // unbounded fetch/error burst. Keep the scheduler itself bounded so failures
+  // consume the same per-run work envelope as successes.
   const safeLimit = normalizeLimit(limit);
 
   const result = await db
@@ -141,5 +146,5 @@ function upsertStatement(db, row) {
 function normalizeLimit(value) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_DUE_LIMIT;
-  return Math.min(parsed, 100);
+  return Math.min(parsed, DEFAULT_DUE_LIMIT);
 }
