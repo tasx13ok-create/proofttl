@@ -11,6 +11,7 @@ function check(name, fn) {
 }
 
 const now = Date.parse("2026-08-29T12:00:00Z");
+const excerpt = (text = "verbatim fixture excerpt") => ({ evidence_excerpt: text });
 
 check("opinion is skipped instead of wasting verification work", () => {
   assert.deepEqual(classifyFragment("I think this product is amazing."), { verifiable: false, reason: "OPINION" });
@@ -53,7 +54,8 @@ check("primary direct evidence receives a strong explainable score", () => {
     stance: "FOR",
     authority_score: 0.95,
     independence_score: 0.65,
-    reputation_score: 0.9
+    reputation_score: 0.9,
+    provenance: excerpt("Acme supports the stated security capability.")
   }, { volatility: "HIGH" });
   assert.equal(evidence.accepted, true);
   assert.ok(evidence.quality_score > 0.7);
@@ -70,7 +72,8 @@ check("high-scoring evidence without a traceable HTTP source is rejected", () =>
     directness_score: 1,
     specificity_score: 1,
     independence_score: 1,
-    reputation_score: 1
+    reputation_score: 1,
+    provenance: excerpt()
   });
   assert.equal(evidence.quality_score > 0.7, true);
   assert.equal(evidence.accepted, false);
@@ -88,7 +91,8 @@ check("untraceable evidence cannot manufacture a definitive ledger verdict", () 
     directness_score: 1,
     specificity_score: 1,
     independence_score: 1,
-    reputation_score: 1
+    reputation_score: 1,
+    provenance: excerpt()
   }]);
   assert.equal(ledger.verdict, "UNKNOWN");
   assert.equal(ledger.metrics.accepted_count, 0);
@@ -101,13 +105,15 @@ check("old evidence is penalized more aggressively for volatile claims", () => {
     source_url: "https://example.com/old",
     published_at: "2024-08-29T00:00:00Z",
     observed_at: "2026-08-29T12:00:00Z",
-    entailment: "FULL_SUPPORT"
+    entailment: "FULL_SUPPORT",
+    provenance: excerpt()
   }, { volatility: "HIGH" });
   const low = assessEvidence({
     source_url: "https://example.com/old",
     published_at: "2024-08-29T00:00:00Z",
     observed_at: "2026-08-29T12:00:00Z",
-    entailment: "FULL_SUPPORT"
+    entailment: "FULL_SUPPORT",
+    provenance: excerpt()
   }, { volatility: "LOW" });
   assert.ok(high.components.freshness < low.components.freshness);
 });
@@ -123,7 +129,8 @@ check("mirrors of the same underlying report do not count as independent corrobo
       directness_score: 0.9,
       specificity_score: 0.9,
       independence_score: 0.9,
-      reputation_score: 0.9
+      reputation_score: 0.9,
+      provenance: excerpt("Report 42 supports the claim.")
     },
     {
       source_url: "https://news-b.example/copied-report",
@@ -134,7 +141,8 @@ check("mirrors of the same underlying report do not count as independent corrobo
       directness_score: 0.85,
       specificity_score: 0.85,
       independence_score: 0.8,
-      reputation_score: 0.8
+      reputation_score: 0.8,
+      provenance: excerpt("Report 42 supports the claim.")
     }
   ]);
   assert.equal(ledger.evidence_for.length, 1);
@@ -152,7 +160,8 @@ check("strong contradiction can produce CONTRADICTED without decorative confiden
       directness_score: 0.98,
       specificity_score: 0.98,
       independence_score: 0.8,
-      reputation_score: 0.95
+      reputation_score: 0.95,
+      provenance: excerpt("The current price is $199 per month.")
     }
   ]);
   assert.equal(ledger.verdict, "CONTRADICTED");
@@ -170,7 +179,8 @@ check("mixed high-quality evidence remains UNKNOWN instead of manufacturing cert
       directness_score: 0.95,
       specificity_score: 0.95,
       independence_score: 0.9,
-      reputation_score: 0.9
+      reputation_score: 0.9,
+      provenance: excerpt("Primary source A supports the claim.")
     },
     {
       source_url: "https://primary-b.example/source",
@@ -181,7 +191,8 @@ check("mixed high-quality evidence remains UNKNOWN instead of manufacturing cert
       directness_score: 0.95,
       specificity_score: 0.95,
       independence_score: 0.9,
-      reputation_score: 0.9
+      reputation_score: 0.9,
+      provenance: excerpt("Primary source B contradicts the claim.")
     }
   ]);
   assert.equal(ledger.verdict, "UNKNOWN");
@@ -201,7 +212,8 @@ check("budget truncation withholds a definitive final verdict while preserving t
     directness_score: 0.98,
     specificity_score: 0.98,
     independence_score: 0.9,
-    reputation_score: 0.95
+    reputation_score: 0.95,
+    provenance: excerpt("Acme was founded in 2018.")
   }]);
   assert.equal(ledger.verdict, "SUPPORTED");
   const outcome = finalizeVerificationOutcome({
@@ -233,7 +245,8 @@ check("provider execution failure withholds a definitive final verdict while pre
     directness_score: 0.98,
     specificity_score: 0.98,
     independence_score: 0.9,
-    reputation_score: 0.95
+    reputation_score: 0.95,
+    provenance: excerpt("The current price is $199 per month.")
   }]);
   assert.equal(ledger.verdict, "CONTRADICTED");
   const outcome = finalizeVerificationOutcome({
