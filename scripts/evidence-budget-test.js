@@ -158,7 +158,7 @@ const ledger = {
   rejected_evidence: []
 };
 
-await check("budget truncation withholds overall confidence", () => {
+await check("budget truncation withholds overall confidence and final verdict", () => {
   const outcome = finalizeVerificationOutcome({
     evidence_ledger: ledger,
     execution: {
@@ -170,7 +170,8 @@ await check("budget truncation withholds overall confidence", () => {
       }]
     }
   });
-  assert.equal(outcome.verdict, "SUPPORTED");
+  assert.equal(outcome.evidence_verdict, "SUPPORTED");
+  assert.equal(outcome.verdict, "UNKNOWN");
   assert.equal(outcome.confidence, null);
   assert.equal(outcome.evidence_confidence, 0.91);
   assert.equal(outcome.execution_status, "BUDGET_TRUNCATED");
