@@ -1,5 +1,6 @@
 import {
   attemptReserveEvidenceAction,
+  closeEvidenceBudget,
   createEvidenceBudgetState,
   getEvidenceReservation,
   settleEvidenceActionConservatively
@@ -44,16 +45,9 @@ export function createEvidenceExecutor({ execution_budget, providers = {}, emit 
       return { status: "FAILED", denial: null, reservation, value: null, error_code: "evidence_provider_unavailable" };
     }
 
+    let result;
     try {
-      const result = await provider(Object.freeze({ grant: attempt.grant, request: action.request ?? null }));
-      state = settleEvidenceActionConservatively(state, {
-        idempotency_key: attempt.grant.idempotency_key,
-        actual_cost_usd: result?.actual_cost_usd,
-        outcome: "COMPLETED"
-      });
-      const reservation = getEvidenceReservation(state, attempt.grant.idempotency_key);
-      emitEvent({ version: EXECUTOR_VERSION, type: "EVIDENCE_ACTION_SETTLED", reservation });
-      return { status: "COMPLETED", denial: null, reservation, value: result?.value ?? null };
+      result = await provider(Object.freeze({ grant: attempt.grant, request: action.request ?? null }));
     } catch (error) {
       state = settleEvidenceActionConservatively(state, {
         idempotency_key: attempt.grant.idempotency_key,
@@ -75,6 +69,50 @@ export function createEvidenceExecutor({ execution_budget, providers = {}, emit 
         error_code: cleanErrorCode(error)
       };
     }
+
+    const providerCost = finiteOptionalCost(result?.actual_cost_usd);
+    if (result?.actual_cost_usd != null && providerCost == null) {
+      return failClosedSettlement(attempt.grant, "evidence_provider_actual_cost_invalid");
+    }
+    if (providerCost != null && providerCost > attempt.grant.reserved_cost_usd) {
+      return failClosedSettlement(attempt.grant, "evidence_provider_actual_cost_exceeds_reservation");
+    }
+
+    state = settleEvidenceActionConservatively(state, {
+      idempotency_key: attempt.grant.idempotency_key,
+      actual_cost_usd: providerCost,
+      outcome: "COMPLETED"
+    });
+    const reservation = getEvidenceReservation(state, attempt.grant.idempotency_key);
+    emitEvent({ version: EXECUTOR_VERSION, type: "EVIDENCE_ACTION_SETTLED", reservation });
+    return { status: "COMPLETED", denial: null, reservation, value: result?.value ?? null };
+  }
+
+  function failClosedSettlement(grant, errorCode) {
+    state = settleEvidenceActionConservatively(state, {
+      idempotency_key: grant.idempotency_key,
+      outcome: "PROVIDER_ACCOUNTING_INVALID"
+    });
+    state = closeEvidenceBudget(state, errorCode);
+    const reservation = getEvidenceReservation(state, grant.idempotency_key);
+    emitEvent({
+      version: EXECUTOR_VERSION,
+      type: "EVIDENCE_ACTION_SETTLED",
+      reservation,
+      error_code: errorCode
+    });
+    emitEvent({
+      version: EXECUTOR_VERSION,
+      type: "EVIDENCE_BUDGET_CLOSED",
+      reason: errorCode
+    });
+    return {
+      status: "FAILED",
+      denial: null,
+      reservation,
+      value: null,
+      error_code: errorCode
+    };
   }
 
   return Object.freeze({ version: EXECUTOR_VERSION, run, snapshot: () => state });
