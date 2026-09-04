@@ -1,4 +1,5 @@
 import core from "../src/index.js";
+import { listDueLeaseIds } from "../src/monitor-schedule.js";
 
 let passed = 0;
 
@@ -32,6 +33,26 @@ class CountingKV {
       .slice(0, limit)
       .map(([name, entry]) => ({ name, metadata: entry.metadata }));
     return { keys, list_complete: true };
+  }
+}
+
+class CapturingDb {
+  constructor() {
+    this.bound = null;
+  }
+
+  prepare() {
+    return {
+      bind: (...args) => {
+        this.bound = args;
+        return {
+          run: async () => ({
+            results: Array.from({ length: 25 }, (_, index) => ({ lease_id: `ftl_${index}` }))
+              .slice(0, args[1])
+          })
+        };
+      }
+    };
   }
 }
 
@@ -78,6 +99,11 @@ async function run() {
   const projectedIdleWritesPerDay = (24 * 60) / 5;
   assert(projectedIdleWritesPerDay === 288, "idle monitor status budget is 288 KV writes/day");
   assert(projectedIdleWritesPerDay < 1000, "idle monitor status budget stays below the current Free KV daily write allowance");
+
+  const db = new CapturingDb();
+  const due = await listDueLeaseIds(db, fiveMinuteBoundary, 1000);
+  assert(db.bound?.[1] === 10, "D1 due-query hard-caps an oversized caller limit at 10 leases");
+  assert(due.length === 10, "monitor scheduler returns at most 10 due leases even when many are available");
 
   console.log(`\nSUCCESS: ${passed} ProofTTL idle monitor write-budget checks passed.`);
 }
