@@ -19,7 +19,7 @@
 ## Verification
 
 - The first post-hardening CI pass failed in the core primitive stage because old evidence fixtures asserted definitive support/contradiction without supplying evidence excerpts. That failure was treated as a useful contract regression, not worked around by weakening the new rule.
-- The fixtures were updated to include explicit provenance. The replacement full ProofTTL Code Checks run was queued at the time this log entry was written; do not treat this checkpoint as green until that run completes successfully.
+- After the fixtures were made provenance-complete, ProofTTL Code Checks run `33924174014` passed every stage: core security/limits/economics/lease primitives, commercial/account/platform primitives, assistant/entitlement primitives, readiness/auth/routing/payment/research/regression, and Worker bundle validation.
 - `proofttl-web` sprint and `main` were rechecked and remain identical at `ce43f9eb4000048547e3451aac836c68da0678dd`; no web change was justified by this backend correctness pass.
 
 ## Remaining flagship boundary
