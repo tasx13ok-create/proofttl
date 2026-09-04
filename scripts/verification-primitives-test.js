@@ -60,6 +60,42 @@ check("primary direct evidence receives a strong explainable score", () => {
   assert.equal(evidence.components.freshness > 0.9, true);
 });
 
+check("high-scoring evidence without a traceable HTTP source is rejected", () => {
+  const evidence = assessEvidence({
+    source_url: "internal-memory-only",
+    source_type: "PRIMARY",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 1,
+    directness_score: 1,
+    specificity_score: 1,
+    independence_score: 1,
+    reputation_score: 1
+  });
+  assert.equal(evidence.quality_score > 0.7, true);
+  assert.equal(evidence.accepted, false);
+  assert.equal(evidence.reasons.includes("REJECTED_UNTRACEABLE_SOURCE"), true);
+});
+
+check("untraceable evidence cannot manufacture a definitive ledger verdict", () => {
+  const ledger = aggregateEvidence([{
+    source_url: "not-a-source-url",
+    publisher: "Acme",
+    source_type: "PRIMARY",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 1,
+    directness_score: 1,
+    specificity_score: 1,
+    independence_score: 1,
+    reputation_score: 1
+  }]);
+  assert.equal(ledger.verdict, "UNKNOWN");
+  assert.equal(ledger.metrics.accepted_count, 0);
+  assert.equal(ledger.metrics.rejected_count, 1);
+  assert.equal(ledger.metrics.independent_support_groups, 0);
+});
+
 check("old evidence is penalized more aggressively for volatile claims", () => {
   const high = assessEvidence({
     source_url: "https://example.com/old",
