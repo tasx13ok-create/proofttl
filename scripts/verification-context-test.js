@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { attachImmutableVerificationContext } from "../src/lease-store.js";
+import { deriveReverificationOutcome } from "../src/verification-context.js";
 
 let checks = 0;
 function check(name, fn) {
@@ -104,6 +105,59 @@ check("context enrichment is idempotent and does not rewrite the original source
   assert.equal(lease.source_verdict.status, "SUPPORTED");
   assert.equal(lease.issued_status, issued);
   assert.equal(lease.current_status, current);
+});
+
+check("changed-source high-assurance support is compared at the same fail-closed standard as issuance", () => {
+  const lease = baseLease({
+    claim: "Acme is SOC 2 certified and costs $99 per month",
+    evidence: "Acme is SOC 2 certified and costs $99 per month",
+    source_fingerprint: "sha256:issuance"
+  });
+  attachImmutableVerificationContext(lease);
+  assert.equal(lease.status, "UNKNOWN");
+
+  const outcome = deriveReverificationOutcome(lease, {
+    status: "SUPPORTED",
+    evidence: "Acme is SOC 2 certified and costs $99 per month",
+    reason: "exact_claim_text_found_in_source",
+    confidence: 0.99,
+    verifier: "deterministic-exact-match",
+    proof_basis: "EXACT_TEXT"
+  }, {
+    final_url: "https://example.com/about-v2",
+    source_fingerprint: "sha256:changed",
+    observed_at: "2026-09-02T12:30:00.000Z"
+  });
+
+  assert.equal(outcome.source_verdict.status, "SUPPORTED");
+  assert.equal(outcome.verdict, "UNKNOWN");
+  assert.equal(outcome.execution_status, "CONTRADICTION_PASS_INCOMPLETE");
+  assert.equal(outcome.input_source.source_fingerprint, "sha256:changed");
+});
+
+check("changed-source high-assurance contradiction also stays fail-closed until required contradiction work completes", () => {
+  const lease = baseLease({
+    claim: "Acme is SOC 2 certified and costs $99 per month",
+    evidence: "Acme is SOC 2 certified and costs $99 per month",
+    source_fingerprint: "sha256:issuance2"
+  });
+  attachImmutableVerificationContext(lease);
+
+  const outcome = deriveReverificationOutcome(lease, {
+    status: "CONTRADICTED",
+    evidence: "Acme is not SOC 2 certified and costs $199 per month",
+    reason: "source_contradicts_claim",
+    confidence: 0.95,
+    verifier: "semantic-test",
+    proof_basis: "SEMANTIC"
+  }, {
+    final_url: "https://example.com/about-v3",
+    source_fingerprint: "sha256:changed2"
+  });
+
+  assert.equal(outcome.evidence_verdict, "CONTRADICTED");
+  assert.equal(outcome.verdict, "UNKNOWN");
+  assert.equal(outcome.confidence, null);
 });
 
 console.log(`SUCCESS: ${checks} verification-context integration checks passed.`);
