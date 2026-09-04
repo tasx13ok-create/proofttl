@@ -11,10 +11,17 @@ export function finalizeVerificationOutcome({ evidence_ledger, execution = {} } 
   const contradictionCompleted = execution.contradiction_pass_completed === true;
   const budgetTruncated = denials.length > 0;
   const contradictionIncomplete = contradictionRequired && !contradictionCompleted;
-  const executionIncomplete = budgetTruncated || contradictionIncomplete || failures.length > 0;
+  const executionFailed = failures.length > 0;
+  const executionIncomplete = budgetTruncated || contradictionIncomplete || executionFailed;
 
   const evidenceVerdict = evidence_ledger.verdict;
-  const finalVerdict = contradictionIncomplete ? "UNKNOWN" : evidenceVerdict;
+  // A definitive verdict is only publishable when the planned verification
+  // execution completed. Previously budget denials/provider failures withheld
+  // confidence but could still leak a definitive evidence verdict as the final
+  // verdict. That creates a split fail-closed contract: "execution incomplete"
+  // beside SUPPORTED/CONTRADICTED. Preserve the evidence-level verdict for
+  // auditability, but make the final verdict UNKNOWN until execution completes.
+  const finalVerdict = executionIncomplete ? "UNKNOWN" : evidenceVerdict;
   const confidence = executionIncomplete ? null : evidence_ledger.confidence;
 
   return {
@@ -27,7 +34,7 @@ export function finalizeVerificationOutcome({ evidence_ledger, execution = {} } 
       ? "BUDGET_TRUNCATED"
       : contradictionIncomplete
         ? "CONTRADICTION_PASS_INCOMPLETE"
-        : failures.length
+        : executionFailed
           ? "EXECUTION_INCOMPLETE"
           : "COMPLETE",
     confidence_status: executionIncomplete ? "WITHHELD_EXECUTION_INCOMPLETE" : "REPORTABLE",
