@@ -13,7 +13,7 @@ ProofTTL's evidence scoring previously allowed a malformed, missing, or non-web 
 ## Verification
 
 - `test:verification-primitives` is part of the repository's `test:local`/predeploy gate.
-- Push CI for commit `8830178e8da37d0066ab2baba8950bed23c940cc` reached and passed the core security/limits/economics/lease-primitives stage and the commercial/account/platform stage while this checkpoint was being finalized; later stages were still running and are not claimed green here.
+- ProofTTL Code Checks for code checkpoint `8830178e8da37d0066ab2baba8950bed23c940cc` completed successfully: core security/limits/economics/lease primitives, commercial/account/platform primitives, assistant/entitlement primitives, readiness/auth/routing/payment/research/regression/release checks, and Worker bundle validation all passed.
 - `proofttl-web` sprint and `main` remain identical at `ce43f9eb4000048547e3451aac836c68da0678dd`; no unrelated visual churn was introduced.
 
 ## Remaining truth boundaries / next targets
