@@ -49,9 +49,17 @@ export function createEvidenceExecutor({ execution_budget, providers = {}, emit 
     try {
       result = await provider(Object.freeze({ grant: attempt.grant, request: action.request ?? null }));
     } catch (error) {
+      const failureCost = finiteOptionalCost(error?.actual_cost_usd);
+      if (error?.actual_cost_usd != null && failureCost == null) {
+        return failClosedSettlement(attempt.grant, "evidence_provider_actual_cost_invalid");
+      }
+      if (failureCost != null && failureCost > attempt.grant.reserved_cost_usd) {
+        return failClosedSettlement(attempt.grant, "evidence_provider_actual_cost_exceeds_reservation");
+      }
+
       state = settleEvidenceActionConservatively(state, {
         idempotency_key: attempt.grant.idempotency_key,
-        actual_cost_usd: finiteOptionalCost(error?.actual_cost_usd),
+        actual_cost_usd: failureCost,
         outcome: classifyFailure(error)
       });
       const reservation = getEvidenceReservation(state, attempt.grant.idempotency_key);
