@@ -119,4 +119,32 @@ const budget = {
   assert.equal(executor.snapshot().closed, false);
 }
 
+{
+  const executor = createEvidenceExecutor({
+    execution_budget: budget,
+    providers: {
+      CANDIDATE_QUERY: async () => {
+        const error = new Error("provider failed after overspend");
+        error.code = "UPSTREAM_FAILED";
+        error.actual_cost_usd = 0.4;
+        throw error;
+      }
+    }
+  });
+
+  const result = await executor.run({
+    kind: "CANDIDATE_QUERY",
+    idempotency_key: "candidate:thrown-overage",
+    reserve_cost_usd: 0.1
+  });
+
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.error_code, "evidence_provider_actual_cost_exceeds_reservation");
+  assert.equal(result.reservation.status, "SETTLED");
+  assert.equal(result.reservation.actual_cost_usd, 0.1);
+  assert.equal(result.reservation.outcome, "PROVIDER_ACCOUNTING_INVALID");
+  assert.equal(executor.snapshot().closed, true);
+  assert.equal(executor.snapshot().close_reason, "evidence_provider_actual_cost_exceeds_reservation");
+}
+
 console.log("evidence executor tests passed");
