@@ -5,6 +5,7 @@ import {
   buildVerificationCostSample,
   normalizeAiUsage
 } from "./costs.js";
+import { deriveReverificationOutcome } from "./verification-context.js";
 
 const MODEL = SEMANTIC_MODEL;
 const SERVICE_VERSION = "0.3.1";
@@ -389,6 +390,32 @@ async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true,
     };
   }
 
+  const sourceVerdict = currentVerdict;
+  const currentOutcome = deriveReverificationOutcome(lease, sourceVerdict, {
+    final_url: fetched.finalUrl,
+    source_fingerprint: currentFingerprint,
+    observed_at: checkedAt.toISOString()
+  });
+
+  if (currentOutcome) {
+    const outcomeChangedVerdict = currentOutcome.verdict !== sourceVerdict.status;
+    currentVerdict = {
+      ...sourceVerdict,
+      status: currentOutcome.verdict,
+      reason: outcomeChangedVerdict
+        ? `verification_outcome:${currentOutcome.execution_status}`
+        : sourceVerdict.reason,
+      confidence: Number.isFinite(Number(currentOutcome.confidence))
+        ? Number(currentOutcome.confidence)
+        : 0,
+      verifier: outcomeChangedVerdict
+        ? `evidence-standard+${sourceVerdict.verifier || "unknown"}`
+        : sourceVerdict.verifier,
+      source_verdict: sourceVerdict,
+      verification_outcome: currentOutcome
+    };
+  }
+
   const changedStatus = currentVerdict.status !== lease.status;
   const wasUnexpired = checkedAt.getTime() < Date.parse(lease.expires_at);
 
@@ -403,7 +430,9 @@ async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true,
       current_evidence: currentVerdict.evidence,
       current_reason: currentVerdict.reason,
       current_confidence: currentVerdict.confidence,
-      current_source_fingerprint: currentFingerprint
+      current_source_fingerprint: currentFingerprint,
+      ...(currentVerdict.source_verdict ? { source_verdict: currentVerdict.source_verdict } : {}),
+      ...(currentVerdict.verification_outcome ? { verification_outcome: currentVerdict.verification_outcome } : {})
     };
     result = "REVOKED";
   } else if (changedStatus) {
@@ -412,6 +441,7 @@ async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true,
 
   lease.last_source_fingerprint = currentFingerprint;
   lease.last_observed_at = checkedAt.toISOString();
+  lease.current_status = currentVerdict.status;
 
   const check = {
     kind,
@@ -423,7 +453,9 @@ async function reverifyLease(lease, env, kind = "REVERIFY", allowExpired = true,
     confidence: currentVerdict.confidence,
     verifier: currentVerdict.verifier,
     source_fingerprint: currentFingerprint,
-    final_url: fetched.finalUrl
+    final_url: fetched.finalUrl,
+    ...(currentVerdict.source_verdict ? { source_verdict: currentVerdict.source_verdict } : {}),
+    ...(currentVerdict.verification_outcome ? { verification_outcome: currentVerdict.verification_outcome } : {})
   };
 
   logVerificationCostSample({
