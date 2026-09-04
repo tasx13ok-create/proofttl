@@ -229,6 +229,7 @@ async function runMonitor(env, scheduledTime) {
   const startedAt = new Date().toISOString();
   let keysScanned = 0;
   let due = 0;
+  let attempted = 0;
   let checked = 0;
   let revoked = 0;
   let expired = 0;
@@ -239,7 +240,7 @@ async function runMonitor(env, scheduledTime) {
     keysScanned = listed.keys.length;
 
     for (const key of listed.keys) {
-      if (checked >= MAX_AUTO_CHECKS_PER_RUN) break;
+      if (attempted >= MAX_AUTO_CHECKS_PER_RUN) break;
 
       const metadata = key.metadata || null;
       if (metadata?.lease_state && metadata.lease_state !== "ACTIVE") continue;
@@ -273,6 +274,7 @@ async function runMonitor(env, scheduledTime) {
       if (lease.next_check_at && Date.parse(lease.next_check_at) > now) continue;
 
       due += 1;
+      attempted += 1;
       try {
         const check = await reverifyLease(lease, env, "AUTO_REVERIFY", false, now);
         checked += 1;
@@ -293,6 +295,7 @@ async function runMonitor(env, scheduledTime) {
     scheduled_for: new Date(now).toISOString(),
     keys_scanned: keysScanned,
     due,
+    attempted,
     checked,
     revoked,
     expired,
@@ -302,7 +305,7 @@ async function runMonitor(env, scheduledTime) {
   const scheduledMinute = Math.floor(now / 60000);
   const periodicStatusMinute =
     scheduledMinute % MONITOR_STATUS_IDLE_WRITE_INTERVAL_MINUTES === 0;
-  const significantRun = checked > 0 || revoked > 0 || expired > 0 || errors > 0;
+  const significantRun = attempted > 0 || revoked > 0 || expired > 0 || errors > 0;
 
   if (periodicStatusMinute || significantRun) {
     await env.LEASES.put("monitor:last_run", JSON.stringify(summary), { expirationTtl: 86400 });
