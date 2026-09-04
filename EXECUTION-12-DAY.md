@@ -1,5 +1,13 @@
 # ProofTTL 12-Day Execution Log
 
+## 2026-09-04 DEPLOY-GATE / MONITOR STANDARD CHECKPOINT
+
+- Re-inspected both launch branches before changing code. `proofttl-web/10xeffort-12-day-sprint` is identical to web `main` at `ce43f9eb4000048547e3451aac836c68da0678dd`, so no web merge or cosmetic churn was justified. Core remains intentionally diverged from `main`; the sprint-only verification primitives must not be discarded by a reset or blind fast-forward.
+- Found a release-reliability gap: the load-bearing `verification-context-test.js` ran in the staged GitHub Actions workflow, but `npm run test:local`—and therefore the repository's `predeploy` gate—did not run it. A direct `npm run deploy` could therefore bypass the regression suite that protects final-verdict status coherence and high-assurance fail-closed issuance.
+- Added a first-class `test:verification-context` target, inserted it into `test:local`/`predeploy`, and made the staged workflow invoke the same named target. Deployment and CI now share the same verification-context integration gate instead of relying on an Actions-only raw `node` command.
+- During the monitor/reverify inspection, identified the next correctness boundary precisely: issuance now compares and publishes the signed final verification outcome, but a changed-source reverify still compares the legacy one-source semantic verdict directly against the lease's final issuance status. For a high-assurance lease issued `UNKNOWN` because its required contradiction pass has not executed, a later caller-source `SUPPORTED` result can therefore look like a status change to the legacy reverify path. This must be normalized through the same evidence-plan/outcome standard before revocation decisions. No claim is made that this is fixed in this checkpoint.
+- Public manual reverification remains disabled, scheduled monitoring remains the active path, and automated provenance-preserving source discovery / independent contradiction retrieval are still not live in public `/verify`.
+
 ## 2026-09-03 ISSUANCE STATUS COHERENCE CHECKPOINT
 
 - Re-inspected both sprint branches before touching runtime code. Core remained intentionally diverged from `main` because the sprint contains the verification primitives under active launch work. The web sprint branch was a strict ancestor of `main` by two commits only, so it was safely fast-forwarded without force from `95bfab59fafc88b2077d1759c16676e26f8f8a75` to `ce43f9eb4000048547e3451aac836c68da0678dd`; the resulting sprint preview `dpl_G9gffm5Dka7uMmLyxskp2PwYYGX9` is READY and passed the existing Fact Audit, discovery, auth/trust, 42-invariant product, public-shell, mobile, and Reality Engine postbuild guards.
