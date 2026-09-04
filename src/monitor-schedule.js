@@ -8,17 +8,27 @@ export function monitorScheduleRow(lease, updatedAtMs = Date.now()) {
   const expiresAtMs = Date.parse(lease?.expires_at || "");
   if (!Number.isFinite(expiresAtMs)) throw new Error("monitor_schedule_invalid_expiry");
 
-  const nextCheckAtMs = lease?.next_check_at ? Date.parse(lease.next_check_at) : null;
+  const leaseState = String(lease?.lease_state || "ACTIVE").trim().toUpperCase() || "ACTIVE";
+  const safeUpdatedAtMs = Number.isFinite(updatedAtMs) ? Math.trunc(updatedAtMs) : Date.now();
+  let nextCheckAtMs = lease?.next_check_at ? Date.parse(lease.next_check_at) : null;
   if (nextCheckAtMs !== null && !Number.isFinite(nextCheckAtMs)) {
     throw new Error("monitor_schedule_invalid_next_check");
   }
 
+  // Older KV leases can predate persisted next_check_at metadata. If they are
+  // still ACTIVE, treating a missing next check as NULL would make the D1 due
+  // query ignore them until expiry. Reconcile them as immediately due instead
+  // so migration never silently disables monitoring for an active lease.
+  if (leaseState === "ACTIVE" && nextCheckAtMs === null && expiresAtMs > safeUpdatedAtMs) {
+    nextCheckAtMs = safeUpdatedAtMs;
+  }
+
   return {
     lease_id: leaseId,
-    lease_state: String(lease?.lease_state || "ACTIVE"),
+    lease_state: leaseState,
     next_check_at_ms: nextCheckAtMs,
     expires_at_ms: expiresAtMs,
-    updated_at_ms: Number.isFinite(updatedAtMs) ? Math.trunc(updatedAtMs) : Date.now()
+    updated_at_ms: safeUpdatedAtMs
   };
 }
 
