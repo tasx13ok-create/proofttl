@@ -156,15 +156,21 @@ function evidenceIdentity(item) {
 function independentGroupCount(items) {
   const groups = new Set();
   for (const item of items) {
-    if (item.underlying_source_id) {
-      groups.add(`u:${item.underlying_source_id.toLowerCase()}`);
-      continue;
-    }
+    // Independence is about distinct publishing origins, not distinct content
+    // fingerprints. Different pages (or revisions) from one host must not be
+    // promoted into multiple corroborating sources merely because their
+    // underlying_source_id values differ. Mirror copies with the same
+    // underlying_source_id are already collapsed by dedupeEvidence above.
     try {
       groups.add(`h:${new URL(item.source_url).hostname.toLowerCase()}`);
+      continue;
     } catch {
-      if (item.publisher) groups.add(`p:${item.publisher.toLowerCase()}`);
+      if (item.publisher) {
+        groups.add(`p:${item.publisher.toLowerCase()}`);
+        continue;
+      }
     }
+    if (item.underlying_source_id) groups.add(`u:${item.underlying_source_id.toLowerCase()}`);
   }
   return groups.size;
 }
@@ -175,6 +181,46 @@ function sideStrength(items) {
   const top = sorted[0] || 0;
   const corroboration = sorted.slice(1, 4).reduce((sum, score, index) => sum + score * [0.35, 0.2, 0.1][index], 0);
   return clamp01(top + corroboration);
+}
+
+function freshnessScore({ observedAt, publishedAt, volatility }) {
+  if (!publishedAt) return 0.55;
+  const ageDays = Math.max(0, (observedAt.getTime() - publishedAt.getTime()) / 86400000);
+  const halfLifeDays = volatility === "VERY_HIGH" ? 0.25 : volatility === "HIGH" ? 14 : volatility === "LOW" ? 3650 : 180;
+  return clamp01(Math.exp(-Math.log(2) * ageDays / halfLifeDays));
+}
+
+function authorityDefault(sourceType) {
+  return sourceType === "PRIMARY" ? 0.9 : sourceType === "SECONDARY" ? 0.7 : 0.5;
+}
+
+function directnessDefault(entailment) {
+  const normalized = normalizeEntailment(entailment);
+  return normalized === "FULL_SUPPORT" || normalized === "CONTRADICTORY" ? 0.9 : normalized === "PARTIAL_SUPPORT" ? 0.65 : normalized === "CONTEXT_ONLY" ? 0.4 : 0.25;
+}
+
+function specificityDefault(entailment) {
+  const normalized = normalizeEntailment(entailment);
+  return normalized === "FULL_SUPPORT" || normalized === "CONTRADICTORY" ? 0.9 : normalized === "PARTIAL_SUPPORT" ? 0.6 : normalized === "CONTEXT_ONLY" ? 0.35 : 0.2;
+}
+
+function normalizeSourceType(value, primary) {
+  if (primary === true) return "PRIMARY";
+  const normalized = String(value || "").trim().toUpperCase();
+  return ["PRIMARY", "SECONDARY", "TERTIARY"].includes(normalized) ? normalized : "SECONDARY";
+}
+
+function normalizeEntailment(value) {
+  const normalized = String(value || "UNKNOWN").trim().toUpperCase();
+  return ENTAILMENT_STATES.has(normalized) ? normalized : "UNKNOWN";
+}
+
+function normalizeStance(value, entailment) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (STANCES.has(normalized)) return normalized;
+  if (entailment === "CONTRADICTORY") return "AGAINST";
+  if (entailment === "FULL_SUPPORT" || entailment === "PARTIAL_SUPPORT") return "FOR";
+  return "AMBIGUOUS";
 }
 
 function freshnessScore({ observedAt, publishedAt, volatility }) {
