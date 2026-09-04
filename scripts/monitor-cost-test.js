@@ -1,5 +1,5 @@
 import core from "../src/index.js";
-import { listDueLeaseIds } from "../src/monitor-schedule.js";
+import { listDueLeaseIds, monitorScheduleRowFromKvKey } from "../src/monitor-schedule.js";
 
 let passed = 0;
 
@@ -99,6 +99,37 @@ async function run() {
   const projectedIdleWritesPerDay = (24 * 60) / 5;
   assert(projectedIdleWritesPerDay === 288, "idle monitor status budget is 288 KV writes/day");
   assert(projectedIdleWritesPerDay < 1000, "idle monitor status budget stays below the current Free KV daily write allowance");
+
+  const legacyActive = monitorScheduleRowFromKvKey(
+    {
+      name: "lease:ftl_legacy_active",
+      metadata: {
+        lease_state: "active",
+        expires_at: new Date(fiveMinuteBoundary + 3600_000).toISOString()
+      }
+    },
+    fiveMinuteBoundary
+  );
+  assert(legacyActive?.lease_state === "ACTIVE", "reconciled lease state is normalized for D1 scheduling");
+  assert(
+    legacyActive?.next_check_at_ms === fiveMinuteBoundary,
+    "active legacy lease without next_check_at is reconciled as immediately due"
+  );
+
+  const legacyInactive = monitorScheduleRowFromKvKey(
+    {
+      name: "lease:ftl_legacy_expired",
+      metadata: {
+        lease_state: "EXPIRED",
+        expires_at: new Date(fiveMinuteBoundary - 1000).toISOString()
+      }
+    },
+    fiveMinuteBoundary
+  );
+  assert(
+    legacyInactive?.next_check_at_ms === null,
+    "inactive legacy lease without next_check_at is not rescheduled"
+  );
 
   const db = new CapturingDb();
   const due = await listDueLeaseIds(db, fiveMinuteBoundary, 1000);
