@@ -10,37 +10,11 @@ export function attachDerivedVerificationOutcome(lease) {
   if (!lease.claim_contract || !lease.source_url || !lease.status) return lease;
 
   const sourceVerdict = snapshotSourceVerdict(lease);
-  const triage = triageClaimContract(lease.claim_contract);
-  const evidencePlan = buildEvidencePlan(lease.claim_contract, triage);
-  const evidenceLedger = aggregateEvidence(
-    [evidenceItemFromLease(lease, sourceVerdict)],
-    { claim_contract: lease.claim_contract }
-  );
-
-  const contradictionRequired = evidencePlan.contradiction_pass_required === true;
-  const outcome = finalizeVerificationOutcome({
-    evidence_ledger: evidenceLedger,
-    execution: {
-      contradiction_pass_required: contradictionRequired,
-      // A caller-provided source is evidence for the proposition, not an
-      // adversarial contradiction search against the preliminary conclusion.
-      // Until that retrieval path executes, high-assurance claims must fail
-      // closed instead of inheriting a one-source verdict.
-      contradiction_pass_completed: !contradictionRequired,
-      denials: [],
-      failures: []
-    }
-  });
-
-  outcome.source_verdict = sourceVerdict;
-  outcome.triage = triage;
-  outcome.evidence_plan = evidencePlan;
-  outcome.input_source = {
-    source_url: String(lease.source_url),
+  const outcome = buildOutcomeFromSourceVerdict(lease, sourceVerdict, {
     final_url: lease.final_url || null,
     source_fingerprint: lease.source_fingerprint || null,
-    provenance: "CALLER_PROVIDED_SOURCE"
-  };
+    observed_at: lease.observed_at || lease.issued_at || null
+  });
 
   lease.verification_outcome = outcome;
   lease.source_verdict = sourceVerdict;
@@ -66,18 +40,76 @@ export function attachDerivedVerificationOutcome(lease) {
   return lease;
 }
 
+export function deriveReverificationOutcome(lease, sourceVerdict, source = {}) {
+  if (!lease || typeof lease !== "object") return null;
+  if (!lease.claim_contract || !sourceVerdict || typeof sourceVerdict !== "object") return null;
+
+  return buildOutcomeFromSourceVerdict(lease, normalizeSourceVerdict(sourceVerdict), {
+    final_url: source.final_url || lease.final_url || lease.source_url || null,
+    source_fingerprint: source.source_fingerprint || lease.last_source_fingerprint || lease.source_fingerprint || null,
+    observed_at: source.observed_at || lease.last_observed_at || lease.observed_at || lease.issued_at || null
+  });
+}
+
+function buildOutcomeFromSourceVerdict(lease, sourceVerdict, source) {
+  const triage = triageClaimContract(lease.claim_contract);
+  const evidencePlan = buildEvidencePlan(lease.claim_contract, triage);
+  const evidenceLedger = aggregateEvidence(
+    [evidenceItemFromLease(lease, sourceVerdict, source)],
+    { claim_contract: lease.claim_contract }
+  );
+
+  const contradictionRequired = evidencePlan.contradiction_pass_required === true;
+  const outcome = finalizeVerificationOutcome({
+    evidence_ledger: evidenceLedger,
+    execution: {
+      contradiction_pass_required: contradictionRequired,
+      // A caller-provided source is evidence for/against the proposition, not
+      // an adversarial contradiction search against the preliminary result.
+      // Reverification must obey this same boundary as issuance; otherwise a
+      // changed source can compare a provisional verdict against a fail-closed
+      // signed UNKNOWN and spuriously revoke a high-assurance lease.
+      contradiction_pass_completed: !contradictionRequired,
+      denials: [],
+      failures: []
+    }
+  });
+
+  outcome.source_verdict = sourceVerdict;
+  outcome.triage = triage;
+  outcome.evidence_plan = evidencePlan;
+  outcome.input_source = {
+    source_url: String(lease.source_url),
+    final_url: source.final_url || null,
+    source_fingerprint: source.source_fingerprint || null,
+    provenance: "CALLER_PROVIDED_SOURCE"
+  };
+  return outcome;
+}
+
 function snapshotSourceVerdict(lease) {
-  return {
-    status: normalizeVerdict(lease.status),
+  return normalizeSourceVerdict({
+    status: lease.status,
     evidence: lease.evidence ?? null,
     reason: lease.reason ?? null,
-    confidence: finiteConfidence(lease.confidence),
+    confidence: lease.confidence,
     verifier: lease.verifier || null,
     proof_basis: lease.proof_basis || null
+  });
+}
+
+function normalizeSourceVerdict(value) {
+  return {
+    status: normalizeVerdict(value?.status),
+    evidence: value?.evidence ?? null,
+    reason: value?.reason ?? null,
+    confidence: finiteConfidence(value?.confidence),
+    verifier: value?.verifier || null,
+    proof_basis: value?.proof_basis || null
   };
 }
 
-function evidenceItemFromLease(lease, sourceVerdict) {
+function evidenceItemFromLease(lease, sourceVerdict, source = {}) {
   const verdict = sourceVerdict.status;
   const entailment = verdict === "SUPPORTED"
     ? "FULL_SUPPORT"
@@ -89,19 +121,21 @@ function evidenceItemFromLease(lease, sourceVerdict) {
     : verdict === "CONTRADICTED"
       ? "AGAINST"
       : "AMBIGUOUS";
+  const finalUrl = source.final_url || lease.final_url || lease.source_url;
+  const fingerprint = source.source_fingerprint || lease.source_fingerprint || null;
 
   return {
-    source_url: lease.final_url || lease.source_url,
-    publisher: hostnameOrNull(lease.final_url || lease.source_url),
-    observed_at: lease.observed_at || lease.issued_at || new Date().toISOString(),
+    source_url: finalUrl,
+    publisher: hostnameOrNull(finalUrl),
+    observed_at: source.observed_at || lease.observed_at || lease.issued_at || new Date().toISOString(),
     entailment,
     stance,
-    underlying_source_id: lease.source_fingerprint || null,
+    underlying_source_id: fingerprint,
     provenance: {
       type: "CALLER_PROVIDED_SOURCE",
       verifier: sourceVerdict.verifier,
       proof_basis: sourceVerdict.proof_basis,
-      source_fingerprint: lease.source_fingerprint || null,
+      source_fingerprint: fingerprint,
       evidence_excerpt: sourceVerdict.evidence
     }
   };
