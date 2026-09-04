@@ -17,6 +17,8 @@ export function assessEvidence(input = {}, context = {}) {
   const conflictPenalty = clamp01(input.conflict_of_interest ? 0.2 : 0);
   const sourceUrl = normalizeUrl(input.source_url);
   const traceableSource = isTraceableSourceUrl(sourceUrl);
+  const definitiveEntailment = entailment === "FULL_SUPPORT" || entailment === "CONTRADICTORY";
+  const verbatimEvidence = hasVerbatimEvidence(input.provenance?.evidence_excerpt);
 
   const components = {
     authority,
@@ -59,12 +61,12 @@ export function assessEvidence(input = {}, context = {}) {
     stance,
     entailment,
     quality_score: round3(qualityScore),
-    accepted: traceableSource && qualityScore >= 0.45 && entailment !== "IRRELEVANT",
+    accepted: traceableSource && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT",
     components: mapRound3(components),
     conflict_of_interest: Boolean(input.conflict_of_interest),
     underlying_source_id: cleanText(input.underlying_source_id, 200),
     provenance: input.provenance && typeof input.provenance === "object" ? input.provenance : null,
-    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource })
+    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence })
   };
 }
 
@@ -214,11 +216,14 @@ function normalizeStance(value, entailment) {
   return "AMBIGUOUS";
 }
 
-function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource }) {
+function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence }) {
   return [
     `SOURCE_${sourceType}`,
     `ENTAILMENT_${entailment}`,
     traceableSource ? "TRACEABLE_HTTP_SOURCE" : "REJECTED_UNTRACEABLE_SOURCE",
+    definitiveEntailment
+      ? (verbatimEvidence ? "VERBATIM_EVIDENCE_PRESENT" : "REJECTED_MISSING_VERBATIM_EVIDENCE")
+      : "VERBATIM_EVIDENCE_NOT_REQUIRED",
     freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS",
     independence < 0.5 ? "LOW_INDEPENDENCE" : "INDEPENDENT_OR_NEUTRAL",
     ...(conflict ? ["DISCLOSED_SOURCE_CONFLICT"] : []),
@@ -241,6 +246,10 @@ function isTraceableSourceUrl(value) {
   } catch {
     return false;
   }
+}
+
+function hasVerbatimEvidence(value) {
+  return typeof value === "string" && Boolean(value.trim());
 }
 
 function safeDate(value) {
