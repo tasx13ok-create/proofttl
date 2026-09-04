@@ -20,33 +20,9 @@ export function assessEvidence(input = {}, context = {}) {
   const definitiveEntailment = entailment === "FULL_SUPPORT" || entailment === "CONTRADICTORY";
   const verbatimEvidence = hasVerbatimEvidence(input.provenance?.evidence_excerpt);
 
-  const components = {
-    authority,
-    directness,
-    independence,
-    specificity,
-    reputation,
-    freshness
-  };
-
-  const weighted =
-    authority * 0.22 +
-    directness * 0.22 +
-    independence * 0.16 +
-    specificity * 0.16 +
-    reputation * 0.1 +
-    freshness * 0.14;
-
-  const entailmentMultiplier = entailment === "FULL_SUPPORT" || entailment === "CONTRADICTORY"
-    ? 1
-    : entailment === "PARTIAL_SUPPORT"
-      ? 0.75
-      : entailment === "CONTEXT_ONLY"
-        ? 0.45
-        : entailment === "IRRELEVANT"
-          ? 0
-          : 0.55;
-
+  const components = { authority, directness, independence, specificity, reputation, freshness };
+  const weighted = authority * 0.22 + directness * 0.22 + independence * 0.16 + specificity * 0.16 + reputation * 0.1 + freshness * 0.14;
+  const entailmentMultiplier = entailment === "FULL_SUPPORT" || entailment === "CONTRADICTORY" ? 1 : entailment === "PARTIAL_SUPPORT" ? 0.75 : entailment === "CONTEXT_ONLY" ? 0.45 : entailment === "IRRELEVANT" ? 0 : 0.55;
   const qualityScore = clamp01((weighted - conflictPenalty) * entailmentMultiplier);
   const accepted = traceableSource && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
 
@@ -78,12 +54,10 @@ export function aggregateEvidence(items = [], context = {}) {
   const evidenceFor = accepted.filter((item) => item.stance === "FOR");
   const evidenceAgainst = accepted.filter((item) => item.stance === "AGAINST");
   const ambiguous = accepted.filter((item) => item.stance === "AMBIGUOUS");
-
   const support = sideStrength(evidenceFor);
   const contradiction = sideStrength(evidenceAgainst);
   const independentSupport = independentGroupCount(evidenceFor);
   const independentContradiction = independentGroupCount(evidenceAgainst);
-
   const verdict = deriveVerdict({ support, contradiction, independentSupport, independentContradiction });
   const confidence = deriveConfidence({ support, contradiction, independentSupport, independentContradiction, acceptedCount: accepted.length });
 
@@ -141,15 +115,7 @@ function evidenceIdentity(item) {
     const pathname = url.pathname.replace(/\/$/, "");
     return `url:${url.hostname.toLowerCase()}${pathname}`;
   } catch {
-    return [
-      "fallback",
-      item.publisher || "unknown-publisher",
-      item.title || "untitled",
-      item.source_url || "no-url",
-      item.published_at || "no-publication-time",
-      item.entailment || "unknown-entailment",
-      item.stance || "unknown-stance"
-    ].join(":").toLowerCase();
+    return ["fallback", item.publisher || "unknown-publisher", item.title || "untitled", item.source_url || "no-url", item.published_at || "no-publication-time", item.entailment || "unknown-entailment", item.stance || "unknown-stance"].join(":").toLowerCase();
   }
 }
 
@@ -157,10 +123,10 @@ function independentGroupCount(items) {
   const groups = new Set();
   for (const item of items) {
     // Independence is about distinct publishing origins, not distinct content
-    // fingerprints. Different pages (or revisions) from one host must not be
-    // promoted into multiple corroborating sources merely because their
-    // underlying_source_id values differ. Mirror copies with the same
-    // underlying_source_id are already collapsed by dedupeEvidence above.
+    // fingerprints. Different pages or revisions on one host therefore remain
+    // one corroborating origin even when their underlying_source_id differs.
+    // Mirrored copies sharing an underlying_source_id are already collapsed by
+    // dedupeEvidence before this function runs.
     try {
       groups.add(`h:${new URL(item.source_url).hostname.toLowerCase()}`);
       continue;
@@ -223,54 +189,12 @@ function normalizeStance(value, entailment) {
   return "AMBIGUOUS";
 }
 
-function freshnessScore({ observedAt, publishedAt, volatility }) {
-  if (!publishedAt) return 0.55;
-  const ageDays = Math.max(0, (observedAt.getTime() - publishedAt.getTime()) / 86400000);
-  const halfLifeDays = volatility === "VERY_HIGH" ? 0.25 : volatility === "HIGH" ? 14 : volatility === "LOW" ? 3650 : 180;
-  return clamp01(Math.exp(-Math.log(2) * ageDays / halfLifeDays));
-}
-
-function authorityDefault(sourceType) {
-  return sourceType === "PRIMARY" ? 0.9 : sourceType === "SECONDARY" ? 0.7 : 0.5;
-}
-
-function directnessDefault(entailment) {
-  const normalized = normalizeEntailment(entailment);
-  return normalized === "FULL_SUPPORT" || normalized === "CONTRADICTORY" ? 0.9 : normalized === "PARTIAL_SUPPORT" ? 0.65 : normalized === "CONTEXT_ONLY" ? 0.4 : 0.25;
-}
-
-function specificityDefault(entailment) {
-  const normalized = normalizeEntailment(entailment);
-  return normalized === "FULL_SUPPORT" || normalized === "CONTRADICTORY" ? 0.9 : normalized === "PARTIAL_SUPPORT" ? 0.6 : normalized === "CONTEXT_ONLY" ? 0.35 : 0.2;
-}
-
-function normalizeSourceType(value, primary) {
-  if (primary === true) return "PRIMARY";
-  const normalized = String(value || "").trim().toUpperCase();
-  return ["PRIMARY", "SECONDARY", "TERTIARY"].includes(normalized) ? normalized : "SECONDARY";
-}
-
-function normalizeEntailment(value) {
-  const normalized = String(value || "UNKNOWN").trim().toUpperCase();
-  return ENTAILMENT_STATES.has(normalized) ? normalized : "UNKNOWN";
-}
-
-function normalizeStance(value, entailment) {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (STANCES.has(normalized)) return normalized;
-  if (entailment === "CONTRADICTORY") return "AGAINST";
-  if (entailment === "FULL_SUPPORT" || entailment === "PARTIAL_SUPPORT") return "FOR";
-  return "AMBIGUOUS";
-}
-
 function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, accepted }) {
   return [
     `SOURCE_${sourceType}`,
     `ENTAILMENT_${entailment}`,
     traceableSource ? "TRACEABLE_HTTP_SOURCE" : "REJECTED_UNTRACEABLE_SOURCE",
-    definitiveEntailment
-      ? (verbatimEvidence ? "VERBATIM_EVIDENCE_PRESENT" : "REJECTED_MISSING_VERBATIM_EVIDENCE")
-      : "VERBATIM_EVIDENCE_NOT_REQUIRED",
+    definitiveEntailment ? (verbatimEvidence ? "VERBATIM_EVIDENCE_PRESENT" : "REJECTED_MISSING_VERBATIM_EVIDENCE") : "VERBATIM_EVIDENCE_NOT_REQUIRED",
     freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS",
     independence < 0.5 ? "LOW_INDEPENDENCE" : "INDEPENDENT_OR_NEUTRAL",
     ...(conflict ? ["DISCLOSED_SOURCE_CONFLICT"] : []),
@@ -279,49 +203,12 @@ function evidenceReasons({ sourceType, entailment, freshness, independence, conf
   ];
 }
 
-function sortEvidence(items) {
-  return [...items].sort((a, b) => b.quality_score - a.quality_score);
-}
-
-function normalizeUrl(value) {
-  try { return new URL(String(value || "")).toString(); } catch { return cleanText(value, 2048); }
-}
-
-function isTraceableSourceUrl(value) {
-  try {
-    const url = new URL(String(value || ""));
-    return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname);
-  } catch {
-    return false;
-  }
-}
-
-function hasVerbatimEvidence(value) {
-  return typeof value === "string" && Boolean(value.trim());
-}
-
-function safeDate(value) {
-  if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isFinite(date.getTime()) ? date : null;
-}
-
-function cleanText(value, max) {
-  if (typeof value !== "string") return null;
-  const text = value.trim().replace(/\s+/g, " ");
-  return text ? text.slice(0, max) : null;
-}
-
-function clamp01(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return 0;
-  return Math.max(0, Math.min(1, numeric));
-}
-
-function round3(value) {
-  return Math.round(Number(value) * 1000) / 1000;
-}
-
-function mapRound3(object) {
-  return Object.fromEntries(Object.entries(object).map(([key, value]) => [key, round3(value)]));
-}
+function sortEvidence(items) { return [...items].sort((a, b) => b.quality_score - a.quality_score); }
+function normalizeUrl(value) { try { return new URL(String(value || "")).toString(); } catch { return cleanText(value, 2048); } }
+function isTraceableSourceUrl(value) { try { const url = new URL(String(value || "")); return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname); } catch { return false; } }
+function hasVerbatimEvidence(value) { return typeof value === "string" && Boolean(value.trim()); }
+function safeDate(value) { if (!value) return null; const date = value instanceof Date ? value : new Date(value); return Number.isFinite(date.getTime()) ? date : null; }
+function cleanText(value, max) { if (typeof value !== "string") return null; const text = value.trim().replace(/\s+/g, " "); return text ? text.slice(0, max) : null; }
+function clamp01(value) { const numeric = Number(value); if (!Number.isFinite(numeric)) return 0; return Math.max(0, Math.min(1, numeric)); }
+function round3(value) { return Math.round(Number(value) * 1000) / 1000; }
+function mapRound3(object) { return Object.fromEntries(Object.entries(object).map(([key, value]) => [key, round3(value)])); }
