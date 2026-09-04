@@ -15,6 +15,8 @@ export function assessEvidence(input = {}, context = {}) {
   const entailment = normalizeEntailment(input.entailment);
   const stance = normalizeStance(input.stance, entailment);
   const conflictPenalty = clamp01(input.conflict_of_interest ? 0.2 : 0);
+  const sourceUrl = normalizeUrl(input.source_url);
+  const traceableSource = isTraceableSourceUrl(sourceUrl);
 
   const components = {
     authority,
@@ -47,7 +49,7 @@ export function assessEvidence(input = {}, context = {}) {
 
   return {
     version: "proofttl-evidence-quality-v1",
-    source_url: normalizeUrl(input.source_url),
+    source_url: sourceUrl,
     title: cleanText(input.title, 240),
     publisher: cleanText(input.publisher, 160),
     source_type: sourceType,
@@ -57,12 +59,12 @@ export function assessEvidence(input = {}, context = {}) {
     stance,
     entailment,
     quality_score: round3(qualityScore),
-    accepted: qualityScore >= 0.45 && entailment !== "IRRELEVANT",
+    accepted: traceableSource && qualityScore >= 0.45 && entailment !== "IRRELEVANT",
     components: mapRound3(components),
     conflict_of_interest: Boolean(input.conflict_of_interest),
     underlying_source_id: cleanText(input.underlying_source_id, 200),
     provenance: input.provenance && typeof input.provenance === "object" ? input.provenance : null,
-    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore })
+    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource })
   };
 }
 
@@ -212,10 +214,11 @@ function normalizeStance(value, entailment) {
   return "AMBIGUOUS";
 }
 
-function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore }) {
+function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource }) {
   return [
     `SOURCE_${sourceType}`,
     `ENTAILMENT_${entailment}`,
+    traceableSource ? "TRACEABLE_HTTP_SOURCE" : "REJECTED_UNTRACEABLE_SOURCE",
     freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS",
     independence < 0.5 ? "LOW_INDEPENDENCE" : "INDEPENDENT_OR_NEUTRAL",
     ...(conflict ? ["DISCLOSED_SOURCE_CONFLICT"] : []),
@@ -229,6 +232,15 @@ function sortEvidence(items) {
 
 function normalizeUrl(value) {
   try { return new URL(String(value || "")).toString(); } catch { return cleanText(value, 2048); }
+}
+
+function isTraceableSourceUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 function safeDate(value) {
