@@ -160,4 +160,27 @@ check("changed-source high-assurance contradiction also stays fail-closed until 
   assert.equal(outcome.confidence, null);
 });
 
+check("definitive contradiction without verbatim evidence is rejected by the evidence ledger", () => {
+  const lease = baseLease({
+    status: "CONTRADICTED",
+    evidence: null,
+    reason: "semantic_model_claimed_contradiction_without_quote",
+    confidence: 0.95,
+    verifier: "semantic-test",
+    proof_basis: "SEMANTIC",
+    source_fingerprint: "sha256:noquote"
+  });
+
+  attachImmutableVerificationContext(lease);
+
+  assert.equal(lease.source_verdict.status, "CONTRADICTED");
+  assert.equal(lease.verification_outcome.evidence_ledger.metrics.accepted_count, 0);
+  assert.equal(lease.verification_outcome.evidence_ledger.metrics.rejected_count, 1);
+  assert.equal(lease.verification_outcome.evidence_ledger.rejected_evidence[0].reasons.includes("REJECTED_MISSING_VERBATIM_EVIDENCE"), true);
+  assert.equal(lease.verification_outcome.evidence_verdict, "UNKNOWN");
+  assert.equal(lease.status, "UNKNOWN");
+  assert.equal(lease.issued_status, "UNKNOWN");
+  assert.equal(lease.current_status, "UNKNOWN");
+});
+
 console.log(`SUCCESS: ${checks} verification-context integration checks passed.`);
