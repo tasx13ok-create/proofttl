@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { decomposeInput, classifyFragment, atomicFragments } from "../src/claim-decomposition.js";
 import { assessEvidence, aggregateEvidence, deriveVerdict } from "../src/evidence-quality.js";
+import { finalizeVerificationOutcome } from "../src/verification-outcome.js";
 
 let checks = 0;
 function check(name, fn) {
@@ -152,6 +153,69 @@ check("mixed high-quality evidence remains UNKNOWN instead of manufacturing cert
 
 check("verdict derivation refuses support when evidence strength is weak", () => {
   assert.equal(deriveVerdict({ support: 0.5, contradiction: 0.1, independentSupport: 2 }), "UNKNOWN");
+});
+
+check("budget truncation withholds a definitive final verdict while preserving the evidence verdict", () => {
+  const ledger = aggregateEvidence([{
+    source_url: "https://acme.example/about",
+    source_type: "PRIMARY",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 0.98,
+    directness_score: 0.98,
+    specificity_score: 0.98,
+    independence_score: 0.9,
+    reputation_score: 0.95
+  }]);
+  assert.equal(ledger.verdict, "SUPPORTED");
+  const outcome = finalizeVerificationOutcome({
+    evidence_ledger: ledger,
+    execution: {
+      contradiction_pass_required: false,
+      contradiction_pass_completed: true,
+      denials: [{
+        version: "proofttl-evidence-budget-denial-v1",
+        code: "BUDGET_EXCEEDED",
+        kind: "SOURCE_FETCH",
+        idempotency_key: "fetch:2"
+      }]
+    }
+  });
+  assert.equal(outcome.evidence_verdict, "SUPPORTED");
+  assert.equal(outcome.verdict, "UNKNOWN");
+  assert.equal(outcome.execution_status, "BUDGET_TRUNCATED");
+  assert.equal(outcome.confidence, null);
+});
+
+check("provider execution failure withholds a definitive final verdict while preserving contradiction evidence", () => {
+  const ledger = aggregateEvidence([{
+    source_url: "https://acme.example/pricing",
+    source_type: "PRIMARY",
+    entailment: "CONTRADICTORY",
+    stance: "AGAINST",
+    authority_score: 0.98,
+    directness_score: 0.98,
+    specificity_score: 0.98,
+    independence_score: 0.9,
+    reputation_score: 0.95
+  }]);
+  assert.equal(ledger.verdict, "CONTRADICTED");
+  const outcome = finalizeVerificationOutcome({
+    evidence_ledger: ledger,
+    execution: {
+      contradiction_pass_required: false,
+      contradiction_pass_completed: true,
+      failures: [{
+        kind: "SEMANTIC_CHECK",
+        idempotency_key: "semantic:2",
+        outcome: "PROVIDER_TIMEOUT"
+      }]
+    }
+  });
+  assert.equal(outcome.evidence_verdict, "CONTRADICTED");
+  assert.equal(outcome.verdict, "UNKNOWN");
+  assert.equal(outcome.execution_status, "EXECUTION_INCOMPLETE");
+  assert.equal(outcome.confidence_status, "WITHHELD_EXECUTION_INCOMPLETE");
 });
 
 console.log(`SUCCESS: ${checks} verification primitive checks passed.`);
