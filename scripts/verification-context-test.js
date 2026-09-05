@@ -37,6 +37,9 @@ check("ordinary single-source claim gets a structured signed-context outcome can
   attachImmutableVerificationContext(lease);
 
   assert.equal(lease.claim_contract.version, "proofttl-claim-contract-v1");
+  assert.equal(lease.evidence_plan.version, "proofttl-evidence-plan-v1");
+  assert.equal(lease.evidence_plan.execution_status, "NOT_EXECUTED_BY_PUBLIC_VERIFY");
+  assert.equal(lease.evidence_plan.executed_action_count, 0);
   assert.equal(lease.verification_outcome.version, "proofttl-verification-outcome-v1");
   assert.equal(lease.verification_outcome.evidence_ledger.version, "proofttl-evidence-ledger-v1");
   assert.equal(lease.verification_outcome.source_verdict.status, "SUPPORTED");
@@ -56,6 +59,9 @@ check("high-assurance claim fails closed until contradiction pass actually runs"
 
   attachImmutableVerificationContext(lease);
 
+  assert.equal(lease.evidence_plan.status, "PLANNED");
+  assert.equal(lease.evidence_plan.contradiction_pass_required, true);
+  assert.equal(lease.evidence_plan.execution_status, "NOT_EXECUTED_BY_PUBLIC_VERIFY");
   assert.equal(lease.verification_outcome.triage.verification_depth, "HIGH_ASSURANCE");
   assert.equal(lease.verification_outcome.contradiction_pass.required, true);
   assert.equal(lease.verification_outcome.contradiction_pass.completed, false);
@@ -97,11 +103,13 @@ check("context enrichment is idempotent and does not rewrite the original source
 
   attachImmutableVerificationContext(lease);
   const first = JSON.stringify(lease.verification_outcome);
+  const plan = JSON.stringify(lease.evidence_plan);
   const issued = lease.issued_status;
   const current = lease.current_status;
   attachImmutableVerificationContext(lease);
 
   assert.equal(JSON.stringify(lease.verification_outcome), first);
+  assert.equal(JSON.stringify(lease.evidence_plan), plan);
   assert.equal(lease.source_verdict.status, "SUPPORTED");
   assert.equal(lease.issued_status, issued);
   assert.equal(lease.current_status, current);
