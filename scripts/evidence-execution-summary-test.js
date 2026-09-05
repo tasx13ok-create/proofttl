@@ -110,6 +110,125 @@ const completed = (kind, key) => ({
   assert.equal(summary.completed_action_count, 1);
 }
 
+{
+  const settledReplay = {
+    status: "ALREADY_SETTLED",
+    denial: null,
+    reservation: {
+      kind: "CONTRADICTION_QUERY",
+      idempotency_key: "contradiction:replay",
+      status: "SETTLED",
+      outcome: "COMPLETED"
+    }
+  };
+  const summary = summarizeEvidenceExecution({
+    evidence_plan: requiredPlan,
+    action_results: [settledReplay]
+  });
+  assert.equal(summary.execution_status, "COMPLETE");
+  assert.equal(summary.executed_action_count, 1);
+  assert.equal(summary.completed_action_count, 1);
+  assert.equal(summary.contradiction_pass_completed, true);
+}
+
+{
+  const reservedReplay = {
+    status: "ALREADY_RESERVED",
+    denial: null,
+    reservation: {
+      kind: "SOURCE_FETCH",
+      idempotency_key: "source:pending",
+      status: "RESERVED",
+      outcome: null
+    }
+  };
+  const summary = summarizeEvidenceExecution({
+    evidence_plan: optionalPlan,
+    action_results: [reservedReplay]
+  });
+  assert.equal(summary.execution_status, "EXECUTION_INCOMPLETE");
+  assert.equal(summary.executed_action_count, 0);
+  assert.equal(summary.completed_action_count, 0);
+  assert.deepEqual(summary.failures, [{
+    kind: "SOURCE_FETCH",
+    idempotency_key: "source:pending",
+    outcome: "UNSETTLED"
+  }]);
+}
+
+assert.throws(
+  () => summarizeEvidenceExecution({
+    evidence_plan: requiredPlan,
+    action_results: [{
+      status: "FAILED",
+      denial: null,
+      reservation: {
+        kind: "CONTRADICTION_QUERY",
+        idempotency_key: "contradiction:false-complete",
+        status: "SETTLED",
+        outcome: "COMPLETED"
+      }
+    }]
+  }),
+  /evidence_execution_failed_receipt_incoherent/
+);
+
+assert.throws(
+  () => summarizeEvidenceExecution({
+    evidence_plan: optionalPlan,
+    action_results: [{
+      status: "COMPLETED",
+      denial: null,
+      reservation: {
+        kind: "SOURCE_FETCH",
+        idempotency_key: "source:false-complete",
+        status: "SETTLED",
+        outcome: "FAILED"
+      }
+    }]
+  }),
+  /evidence_execution_completed_receipt_incoherent/
+);
+
+assert.throws(
+  () => summarizeEvidenceExecution({
+    evidence_plan: optionalPlan,
+    action_results: [{
+      status: "DENIED",
+      reservation: null,
+      denial: {
+        version: "wrong-version",
+        code: "MAX_SOURCE_FETCHES_EXCEEDED",
+        kind: "SOURCE_FETCH",
+        idempotency_key: "source:bad-denial"
+      }
+    }]
+  }),
+  /evidence_execution_denial_version_invalid/
+);
+
+assert.throws(
+  () => summarizeEvidenceExecution({
+    evidence_plan: optionalPlan,
+    action_results: [{
+      status: "FAILED",
+      denial: {
+        version: "proofttl-evidence-budget-denial-v1",
+        code: "MAX_SOURCE_FETCHES_EXCEEDED",
+        kind: "SOURCE_FETCH",
+        idempotency_key: "source:mixed"
+      },
+      reservation: {
+        kind: "SOURCE_FETCH",
+        idempotency_key: "source:mixed",
+        status: "SETTLED",
+        outcome: "FAILED"
+      }
+    }]
+  }),
+  /evidence_execution_receipt_mixed_outcome/
+);
+
 assert.throws(
   () => summarizeEvidenceExecution({
     evidence_plan: optionalPlan,
