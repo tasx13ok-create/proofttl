@@ -21,6 +21,10 @@ export function summarizeEvidenceExecution({ evidence_plan, action_results = [] 
       completed_action_count: 0,
       discovery_pass_required: false,
       discovery_pass_completed: false,
+      source_fetch_required: false,
+      source_fetch_completed: false,
+      semantic_evaluation_required: false,
+      semantic_evaluation_completed: false,
       contradiction_pass_required: false,
       contradiction_pass_completed: false,
       denials: [],
@@ -50,7 +54,11 @@ export function summarizeEvidenceExecution({ evidence_plan, action_results = [] 
   const executed = receipts.filter((receipt) => receipt.reservation?.status === "SETTLED");
   const completed = executed.filter((receipt) => receipt.reservation?.outcome === "COMPLETED");
   const discoveryRequired = requiresIndependentDiscovery(evidence_plan);
+  const sourceFetchRequired = requiresBudgetedAction(evidence_plan, "max_source_fetches");
+  const semanticEvaluationRequired = requiresBudgetedAction(evidence_plan, "max_semantic_evaluations");
   const discoveryCompleted = completed.some((receipt) => receipt.kind === "CANDIDATE_QUERY");
+  const sourceFetchCompleted = completed.some((receipt) => receipt.kind === "SOURCE_FETCH");
+  const semanticEvaluationCompleted = completed.some((receipt) => receipt.kind === "SEMANTIC_EVALUATION");
   const contradictionCompleted = completed.some((receipt) => receipt.kind === "CONTRADICTION_QUERY");
   const contradictionRequired = evidence_plan.contradiction_pass_required === true;
 
@@ -60,11 +68,15 @@ export function summarizeEvidenceExecution({ evidence_plan, action_results = [] 
       ? "EXECUTION_INCOMPLETE"
       : discoveryRequired && !discoveryCompleted
         ? "DISCOVERY_PASS_INCOMPLETE"
-        : contradictionRequired && !contradictionCompleted
-          ? "CONTRADICTION_PASS_INCOMPLETE"
-          : receipts.length === 0
-            ? "NOT_EXECUTED"
-            : "COMPLETE";
+        : sourceFetchRequired && !sourceFetchCompleted
+          ? "SOURCE_FETCH_INCOMPLETE"
+          : semanticEvaluationRequired && !semanticEvaluationCompleted
+            ? "SEMANTIC_EVALUATION_INCOMPLETE"
+            : contradictionRequired && !contradictionCompleted
+              ? "CONTRADICTION_PASS_INCOMPLETE"
+              : receipts.length === 0
+                ? "NOT_EXECUTED"
+                : "COMPLETE";
 
   return Object.freeze({
     version: SUMMARY_VERSION,
@@ -73,6 +85,10 @@ export function summarizeEvidenceExecution({ evidence_plan, action_results = [] 
     completed_action_count: completed.length,
     discovery_pass_required: discoveryRequired,
     discovery_pass_completed: discoveryCompleted,
+    source_fetch_required: sourceFetchRequired,
+    source_fetch_completed: sourceFetchCompleted,
+    semantic_evaluation_required: semanticEvaluationRequired,
+    semantic_evaluation_completed: semanticEvaluationCompleted,
     contradiction_pass_required: contradictionRequired,
     contradiction_pass_completed: contradictionCompleted,
     denials: Object.freeze(denials),
@@ -84,6 +100,13 @@ function requiresIndependentDiscovery(plan) {
   if (plan.status !== "PLANNED") return false;
   const intents = Array.isArray(plan.query_intents) ? plan.query_intents : [];
   return intents.some((intent) => String(intent?.purpose || "").toUpperCase() !== "ADVERSARIAL_CONTRADICTION");
+}
+
+function requiresBudgetedAction(plan, field) {
+  const budget = plan?.execution_budget;
+  if (!budget || typeof budget !== "object" || Array.isArray(budget)) return false;
+  const value = Number(budget[field]);
+  return Number.isInteger(value) && value > 0;
 }
 
 function normalizeActionResult(result) {
