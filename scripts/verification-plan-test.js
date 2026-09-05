@@ -43,6 +43,7 @@ check("high-risk compliance claim requires an adversarial contradiction pass", (
   assert.equal(triage.contradiction_pass_required, true);
   assert.equal(plan.category, "COMPLIANCE");
   assert.equal(plan.contradiction_pass_required, true);
+  assert.ok(plan.execution_budget.max_contradiction_queries > 0);
   assert.ok(plan.query_intents.some((item) => item.purpose === "ADVERSARIAL_CONTRADICTION"));
 });
 
@@ -54,6 +55,25 @@ check("low-risk historical claim stays on cheap primary lookup rung", () => {
   assert.equal(triage.verification_depth, "PRIMARY_LOOKUP");
   assert.equal(plan.category, "HISTORICAL");
   assert.ok(plan.execution_budget.max_source_fetches <= 3);
+});
+
+check("primary lookup with ambiguity receives contradiction capacity", () => {
+  const base = buildClaimContract("Ada Lovelace was born in 1815.");
+  const contract = {
+    ...base,
+    verification_priority: "LOW",
+    volatility: { ...base.volatility, level: "LOW" },
+    risk_if_wrong: { ...base.risk_if_wrong, level: "LOW", score: 1 },
+    ambiguities: ["Birth date may depend on calendar/source convention"]
+  };
+  const triage = triageClaimContract(contract);
+  const plan = buildEvidencePlan(contract, triage);
+  assert.equal(triage.decision, "VERIFY");
+  assert.equal(triage.verification_depth, "PRIMARY_LOOKUP");
+  assert.equal(triage.contradiction_pass_required, true);
+  assert.equal(plan.contradiction_pass_required, true);
+  assert.ok(plan.execution_budget.max_contradiction_queries >= 1);
+  assert.ok(plan.query_intents.some((item) => item.purpose === "ADVERSARIAL_CONTRADICTION"));
 });
 
 check("explicit high-assurance request raises depth but still has a bounded execution envelope", () => {
