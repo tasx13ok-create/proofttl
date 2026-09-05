@@ -96,4 +96,40 @@ const mirrored = aggregateEvidence([
 assert.equal(mirrored.evidence_for.length, 1, "mirrors of one underlying source must dedupe before independence counting");
 assert.equal(mirrored.metrics.independent_support_groups, 1);
 
-console.log("SUCCESS: evidence independence origin checks passed.");
+const supportMarkedAgainst = aggregateEvidence([
+  {
+    source_url: "https://source.example/support",
+    entailment: "FULL_SUPPORT",
+    stance: "AGAINST",
+    authority_score: 0.99,
+    directness_score: 0.99,
+    specificity_score: 0.99,
+    independence_score: 0.99,
+    reputation_score: 0.99,
+    provenance: excerpt("The source directly supports the claim.")
+  }
+]);
+assert.equal(supportMarkedAgainst.verdict, "UNKNOWN", "support evidence with an opposing stance must fail closed");
+assert.equal(supportMarkedAgainst.evidence_against.length, 0, "mismatched support must not be counted as contradiction");
+assert.equal(supportMarkedAgainst.rejected_evidence.length, 1);
+assert.ok(supportMarkedAgainst.rejected_evidence[0].reasons.includes("REJECTED_STANCE_ENTAILMENT_MISMATCH"));
+
+const contradictionMarkedFor = aggregateEvidence([
+  {
+    source_url: "https://source.example/contradiction",
+    entailment: "CONTRADICTORY",
+    stance: "FOR",
+    authority_score: 0.99,
+    directness_score: 0.99,
+    specificity_score: 0.99,
+    independence_score: 0.99,
+    reputation_score: 0.99,
+    provenance: excerpt("The source directly contradicts the claim.")
+  }
+]);
+assert.equal(contradictionMarkedFor.verdict, "UNKNOWN", "contradictory evidence with a supporting stance must fail closed");
+assert.equal(contradictionMarkedFor.evidence_for.length, 0, "mismatched contradiction must not be counted as support");
+assert.equal(contradictionMarkedFor.rejected_evidence.length, 1);
+assert.ok(contradictionMarkedFor.rejected_evidence[0].reasons.includes("REJECTED_STANCE_ENTAILMENT_MISMATCH"));
+
+console.log("SUCCESS: evidence independence and semantic consistency checks passed.");
