@@ -26,7 +26,9 @@ export function materializeEvidenceExecutionBudget(evidencePlan, pricing = {}, o
       throw new Error(`evidence_runtime_budget_invalid_${limitField}`);
     }
 
-    const reserveCost = finiteUsd(pricing?.[pricingField], `pricing_${pricingField}`);
+    const reserveCost = limit === 0
+      ? 0
+      : finiteUsd(pricing?.[pricingField], `pricing_${pricingField}`);
     reserveCosts[kind] = reserveCost;
     worstCaseCostUsd = roundUsd(worstCaseCostUsd + limit * reserveCost);
   }
