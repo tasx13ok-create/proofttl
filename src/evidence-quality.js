@@ -2,8 +2,14 @@ const ENTAILMENT_STATES = new Set(["FULL_SUPPORT", "PARTIAL_SUPPORT", "CONTRADIC
 const STANCES = new Set(["FOR", "AGAINST", "AMBIGUOUS"]);
 
 export function assessEvidence(input = {}, context = {}) {
-  const observedAt = safeDate(input.observed_at) || new Date();
-  const publishedAt = safeDate(input.published_at || input.updated_at);
+  const parsedObservedAt = safeDate(input.observed_at);
+  const observedAtProvided = hasProvidedTimestamp(input.observed_at);
+  const observedAtValid = !observedAtProvided || Boolean(parsedObservedAt);
+  const observedAt = parsedObservedAt || new Date();
+  const publishedValue = input.published_at || input.updated_at;
+  const publishedAt = safeDate(publishedValue);
+  const publishedAtProvided = hasProvidedTimestamp(publishedValue);
+  const publishedAtValid = !publishedAtProvided || Boolean(publishedAt);
   const volatility = context.volatility || context.claim_contract?.volatility?.level || "MEDIUM";
   const sourceType = normalizeSourceType(input.source_type, input.primary);
   const authority = clamp01(input.authority_score ?? authorityDefault(sourceType));
@@ -25,7 +31,7 @@ export function assessEvidence(input = {}, context = {}) {
   const weighted = authority * 0.22 + directness * 0.22 + independence * 0.16 + specificity * 0.16 + reputation * 0.1 + freshness * 0.14;
   const entailmentMultiplier = entailment === "FULL_SUPPORT" || entailment === "CONTRADICTORY" ? 1 : entailment === "PARTIAL_SUPPORT" ? 0.75 : entailment === "CONTEXT_ONLY" ? 0.45 : entailment === "IRRELEVANT" ? 0 : 0.55;
   const qualityScore = clamp01((weighted - conflictPenalty) * entailmentMultiplier);
-  const accepted = traceableSource && stanceConsistent && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
+  const accepted = observedAtValid && publishedAtValid && traceableSource && stanceConsistent && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
 
   return {
     version: "proofttl-evidence-quality-v1",
@@ -44,7 +50,7 @@ export function assessEvidence(input = {}, context = {}) {
     conflict_of_interest: Boolean(input.conflict_of_interest),
     underlying_source_id: cleanText(input.underlying_source_id, 200),
     provenance: input.provenance && typeof input.provenance === "object" ? input.provenance : null,
-    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, accepted })
+    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, publishedAtValid, accepted })
   };
 }
 
@@ -210,11 +216,13 @@ function isStanceConsistent(entailment, stance) {
   return true;
 }
 
-function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, accepted }) {
+function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, publishedAtValid, accepted }) {
   return [
     `SOURCE_${sourceType}`,
     `ENTAILMENT_${entailment}`,
     traceableSource ? "TRACEABLE_HTTP_SOURCE" : "REJECTED_UNTRACEABLE_SOURCE",
+    observedAtValid ? "OBSERVATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_OBSERVATION_TIMESTAMP",
+    publishedAtValid ? "PUBLICATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_PUBLICATION_TIMESTAMP",
     stanceConsistent ? "STANCE_ENTAILMENT_CONSISTENT" : "REJECTED_STANCE_ENTAILMENT_MISMATCH",
     definitiveEntailment ? (verbatimEvidence ? "VERBATIM_EVIDENCE_PRESENT" : "REJECTED_MISSING_VERBATIM_EVIDENCE") : "VERBATIM_EVIDENCE_NOT_REQUIRED",
     freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS",
@@ -229,6 +237,7 @@ function sortEvidence(items) { return [...items].sort((a, b) => b.quality_score 
 function normalizeUrl(value) { try { return new URL(String(value || "")).toString(); } catch { return cleanText(value, 2048); } }
 function isTraceableSourceUrl(value) { try { const url = new URL(String(value || "")); return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname); } catch { return false; } }
 function hasVerbatimEvidence(value) { return typeof value === "string" && Boolean(value.trim()); }
+function hasProvidedTimestamp(value) { return value !== undefined && value !== null && Boolean(String(value).trim()); }
 function safeDate(value) { if (!value) return null; const date = value instanceof Date ? value : new Date(value); return Number.isFinite(date.getTime()) ? date : null; }
 function cleanText(value, max) { if (typeof value !== "string") return null; const text = value.trim().replace(/\s+/g, " "); return text ? text.slice(0, max) : null; }
 function clamp01(value) { const numeric = Number(value); if (!Number.isFinite(numeric)) return 0; return Math.max(0, Math.min(1, numeric)); }
