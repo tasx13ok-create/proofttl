@@ -170,6 +170,11 @@ assert.equal(contradictionMarkedFor.evidence_for.length, 0, "mismatched contradi
 assert.equal(contradictionMarkedFor.rejected_evidence.length, 1);
 assert.ok(contradictionMarkedFor.rejected_evidence[0].reasons.includes("REJECTED_STANCE_ENTAILMENT_MISMATCH"));
 
+const acceptedContextTiming = {
+  observed_at: "2026-09-05T09:00:00.000Z",
+  published_at: "2026-09-05T09:00:00.000Z"
+};
+
 const contextMarkedAgainst = aggregateEvidence([
   {
     source_url: "https://source.example/context",
@@ -179,7 +184,8 @@ const contextMarkedAgainst = aggregateEvidence([
     directness_score: 1,
     specificity_score: 1,
     independence_score: 1,
-    reputation_score: 1
+    reputation_score: 1,
+    ...acceptedContextTiming
   },
   {
     source_url: "https://other.example/context",
@@ -189,7 +195,8 @@ const contextMarkedAgainst = aggregateEvidence([
     directness_score: 1,
     specificity_score: 1,
     independence_score: 1,
-    reputation_score: 1
+    reputation_score: 1,
+    ...acceptedContextTiming
   }
 ]);
 assert.equal(contextMarkedAgainst.verdict, "UNKNOWN", "context-only evidence must never manufacture contradiction");
