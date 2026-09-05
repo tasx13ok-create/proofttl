@@ -134,19 +134,22 @@ function evidenceIdentity(item) {
 function independentGroupCount(items) {
   const groups = new Set();
   for (const item of items) {
-    // Independence is about distinct publishing origins, not distinct content
-    // fingerprints. Different pages or revisions on one host therefore remain
-    // one corroborating origin even when their underlying_source_id differs.
-    // Mirrored copies sharing an underlying_source_id are already collapsed by
-    // dedupeEvidence before this function runs.
+    // Independence is about distinct publishing organizations, not distinct
+    // pages, hostnames, or content fingerprints. When a normalized publisher
+    // identity is present, prefer it so sibling subdomains controlled by one
+    // organization cannot manufacture corroboration. Hostname remains the
+    // conservative fallback for sources that do not declare a publisher.
+    if (item.publisher) {
+      groups.add(`p:${item.publisher.toLowerCase()}`);
+      continue;
+    }
     try {
       groups.add(`h:${new URL(item.source_url).hostname.toLowerCase()}`);
       continue;
     } catch {
-      if (item.publisher) {
-        groups.add(`p:${item.publisher.toLowerCase()}`);
-        continue;
-      }
+      // Traceable evidence normally has a valid source URL, but retain the
+      // underlying-source fallback for defensive compatibility with callers
+      // that reuse this helper on pre-assessed evidence.
     }
     if (item.underlying_source_id) groups.add(`u:${item.underlying_source_id.toLowerCase()}`);
   }
