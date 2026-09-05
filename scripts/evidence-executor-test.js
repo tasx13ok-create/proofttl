@@ -147,4 +147,69 @@ const budget = {
   assert.equal(executor.snapshot().close_reason, "evidence_provider_actual_cost_exceeds_reservation");
 }
 
+{
+  let nowMs = 1000;
+  let providerCalls = 0;
+  const events = [];
+  const executor = createEvidenceExecutor({
+    execution_budget: { ...budget, latency_budget_ms: 50 },
+    now: () => nowMs,
+    emit: (event) => events.push(event),
+    providers: {
+      SOURCE_FETCH: async () => {
+        providerCalls += 1;
+        return { actual_cost_usd: 0.01, value: { should_not_run: true } };
+      }
+    }
+  });
+
+  nowMs = 1050;
+  const result = await executor.run({
+    kind: "SOURCE_FETCH",
+    idempotency_key: "source:expired-before-start",
+    reserve_cost_usd: 0.1
+  });
+
+  assert.equal(result.status, "DENIED");
+  assert.equal(result.value, null);
+  assert.equal(result.denial.code, "BUDGET_CLOSED:evidence_latency_budget_exceeded");
+  assert.equal(providerCalls, 0);
+  assert.equal(executor.snapshot().closed, true);
+  assert.equal(executor.snapshot().close_reason, "evidence_latency_budget_exceeded");
+  assert.equal(events.some((event) => event.type === "EVIDENCE_BUDGET_CLOSED"), true);
+}
+
+{
+  const events = [];
+  let observedSignal = null;
+  const executor = createEvidenceExecutor({
+    execution_budget: { ...budget, latency_budget_ms: 15 },
+    emit: (event) => events.push(event),
+    providers: {
+      CONTRADICTION_QUERY: async ({ signal }) => {
+        observedSignal = signal;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return { actual_cost_usd: 0.01, value: { late: true } };
+      }
+    }
+  });
+
+  const result = await executor.run({
+    kind: "CONTRADICTION_QUERY",
+    idempotency_key: "contradiction:deadline-race",
+    reserve_cost_usd: 0.1
+  });
+
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.value, null);
+  assert.equal(result.error_code, "evidence_latency_budget_exceeded");
+  assert.equal(result.reservation.status, "SETTLED");
+  assert.equal(result.reservation.outcome, "TIMEOUT");
+  assert.equal(result.reservation.actual_cost_usd, 0.1);
+  assert.equal(observedSignal?.aborted, true);
+  assert.equal(executor.snapshot().closed, true);
+  assert.equal(executor.snapshot().close_reason, "evidence_latency_budget_exceeded");
+  assert.equal(events.some((event) => event.type === "EVIDENCE_BUDGET_CLOSED"), true);
+}
+
 console.log("evidence executor tests passed");
