@@ -1,5 +1,7 @@
 const SUMMARY_VERSION = "proofttl-evidence-execution-summary-v1";
 const PLAN_VERSION = "proofttl-evidence-plan-v1";
+const DENIAL_VERSION = "proofttl-evidence-budget-denial-v1";
+const RESULT_STATUSES = new Set(["COMPLETED", "FAILED", "DENIED", "ALREADY_SETTLED", "ALREADY_RESERVED"]);
 
 export function summarizeEvidenceExecution({ evidence_plan, action_results = [] } = {}) {
   validatePlan(evidence_plan);
@@ -67,33 +69,91 @@ function normalizeActionResult(result) {
     throw new Error("evidence_execution_receipt_invalid");
   }
 
-  const reservation = result.reservation && typeof result.reservation === "object"
-    ? result.reservation
-    : null;
-  const denial = result.denial && typeof result.denial === "object"
-    ? result.denial
-    : null;
+  const status = String(result.status || "").toUpperCase();
+  if (!RESULT_STATUSES.has(status)) throw new Error("evidence_execution_receipt_status_invalid");
+
+  const reservation = result.reservation == null
+    ? null
+    : result.reservation && typeof result.reservation === "object" && !Array.isArray(result.reservation)
+      ? result.reservation
+      : invalid("evidence_execution_reservation_invalid");
+  const denial = result.denial == null
+    ? null
+    : result.denial && typeof result.denial === "object" && !Array.isArray(result.denial)
+      ? result.denial
+      : invalid("evidence_execution_denial_invalid");
+
+  if (reservation && denial) throw new Error("evidence_execution_receipt_mixed_outcome");
+
+  validateReceiptCoherence(status, reservation, denial);
+
   const key = String(reservation?.idempotency_key || denial?.idempotency_key || "").trim();
   const kind = String(reservation?.kind || denial?.kind || "").toUpperCase();
-
   if (!key || !kind) throw new Error("evidence_execution_receipt_identity_required");
 
-  const failure = reservation?.status === "SETTLED" && reservation?.outcome !== "COMPLETED"
+  const failure = reservation?.status === "RESERVED"
     ? Object.freeze({
         kind,
         idempotency_key: key,
-        outcome: String(reservation?.outcome || result.error_code || "FAILED")
+        outcome: "UNSETTLED"
       })
-    : null;
+    : reservation?.status === "SETTLED" && reservation?.outcome !== "COMPLETED"
+      ? Object.freeze({
+          kind,
+          idempotency_key: key,
+          outcome: String(reservation?.outcome || result.error_code || "FAILED")
+        })
+      : null;
 
   return Object.freeze({
     idempotency_key: key,
     kind,
-    status: String(result.status || ""),
+    status,
     reservation,
     denial,
     failure
   });
+}
+
+function validateReceiptCoherence(status, reservation, denial) {
+  if (status === "DENIED") {
+    if (reservation || !denial) throw new Error("evidence_execution_denied_receipt_invalid");
+    if (denial.version !== DENIAL_VERSION) throw new Error("evidence_execution_denial_version_invalid");
+    return;
+  }
+
+  if (denial || !reservation) throw new Error("evidence_execution_reservation_required");
+
+  const reservationStatus = String(reservation.status || "").toUpperCase();
+  const outcome = String(reservation.outcome || "").toUpperCase();
+  if (!["RESERVED", "SETTLED"].includes(reservationStatus)) {
+    throw new Error("evidence_execution_reservation_status_invalid");
+  }
+
+  if (status === "COMPLETED") {
+    if (reservationStatus !== "SETTLED" || outcome !== "COMPLETED") {
+      throw new Error("evidence_execution_completed_receipt_incoherent");
+    }
+    return;
+  }
+
+  if (status === "FAILED") {
+    if (reservationStatus !== "SETTLED" || !outcome || outcome === "COMPLETED") {
+      throw new Error("evidence_execution_failed_receipt_incoherent");
+    }
+    return;
+  }
+
+  if (status === "ALREADY_SETTLED") {
+    if (reservationStatus !== "SETTLED" || !outcome) {
+      throw new Error("evidence_execution_settled_replay_incoherent");
+    }
+    return;
+  }
+
+  if (status === "ALREADY_RESERVED" && reservationStatus !== "RESERVED") {
+    throw new Error("evidence_execution_reserved_replay_incoherent");
+  }
 }
 
 function sameReceipt(a, b) {
@@ -112,4 +172,8 @@ function validatePlan(plan) {
   if (!plan || typeof plan !== "object" || plan.version !== PLAN_VERSION) {
     throw new Error("evidence_execution_plan_required");
   }
+}
+
+function invalid(code) {
+  throw new Error(code);
 }
