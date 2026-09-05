@@ -217,4 +217,49 @@ const allowPublic = async () => ({ ok: true });
   assert.ok(result.evidence_items.some((item) => item.provenance.discovery_provenance === "ADVERSARIAL_CONTRADICTION"));
 }
 
+{
+  const calls = [];
+  const providers = {
+    CANDIDATE_QUERY: async () => ({ value: [
+      { source_url: "https://budget-primary-a.example/evidence" },
+      { source_url: "https://budget-primary-b.example/evidence" },
+      { source_url: "https://budget-primary-c.example/evidence" }
+    ] }),
+    CONTRADICTION_QUERY: async () => ({ value: [] }),
+    SOURCE_FETCH: async ({ request }) => {
+      calls.push(["fetch", request.candidate.source_url]);
+      return { value: { source_url: request.candidate.source_url, text: "budgeted evidence" } };
+    },
+    SEMANTIC_EVALUATION: async ({ request }) => {
+      calls.push(["semantic", request.source.source_url]);
+      return { value: {
+        source_url: request.source.source_url,
+        publisher: "Budget Test Publisher",
+        source_type: "PRIMARY",
+        entailment: "CONTEXT_ONLY",
+        stance: "AMBIGUOUS",
+        authority_score: 0.8,
+        directness_score: 0.8,
+        specificity_score: 0.8,
+        independence_score: 0.8,
+        reputation_score: 0.8,
+        observed_at: observed,
+        provenance: { evidence_excerpt: "One complete pipeline survived the cost ceiling." }
+      } };
+    }
+  };
+
+  const result = await executeEvidencePlan({
+    claim_contract: claim,
+    pricing,
+    hard_cost_ceiling_usd: 0.009,
+    providers,
+    validate_source_url: allowPublic
+  });
+  assert.equal(result.outcome.execution_status, "BUDGET_TRUNCATED");
+  assert.equal(result.evidence_items.length, 1, "a cap that funds one full pipeline must not be exhausted on raw fetches");
+  assert.ok(calls[0][0] === "fetch" && calls[1][0] === "semantic", "semantic evaluation should immediately follow a completed fetch");
+  assert.ok(result.action_results.some((item) => item.reservation?.kind === "SEMANTIC_EVALUATION" && item.status === "COMPLETED"));
+}
+
 console.log("evidence orchestrator tests passed");
