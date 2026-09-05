@@ -62,6 +62,44 @@ check("primary direct evidence receives a strong explainable score", () => {
   assert.equal(evidence.components.freshness > 0.9, true);
 });
 
+check("malformed observation timestamps are rejected instead of being treated as now", () => {
+  const evidence = assessEvidence({
+    source_url: "https://acme.example/security",
+    source_type: "PRIMARY",
+    published_at: "2026-08-28T00:00:00Z",
+    observed_at: "definitely-not-a-date",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 1,
+    directness_score: 1,
+    specificity_score: 1,
+    independence_score: 1,
+    reputation_score: 1,
+    provenance: excerpt("Acme supports the stated security capability.")
+  }, { volatility: "HIGH" });
+  assert.equal(evidence.accepted, false);
+  assert.equal(evidence.reasons.includes("REJECTED_INVALID_OBSERVATION_TIMESTAMP"), true);
+});
+
+check("malformed publication timestamps are rejected instead of receiving unknown-date freshness", () => {
+  const evidence = assessEvidence({
+    source_url: "https://acme.example/security",
+    source_type: "PRIMARY",
+    published_at: "not-a-publication-date",
+    observed_at: "2026-08-29T12:00:00Z",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 1,
+    directness_score: 1,
+    specificity_score: 1,
+    independence_score: 1,
+    reputation_score: 1,
+    provenance: excerpt("Acme supports the stated security capability.")
+  }, { volatility: "HIGH" });
+  assert.equal(evidence.accepted, false);
+  assert.equal(evidence.reasons.includes("REJECTED_INVALID_PUBLICATION_TIMESTAMP"), true);
+});
+
 check("high-scoring evidence without a traceable HTTP source is rejected", () => {
   const evidence = assessEvidence({
     source_url: "internal-memory-only",
