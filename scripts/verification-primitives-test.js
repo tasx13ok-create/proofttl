@@ -100,6 +100,26 @@ check("malformed publication timestamps are rejected instead of receiving unknow
   assert.equal(evidence.reasons.includes("REJECTED_INVALID_PUBLICATION_TIMESTAMP"), true);
 });
 
+check("publication after observation is rejected instead of receiving maximum freshness", () => {
+  const evidence = assessEvidence({
+    source_url: "https://acme.example/security",
+    source_type: "PRIMARY",
+    published_at: "2026-08-30T12:00:00Z",
+    observed_at: "2026-08-29T12:00:00Z",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 1,
+    directness_score: 1,
+    specificity_score: 1,
+    independence_score: 1,
+    reputation_score: 1,
+    provenance: excerpt("Acme supports the stated security capability.")
+  }, { volatility: "HIGH" });
+  assert.equal(evidence.components.freshness, 1);
+  assert.equal(evidence.accepted, false);
+  assert.equal(evidence.reasons.includes("REJECTED_PUBLICATION_AFTER_OBSERVATION"), true);
+});
+
 check("high-scoring evidence without a traceable HTTP source is rejected", () => {
   const evidence = assessEvidence({
     source_url: "internal-memory-only",
