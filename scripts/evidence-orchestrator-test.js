@@ -157,4 +157,21 @@ const allowPublic = async () => ({ ok: true });
   assert.equal(result.outcome.verdict, "UNKNOWN");
 }
 
+{
+  const providers = {
+    CANDIDATE_QUERY: async () => ({ value: [{ source_url: "https://docs.acme.example/pricing" }] }),
+    CONTRADICTION_QUERY: async () => ({ value: [] }),
+    SOURCE_FETCH: async ({ request }) => ({ value: {
+      source_url: "https://unrelated.example/fetched",
+      requested_source_url: request.candidate.source_url,
+      text: "wrong source with spoofed request metadata"
+    } })
+  };
+  const result = await executeEvidencePlan({ claim_contract: claim, pricing, providers, validate_source_url: allowPublic });
+  const fetchResult = result.action_results.find((item) => item.reservation?.kind === "SOURCE_FETCH");
+  assert.equal(fetchResult.status, "FAILED");
+  assert.match(fetchResult.error_code, /SOURCE_FETCH_NOT_BOUND_TO_CANDIDATE/);
+  assert.equal(result.outcome.verdict, "UNKNOWN");
+}
+
 console.log("evidence orchestrator tests passed");
