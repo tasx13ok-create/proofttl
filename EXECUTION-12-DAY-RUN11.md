@@ -124,3 +124,31 @@ The ledger's stance/entailment mismatch guard correctly rejected explicit invers
 - Web sprint and web `main` remain identical at `ce43f9eb4000048547e3451aac836c68da0678dd`; no visual churn was introduced.
 - Live Vercel inspection confirms the matching sprint preview `dpl_G9gffm5Dka7uMmLyxskp2PwYYGX9` and production deployment `dpl_6HELAY62mzgDuNRmQ8KNBCFrAXpK` are both `READY` at that same web commit.
 - The flagship boundary remains unchanged: independent source discovery and a genuinely separate adversarial contradiction retrieval pass must still execute inside public `/verify` before ProofTTL can truthfully claim those stages are live.
+
+## Run 11 addendum — publisher-organization independence
+
+### Finding
+
+The previous hostname grouping prevented two pages on one host from being counted as independent evidence, but it still treated sibling subdomains as separate origins even when both evidence records explicitly identified the same publisher organization. A provider could therefore return `docs.example.com` and `newsroom.example.com` for the same publisher and inflate independent corroboration without adding an independent publishing origin.
+
+### `3670744209c7fa949060e74cf9e1a7c8a5a770b4` — Group evidence independence by publisher identity
+
+- Independence grouping now prefers the normalized explicit `publisher` identity when one is present.
+- Hostname grouping remains the conservative fallback when publisher identity is absent.
+- Distinct pages and fingerprints remain separate ledger items; only their independent-origin count is collapsed when they identify the same publisher.
+- The change applies symmetrically to support and contradiction because both sides use the same independence grouping function.
+
+### `a30a02a12bce6cc4e48385d6d0107100ff0e7ef2` — Test publisher identity across sibling subdomains
+
+- Added a regression with two distinct, high-quality supporting pages on `docs.acme.example` and `newsroom.acme.example` that both declare `Acme Corporation` as publisher.
+- Both pages remain visible in `evidence_for`, while `independent_support_groups` remains exactly `1`.
+- `test:evidence-independence` remains part of `test:local`, so the regression is covered by the normal predeploy gate.
+
+### Finalization / verification
+
+- The code diff from the previous sprint checkpoint to `a30a02a12bce6cc4e48385d6d0107100ff0e7ef2` is limited to `src/evidence-quality.js` and `scripts/evidence-independence-test.js`.
+- GitHub Actions `ProofTTL Code Checks` run `33946198087` completed successfully for code checkpoint `a30a02a12bce6cc4e48385d6d0107100ff0e7ef2`.
+- Web sprint and web `main` remain identical at `ce43f9eb4000048547e3451aac836c68da0678dd`.
+- Live Vercel inspection confirms the matching sprint preview `dpl_G9gffm5Dka7uMmLyxskp2PwYYGX9` and production deployment `dpl_6HELAY62mzgDuNRmQ8KNBCFrAXpK` are both `READY` at the same web commit.
+- This closes the logged sibling-subdomain inflation case when a canonical publisher identity is present. The future discovery provider should emit stable publisher-organization identity rather than relying on publisher display-name spelling alone.
+- The highest-value remaining flagship boundary is still real provenance-preserving independent candidate discovery plus a genuinely separate adversarial contradiction retrieval pass inside public `/verify`, with completion derived only from actual executor receipts.
