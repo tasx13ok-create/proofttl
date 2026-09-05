@@ -120,7 +120,8 @@ export function buildEvidencePlan(claimContract, triage = null) {
 
   const category = inferEvidenceCategory(claimContract);
   const depth = resolvedTriage.verification_depth;
-  const budget = evidenceBudget(depth);
+  const contradictionRequired = resolvedTriage.contradiction_pass_required === true;
+  const budget = evidenceBudget(depth, contradictionRequired);
   const proposition = String(claimContract.normalized_claim || "").trim();
 
   return {
@@ -131,8 +132,8 @@ export function buildEvidencePlan(claimContract, triage = null) {
     category,
     verification_depth: depth,
     source_hypotheses: SOURCE_HYPOTHESES[category],
-    query_intents: buildQueryIntents(proposition, category, resolvedTriage.contradiction_pass_required),
-    contradiction_pass_required: resolvedTriage.contradiction_pass_required,
+    query_intents: buildQueryIntents(proposition, category, contradictionRequired),
+    contradiction_pass_required: contradictionRequired,
     acceptance_requirements: {
       retrieval_is_not_evidence: true,
       accepted_items_require_claim_position: true,
@@ -146,7 +147,7 @@ export function buildEvidencePlan(claimContract, triage = null) {
   };
 }
 
-function evidenceBudget(depth) {
+function evidenceBudget(depth, contradictionRequired = false) {
   if (depth === "HIGH_ASSURANCE") {
     return {
       max_candidate_queries: 8,
@@ -184,7 +185,7 @@ function evidenceBudget(depth) {
     max_candidate_queries: 2,
     max_source_fetches: 3,
     max_semantic_evaluations: 3,
-    max_contradiction_queries: 0,
+    max_contradiction_queries: contradictionRequired ? 1 : 0,
     latency_budget_ms: 10000,
     hard_cost_ceiling_usd: null,
     hard_cost_ceiling_state: "REQUIRES_RUNTIME_PRICING_ENFORCEMENT"
