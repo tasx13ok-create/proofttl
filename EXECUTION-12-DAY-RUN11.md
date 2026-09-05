@@ -71,3 +71,28 @@ A related product-integrity gap was that persisted leases exposed the Claim Cont
 7. Replace hostname-only publisher grouping with explicit publisher-organization identity so sibling subdomains controlled by one organization cannot be mistaken for separate independent origins.
 
 No unsupported capability claim was added in this run.
+
+## Run 11 addendum — evidence latency budget validation
+
+### Finding
+
+The evidence executor now enforces a real plan-wide runtime deadline, but its budget-state validator was asymmetric: query/fetch/evaluation counts and the hard cost ceiling were rejected when malformed, while `latency_budget_ms` was silently coerced with `Math.max(0, Number(value) || 0)`. Missing, negative, non-finite, or fractional latency configuration could therefore become a zero-millisecond deadline and surface as an immediate evidence timeout/budget closure rather than a clear invalid-plan failure.
+
+### `0be44edf52b63ee01cdb82441a948ac9403a70e4` — Fail closed on invalid evidence latency budgets
+
+- `latency_budget_ms` must now be a finite positive integer before any evidence budget state can be created.
+- Invalid latency configuration throws `evidence_budget_latency_budget_ms_required` instead of silently turning into a zero-duration execution window.
+- Normalization now preserves the validated integer rather than masking bad configuration.
+
+### `465a6888ccf0738ef0adae5f2d9554aafb00d951` — Cover invalid evidence latency budgets
+
+- Added regression coverage for missing, null, zero, negative, fractional, `NaN`, and infinite latency values.
+- Added an executor-level assertion proving malformed latency is rejected during construction, before any evidence provider can run.
+
+### Finalization / verification
+
+- Diff is limited to evidence budget validation plus its regression coverage and this execution-log checkpoint; no unrelated product or visual changes were introduced.
+- GitHub Actions `ProofTTL Code Checks` run `33940821091` was still in progress for code checkpoint `465a6888ccf0738ef0adae5f2d9554aafb00d951` at finalization, so this addendum does not claim that checkpoint green yet.
+- Web sprint and web `main` were rechecked and remain identical at `ce43f9eb4000048547e3451aac836c68da0678dd`.
+- The matching web sprint preview `dpl_G9gffm5Dka7uMmLyxskp2PwYYGX9` and production deployment `dpl_6HELAY62mzgDuNRmQ8KNBCFrAXpK` remain `READY`.
+- Highest-value remaining product boundary is unchanged: execute provenance-preserving independent candidate discovery and a genuinely distinct adversarial contradiction retrieval pass inside `/verify`, under these now-strict count, cost, and latency ceilings, and only mark the evidence plan complete from actual executor receipts.
