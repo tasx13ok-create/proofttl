@@ -10,6 +10,11 @@ export function assessEvidence(input = {}, context = {}) {
   const publishedAt = safeDate(publishedValue);
   const publishedAtProvided = hasProvidedTimestamp(publishedValue);
   const publishedAtValid = !publishedAtProvided || Boolean(publishedAt);
+  // Evidence cannot have been published/updated after the moment we claim to
+  // have observed it. Previously freshnessScore() clamped negative ages to 0,
+  // so a future publication timestamp could receive maximum freshness. Treat
+  // this impossible chronology as a provenance failure instead of rewarding it.
+  const publicationChronologyValid = !publishedAt || publishedAt.getTime() <= observedAt.getTime();
   const volatility = context.volatility || context.claim_contract?.volatility?.level || "MEDIUM";
   const sourceType = normalizeSourceType(input.source_type, input.primary);
   const authority = clamp01(input.authority_score ?? authorityDefault(sourceType));
@@ -31,7 +36,7 @@ export function assessEvidence(input = {}, context = {}) {
   const weighted = authority * 0.22 + directness * 0.22 + independence * 0.16 + specificity * 0.16 + reputation * 0.1 + freshness * 0.14;
   const entailmentMultiplier = entailment === "FULL_SUPPORT" || entailment === "CONTRADICTORY" ? 1 : entailment === "PARTIAL_SUPPORT" ? 0.75 : entailment === "CONTEXT_ONLY" ? 0.45 : entailment === "IRRELEVANT" ? 0 : 0.55;
   const qualityScore = clamp01((weighted - conflictPenalty) * entailmentMultiplier);
-  const accepted = observedAtValid && publishedAtValid && traceableSource && stanceConsistent && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
+  const accepted = observedAtValid && publishedAtValid && publicationChronologyValid && traceableSource && stanceConsistent && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
 
   return {
     version: "proofttl-evidence-quality-v1",
@@ -50,7 +55,7 @@ export function assessEvidence(input = {}, context = {}) {
     conflict_of_interest: Boolean(input.conflict_of_interest),
     underlying_source_id: cleanText(input.underlying_source_id, 200),
     provenance: input.provenance && typeof input.provenance === "object" ? input.provenance : null,
-    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, publishedAtValid, accepted })
+    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, publishedAtValid, publicationChronologyValid, accepted })
   };
 }
 
@@ -216,13 +221,14 @@ function isStanceConsistent(entailment, stance) {
   return true;
 }
 
-function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, publishedAtValid, accepted }) {
+function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, publishedAtValid, publicationChronologyValid, accepted }) {
   return [
     `SOURCE_${sourceType}`,
     `ENTAILMENT_${entailment}`,
     traceableSource ? "TRACEABLE_HTTP_SOURCE" : "REJECTED_UNTRACEABLE_SOURCE",
     observedAtValid ? "OBSERVATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_OBSERVATION_TIMESTAMP",
     publishedAtValid ? "PUBLICATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_PUBLICATION_TIMESTAMP",
+    publicationChronologyValid ? "PUBLICATION_CHRONOLOGY_VALID" : "REJECTED_PUBLICATION_AFTER_OBSERVATION",
     stanceConsistent ? "STANCE_ENTAILMENT_CONSISTENT" : "REJECTED_STANCE_ENTAILMENT_MISMATCH",
     definitiveEntailment ? (verbatimEvidence ? "VERBATIM_EVIDENCE_PRESENT" : "REJECTED_MISSING_VERBATIM_EVIDENCE") : "VERBATIM_EVIDENCE_NOT_REQUIRED",
     freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS",
