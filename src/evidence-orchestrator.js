@@ -34,7 +34,11 @@ export async function executeEvidencePlan({ claim_contract, triage = null, evide
     if (result.status === "COMPLETED") candidates.push(...tagCandidates(result.value, "ADVERSARIAL_CONTRADICTION"));
   }
 
-  const unique = dedupeCandidates(candidates).slice(0, runtimeBudget.execution_budget.max_source_fetches);
+  const unique = selectCandidatesForFetch(
+    dedupeCandidates(candidates),
+    runtimeBudget.execution_budget.max_source_fetches,
+    resolvedPlan.contradiction_pass_required === true
+  );
   for (let i = 0; i < unique.length; i += 1) {
     const candidate = unique[i];
     const result = await run(executor, actionResults, "SOURCE_FETCH", `fetch:${i}:${candidate.source_url}`, runtimeBudget.reserve_cost_usd.SOURCE_FETCH, { claim_contract, candidate });
@@ -160,6 +164,30 @@ function dedupeCandidates(items) {
   }
   return unique;
 }
+
+function selectCandidatesForFetch(items, limit, contradictionRequired) {
+  const max = Math.max(0, Number(limit) || 0);
+  if (max === 0 || items.length === 0) return [];
+  if (!contradictionRequired) return items.slice(0, max);
+
+  const adversarial = items.filter((item) => item.discovery_provenance === "ADVERSARIAL_CONTRADICTION");
+  if (adversarial.length === 0) return items.slice(0, max);
+
+  const primary = items.filter((item) => item.discovery_provenance !== "ADVERSARIAL_CONTRADICTION");
+  const selected = [];
+  if (primary.length > 0 && max > 1) selected.push(primary[0]);
+  selected.push(adversarial[0]);
+
+  const selectedUrls = new Set(selected.map((item) => item.source_url));
+  for (const item of items) {
+    if (selected.length >= max) break;
+    if (selectedUrls.has(item.source_url)) continue;
+    selected.push(item);
+    selectedUrls.add(item.source_url);
+  }
+  return selected.slice(0, max);
+}
+
 function validUrl(value) { return normalizeUrl(value) !== null; }
 function normalizeUrl(value) {
   try {
