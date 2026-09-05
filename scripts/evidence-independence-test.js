@@ -132,4 +132,60 @@ assert.equal(contradictionMarkedFor.evidence_for.length, 0, "mismatched contradi
 assert.equal(contradictionMarkedFor.rejected_evidence.length, 1);
 assert.ok(contradictionMarkedFor.rejected_evidence[0].reasons.includes("REJECTED_STANCE_ENTAILMENT_MISMATCH"));
 
+const contextMarkedAgainst = aggregateEvidence([
+  {
+    source_url: "https://source.example/context",
+    entailment: "CONTEXT_ONLY",
+    stance: "AGAINST",
+    authority_score: 1,
+    directness_score: 1,
+    specificity_score: 1,
+    independence_score: 1,
+    reputation_score: 1
+  },
+  {
+    source_url: "https://other.example/context",
+    entailment: "CONTEXT_ONLY",
+    stance: "AGAINST",
+    authority_score: 1,
+    directness_score: 1,
+    specificity_score: 1,
+    independence_score: 1,
+    reputation_score: 1
+  }
+]);
+assert.equal(contextMarkedAgainst.verdict, "UNKNOWN", "context-only evidence must never manufacture contradiction");
+assert.equal(contextMarkedAgainst.evidence_against.length, 0, "context-only items must not enter the contradiction side");
+assert.equal(contextMarkedAgainst.metrics.contradiction_strength, 0);
+assert.equal(contextMarkedAgainst.metrics.independent_contradiction_groups, 0);
+assert.equal(contextMarkedAgainst.ambiguous_evidence.length, 2, "accepted context should remain auditable as non-directional evidence");
+
+const unknownMarkedFor = aggregateEvidence([
+  {
+    source_url: "https://source.example/unknown",
+    entailment: "UNKNOWN",
+    stance: "FOR",
+    authority_score: 1,
+    directness_score: 1,
+    specificity_score: 1,
+    independence_score: 1,
+    reputation_score: 1
+  },
+  {
+    source_url: "https://other.example/unknown",
+    entailment: "UNKNOWN",
+    stance: "FOR",
+    authority_score: 1,
+    directness_score: 1,
+    specificity_score: 1,
+    independence_score: 1,
+    reputation_score: 1
+  }
+]);
+assert.equal(unknownMarkedFor.verdict, "UNKNOWN", "unknown entailment must never manufacture support");
+assert.equal(unknownMarkedFor.evidence_for.length, 0, "unknown items must not enter the support side");
+assert.equal(unknownMarkedFor.metrics.support_strength, 0);
+assert.equal(unknownMarkedFor.metrics.independent_support_groups, 0);
+assert.equal(unknownMarkedFor.ambiguous_evidence.length, 2, "accepted unknown items should remain non-directional");
+
 console.log("SUCCESS: evidence independence and semantic consistency checks passed.");
