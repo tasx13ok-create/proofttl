@@ -32,7 +32,7 @@ function baseLease(overrides = {}) {
   };
 }
 
-check("ordinary single-source claim gets a structured signed-context outcome candidate", () => {
+check("ordinary caller-source claim fails closed until its planned evidence execution runs", () => {
   const lease = baseLease();
   attachImmutableVerificationContext(lease);
 
@@ -44,10 +44,38 @@ check("ordinary single-source claim gets a structured signed-context outcome can
   assert.equal(lease.verification_outcome.evidence_ledger.version, "proofttl-evidence-ledger-v1");
   assert.equal(lease.verification_outcome.source_verdict.status, "SUPPORTED");
   assert.equal(lease.verification_outcome.input_source.provenance, "CALLER_PROVIDED_SOURCE");
+  assert.equal(lease.verification_outcome.verdict, "UNKNOWN");
+  assert.equal(lease.verification_outcome.execution_status, "NOT_EXECUTED");
+  assert.equal(lease.verification_outcome.confidence, null);
   assert.equal(lease.ttl_policy.mode, "ADVISORY_V1");
-  assert.equal(lease.status, lease.verification_outcome.verdict);
-  assert.equal(lease.issued_status, lease.verification_outcome.verdict);
-  assert.equal(lease.current_status, lease.verification_outcome.verdict);
+  assert.equal(lease.status, "UNKNOWN");
+  assert.equal(lease.issued_status, "UNKNOWN");
+  assert.equal(lease.current_status, "UNKNOWN");
+  assert.equal(lease.confidence, 0);
+});
+
+check("ordinary changed-source reverify also stays fail-closed without receipt-backed execution", () => {
+  const lease = baseLease();
+  attachImmutableVerificationContext(lease);
+
+  const outcome = deriveReverificationOutcome(lease, {
+    status: "SUPPORTED",
+    evidence: "Acme was founded in 2018",
+    reason: "exact_claim_text_found_in_source",
+    confidence: 0.99,
+    verifier: "deterministic-exact-match",
+    proof_basis: "EXACT_TEXT"
+  }, {
+    final_url: "https://example.com/about-v2",
+    source_fingerprint: "sha256:ordinarychanged",
+    observed_at: "2026-09-02T12:30:00.000Z"
+  });
+
+  assert.equal(outcome.source_verdict.status, "SUPPORTED");
+  assert.equal(outcome.evidence_verdict, "SUPPORTED");
+  assert.equal(outcome.verdict, "UNKNOWN");
+  assert.equal(outcome.execution_status, "NOT_EXECUTED");
+  assert.equal(outcome.confidence, null);
 });
 
 check("high-assurance claim fails closed until contradiction pass actually runs", () => {
