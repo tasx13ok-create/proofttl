@@ -112,7 +112,7 @@ function buildOutcomeFromSourceVerdict(lease, sourceVerdict, source) {
       // while the adjacent signed evidence_plan truthfully says discovery was
       // not executed. Keep the source-level semantic result auditable, but
       // withhold the final verdict until receipt-backed execution occurs.
-      execution_status: evidencePlan.status === "PLANNED" ? "NOT_EXECUTED" : "NOT_EXECUTED",
+      execution_status: "NOT_EXECUTED",
       contradiction_pass_required: contradictionRequired,
       // A caller-provided source is evidence for/against the proposition, not
       // an adversarial contradiction search against the preliminary result.
