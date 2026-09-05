@@ -52,9 +52,20 @@ export function aggregateEvidence(items = [], context = {}) {
   const assessed = dedupeEvidence(items.map((item) => assessEvidence(item, context)));
   const accepted = assessed.filter((item) => item.accepted);
   const rejected = assessed.filter((item) => !item.accepted);
-  const evidenceFor = accepted.filter((item) => item.stance === "FOR");
-  const evidenceAgainst = accepted.filter((item) => item.stance === "AGAINST");
-  const ambiguous = accepted.filter((item) => item.stance === "AMBIGUOUS");
+
+  // A directional provider stance is not enough to move the ledger. Only
+  // entailments that actually express support/refutation are allowed onto a
+  // verdict-bearing side. CONTEXT_ONLY/UNKNOWN evidence may remain accepted as
+  // useful context, but it must stay non-directional even if a provider labels
+  // it FOR or AGAINST.
+  const evidenceFor = accepted.filter(
+    (item) => item.stance === "FOR" && (item.entailment === "FULL_SUPPORT" || item.entailment === "PARTIAL_SUPPORT")
+  );
+  const evidenceAgainst = accepted.filter(
+    (item) => item.stance === "AGAINST" && item.entailment === "CONTRADICTORY"
+  );
+  const directional = new Set([...evidenceFor, ...evidenceAgainst]);
+  const ambiguous = accepted.filter((item) => !directional.has(item));
   const support = sideStrength(evidenceFor);
   const contradiction = sideStrength(evidenceAgainst);
   const independentSupport = independentGroupCount(evidenceFor);
