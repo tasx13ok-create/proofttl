@@ -14,7 +14,8 @@ export async function executeEvidencePlan({ claim_contract, triage = null, evide
   if (resolvedPlan.status !== "PLANNED") return finalize(claim_contract, resolvedTriage, resolvedPlan, [], [], null, null);
 
   const runtimeBudget = materializeEvidenceExecutionBudget(resolvedPlan, pricing, { hard_cost_ceiling_usd });
-  const executor = createEvidenceExecutor({ execution_budget: runtimeBudget.execution_budget, providers: wrapProviders(providers, validate_source_url), emit, now });
+  const validateSourceUrl = cachedValidator(validate_source_url);
+  const executor = createEvidenceExecutor({ execution_budget: runtimeBudget.execution_budget, providers: wrapProviders(providers, validateSourceUrl), emit, now });
   const actionResults = [];
   const candidates = [];
   const fetched = [];
@@ -110,7 +111,7 @@ async function validateSourceBindings(kind, value, request, validateSourceUrl) {
   for (const sourceUrl of urls) {
     const safety = await validateSourceUrl(sourceUrl);
     if (!safety || safety.ok !== true) {
-      throw contractError(kind, `unsafe_source_url:${safety?.reason || "rejected"}`);
+      throw contractError(kind, "UNSAFE_SOURCE_URL");
     }
   }
 
@@ -119,7 +120,7 @@ async function validateSourceBindings(kind, value, request, validateSourceUrl) {
     const actual = normalizeUrl(value.source_url);
     const requested = normalizeUrl(value.requested_source_url);
     if (!expected || (actual !== expected && requested !== expected)) {
-      throw contractError(kind, "source_fetch_not_bound_to_candidate");
+      throw contractError(kind, "SOURCE_FETCH_NOT_BOUND_TO_CANDIDATE");
     }
   }
 
@@ -127,14 +128,24 @@ async function validateSourceBindings(kind, value, request, validateSourceUrl) {
     const expected = normalizeUrl(request?.source?.source_url);
     const actual = normalizeUrl(value.source_url);
     if (!expected || actual !== expected) {
-      throw contractError(kind, "semantic_result_not_bound_to_source");
+      throw contractError(kind, "SEMANTIC_RESULT_NOT_BOUND_TO_SOURCE");
     }
   }
 }
 
+function cachedValidator(validateSourceUrl) {
+  const cache = new Map();
+  return async (sourceUrl) => {
+    const key = normalizeUrl(sourceUrl) || String(sourceUrl);
+    if (!cache.has(key)) cache.set(key, Promise.resolve(validateSourceUrl(sourceUrl)));
+    return cache.get(key);
+  };
+}
+
 function contractError(kind, reason = null) {
+  const suffix = reason ? `_${String(reason).replace(/[^A-Z0-9_]+/gi, "_").toUpperCase().slice(0, 64)}` : "";
   const error = new Error(`evidence_provider_contract_invalid:${kind}${reason ? `:${reason}` : ""}`);
-  error.code = `EVIDENCE_PROVIDER_CONTRACT_INVALID_${kind}`;
+  error.code = `EVIDENCE_PROVIDER_CONTRACT_INVALID_${kind}${suffix}`.slice(0, 120);
   return error;
 }
 

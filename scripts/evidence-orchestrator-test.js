@@ -15,6 +15,7 @@ const allowPublic = async () => ({ ok: true });
 
 {
   const calls = [];
+  let safetyCalls = 0;
   const providers = {
     CANDIDATE_QUERY: async ({ request }) => {
       calls.push(["candidate", request.intent.purpose]);
@@ -48,7 +49,12 @@ const allowPublic = async () => ({ ok: true });
     }
   };
 
-  const result = await executeEvidencePlan({ claim_contract: claim, pricing, providers, validate_source_url: allowPublic });
+  const result = await executeEvidencePlan({
+    claim_contract: claim,
+    pricing,
+    providers,
+    validate_source_url: async () => { safetyCalls += 1; return { ok: true }; }
+  });
   assert.equal(result.outcome.execution_status, "COMPLETE");
   assert.equal(result.outcome.verdict, "SUPPORTED");
   assert.equal(result.outcome.execution_summary.contradiction_pass_completed, true);
@@ -56,6 +62,7 @@ const allowPublic = async () => ({ ok: true });
   assert.equal(result.evidence_items[0].provenance.discovery_provenance, "PRIMARY_DISCOVERY");
   assert.equal(result.evidence_items[1].provenance.discovery_provenance, "ADVERSARIAL_CONTRADICTION");
   assert.equal(result.evidence_items[0].provenance.discovery_source_url, "https://docs.acme.example/pricing");
+  assert.equal(safetyCalls, 2, "source safety validation should be cached per normalized URL across stages");
   assert.ok(calls.some(([kind]) => kind === "candidate"));
   assert.ok(calls.some(([kind]) => kind === "contradiction"));
   assert.ok(calls.some(([kind, provenance]) => kind === "fetch" && provenance === "ADVERSARIAL_CONTRADICTION"));
@@ -105,7 +112,7 @@ const allowPublic = async () => ({ ok: true });
   });
   const discovery = result.action_results.find((item) => item.reservation?.kind === "CANDIDATE_QUERY");
   assert.equal(discovery.status, "FAILED");
-  assert.match(discovery.error_message, /unsafe_source_url:source_ip_not_public/);
+  assert.match(discovery.error_code, /UNSAFE_SOURCE_URL/);
   assert.equal(result.outcome.verdict, "UNKNOWN");
 }
 
@@ -132,7 +139,7 @@ const allowPublic = async () => ({ ok: true });
   const result = await executeEvidencePlan({ claim_contract: claim, pricing, providers, validate_source_url: allowPublic });
   const semantic = result.action_results.find((item) => item.reservation?.kind === "SEMANTIC_EVALUATION");
   assert.equal(semantic.status, "FAILED");
-  assert.match(semantic.error_message, /semantic_result_not_bound_to_source/);
+  assert.match(semantic.error_code, /SEMANTIC_RESULT_NOT_BOUND_TO_SOURCE/);
   assert.equal(result.outcome.verdict, "UNKNOWN");
   assert.notEqual(result.outcome.execution_status, "COMPLETE");
 }
@@ -146,7 +153,7 @@ const allowPublic = async () => ({ ok: true });
   const result = await executeEvidencePlan({ claim_contract: claim, pricing, providers, validate_source_url: allowPublic });
   const fetchResult = result.action_results.find((item) => item.reservation?.kind === "SOURCE_FETCH");
   assert.equal(fetchResult.status, "FAILED");
-  assert.match(fetchResult.error_message, /source_fetch_not_bound_to_candidate/);
+  assert.match(fetchResult.error_code, /SOURCE_FETCH_NOT_BOUND_TO_CANDIDATE/);
   assert.equal(result.outcome.verdict, "UNKNOWN");
 }
 
