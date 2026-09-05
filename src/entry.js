@@ -64,10 +64,6 @@ const x402Routes = {
   }
 };
 
-// This is immutable service configuration, not request state. A Worker version
-// gets one CDP-authenticated x402 runtime lazily on its first protected request.
-// Secret rotation creates a new Worker version, so old credentials do not need
-// to be mutated inside a live isolate.
 let x402Middleware = null;
 
 const app = new Hono();
@@ -77,21 +73,12 @@ app.use("/verify", async (c, next) => {
     return next();
   }
 
-  // These coarse location-local buckets protect the unpaid challenge and the
-  // facilitator verification path before payer identity is cryptographically
-  // available. A separate payer-scoped limiter runs after x402 verification
-  // and before settlement/source/AI work.
   if (c.env.VERIFY_RATE_LIMITER) {
     const rateLimitKey = getVerifyRateLimitKey(c.req.raw);
-    const { success } = await c.env.VERIFY_RATE_LIMITER.limit({
-      key: rateLimitKey
-    });
+    const { success } = await c.env.VERIFY_RATE_LIMITER.limit({ key: rateLimitKey });
 
     if (!success) {
-      console.warn(JSON.stringify({
-        event: "verify_rate_limited",
-        bucket: rateLimitKey
-      }));
+      console.warn(JSON.stringify({ event: "verify_rate_limited", bucket: rateLimitKey }));
       c.header("retry-after", "60");
       return c.json(
         {
@@ -105,10 +92,7 @@ app.use("/verify", async (c, next) => {
 
   const requestGuard = await validateVerifyRequest(
     c.req.raw,
-    Number(
-      c.env.PROOFTTL_MAX_VERIFY_REQUEST_BYTES ||
-      DEFAULT_MAX_VERIFY_REQUEST_BYTES
-    )
+    Number(c.env.PROOFTTL_MAX_VERIFY_REQUEST_BYTES || DEFAULT_MAX_VERIFY_REQUEST_BYTES)
   );
 
   if (!requestGuard.ok) {
@@ -116,9 +100,7 @@ app.use("/verify", async (c, next) => {
       {
         error: requestGuard.error,
         message: requestGuard.message,
-        ...(requestGuard.max_bytes
-          ? { max_bytes: requestGuard.max_bytes }
-          : {})
+        ...(requestGuard.max_bytes ? { max_bytes: requestGuard.max_bytes } : {})
       },
       requestGuard.status
     );
@@ -141,6 +123,7 @@ app.use("/verify", async (c, next) => {
   return paymentMiddleware(c, next);
 });
 
+app.get("/", (c) => machineJson(c, publicServiceContract(c.env)));
 app.get("/.well-known/proofttl.json", (c) => machineJson(c, discoveryForEnv(c.env)));
 app.get("/.well-known/proofttl-keys.json", (c) => machineJson(c, signingKeysForEnv(c.env)));
 app.get("/openapi.json", (c) => machineJson(c, OPENAPI));
@@ -148,9 +131,6 @@ app.get("/pricing", (c) => machineJson(c, PRICING));
 
 app.post("/claims/decompose", (c) => handleClaimDecompositionRequest(c.req.raw));
 
-// Manual reverification is intentionally disabled on the public surface for
-// now. Automatic scheduled monitoring remains active inside core.scheduled.
-// This prevents free callers from forcing repeated source fetches / AI work.
 app.post("/lease/:id/reverify", (c) =>
   c.json(
     {
@@ -177,8 +157,6 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    // D1 is the due-time index. Reconciliation is intentionally separate from
-    // the core monitor run so a repair failure never blocks normal due checks.
     if (env?.MONITOR_DB && env?.LEASES) {
       ctx.waitUntil(reconcileMonitorScheduleFromKv(env, controller.scheduledTime));
     }
@@ -193,6 +171,36 @@ export default {
   }
 };
 
+function publicServiceContract(env) {
+  const discovery = discoveryForEnv(env);
+  return {
+    name: discovery.service,
+    version: discovery.version,
+    protocol: discovery.protocol,
+    description: discovery.description,
+    endpoints: {
+      health: "GET /health",
+      verify: "POST /verify",
+      lease: "GET /lease/:id",
+      monitor: "GET /monitor/status",
+      claims_decompose: "POST /claims/decompose",
+      discovery: "GET /.well-known/proofttl.json",
+      openapi: "GET /openapi.json"
+    },
+    manual_reverification: {
+      public_enabled: false,
+      endpoint: "POST /lease/:id/reverify",
+      status: "manual_reverify_disabled",
+      replacement: "automatic_reverification_while_active"
+    },
+    verification_scope: {
+      public_verify_source_mode: "CALLER_PROVIDED_SOURCE_ONLY",
+      independent_source_discovery_executed: false,
+      adversarial_contradiction_retrieval_executed: false
+    }
+  };
+}
+
 function getX402Middleware(env) {
   if (x402Middleware) return x402Middleware;
 
@@ -204,10 +212,7 @@ function getX402Middleware(env) {
 
   const facilitatorClient = new HTTPFacilitatorClient({
     url: CDP_FACILITATOR_URL,
-    createAuthHeaders: createCdpFacilitatorAuthHeaders({
-      apiKeyId,
-      apiKeySecret
-    })
+    createAuthHeaders: createCdpFacilitatorAuthHeaders({ apiKeyId, apiKeySecret })
   });
   const resourceServer = new x402ResourceServer(facilitatorClient)
     .register(X402_NETWORK, new ExactEvmScheme());
@@ -251,15 +256,9 @@ async function validatePaidVerifyRequest(c, paymentResult) {
   );
   if (!payerGuard.ok) {
     if (payerGuard.status === 429) {
-      console.warn(JSON.stringify({
-        event: "payer_verify_rate_limited",
-        payer: payerGuard.payer
-      }));
+      console.warn(JSON.stringify({ event: "payer_verify_rate_limited", payer: payerGuard.payer }));
     } else {
-      console.error(JSON.stringify({
-        event: "payer_verify_guard_failed",
-        error: payerGuard.error
-      }));
+      console.error(JSON.stringify({ event: "payer_verify_guard_failed", error: payerGuard.error }));
     }
 
     if (payerGuard.retry_after_seconds) {
@@ -291,8 +290,6 @@ async function validatePaidVerifyRequest(c, paymentResult) {
 function envForCore(env, monitorNow = null) {
   if (!env) return env;
 
-  // Keep Hono/x402 on the original environment. Core receives wrappers only
-  // for bindings that need ProofTTL-specific routing/index/signing behavior.
   const routed = Object.create(env);
 
   if (env.AI) {
@@ -412,10 +409,6 @@ async function enrichLeaseVerdictSemantics(response, signingEnv = null) {
     current_status: currentStatus
   };
 
-  // The core lease-store adapter attaches this same immutable context before
-  // persistence. Doing it on the newly issued response keeps the paid response
-  // byte-for-byte truthful about the Claim Contract/TTL rationale that was just
-  // stored, rather than making clients fetch the lease a second time.
   if (signingEnv) {
     attachImmutableVerificationContext(enriched);
   }
