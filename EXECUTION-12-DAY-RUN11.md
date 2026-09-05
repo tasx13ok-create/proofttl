@@ -96,3 +96,31 @@ The evidence executor now enforces a real plan-wide runtime deadline, but its bu
 - Web sprint and web `main` were rechecked and remain identical at `ce43f9eb4000048547e3451aac836c68da0678dd`.
 - The matching web sprint preview `dpl_G9gffm5Dka7uMmLyxskp2PwYYGX9` and production deployment `dpl_6HELAY62mzgDuNRmQ8KNBCFrAXpK` remain `READY`.
 - Highest-value remaining product boundary is unchanged: execute provenance-preserving independent candidate discovery and a genuinely distinct adversarial contradiction retrieval pass inside `/verify`, under these now-strict count, cost, and latency ceilings, and only mark the evidence plan complete from actual executor receipts.
+
+## Run 11 addendum — non-directional evidence verdict isolation
+
+### Finding
+
+The ledger's stance/entailment mismatch guard correctly rejected explicit inversions such as `FULL_SUPPORT + AGAINST` and `CONTRADICTORY + FOR`, but aggregation still trusted `stance` too broadly after acceptance. A high-scoring `CONTEXT_ONLY` or `UNKNOWN` item could carry an explicit `FOR` or `AGAINST` stance, remain accepted as contextual evidence, and then be included in support/contradiction strength and independent-origin counts even though its entailment was non-directional. With enough such items, provider metadata could manufacture a definitive side without actual supporting or contradictory entailment.
+
+### `2f7b6c2e32aa5bd35af214bc4321c6bb7c8981d1` — Prevent non-directional evidence from driving verdicts
+
+- Verdict-bearing support now requires both `stance: FOR` and an entailment of `FULL_SUPPORT` or `PARTIAL_SUPPORT`.
+- Verdict-bearing contradiction now requires both `stance: AGAINST` and `CONTRADICTORY` entailment.
+- Accepted `CONTEXT_ONLY`, `UNKNOWN`, and other non-directional evidence remains visible in `ambiguous_evidence` for auditability but contributes zero support/contradiction strength and zero directional independence groups.
+- This preserves useful context without allowing a provider's stance label to outrun the semantic claim position actually established by the evidence.
+
+### `02bfe4feafb86919c23dc40baabf520c9429a123` — Test non-directional evidence verdict isolation
+
+- Added regressions with multiple independent, maximum-scoring `CONTEXT_ONLY + AGAINST` items and prove they cannot create contradiction strength or a contradicted verdict.
+- Added regressions with multiple independent, maximum-scoring `UNKNOWN + FOR` items and prove they cannot create support strength or a supported verdict.
+- Both classes remain accepted and auditable as non-directional evidence instead of being silently discarded.
+
+### Finalization / verification
+
+- GitHub Actions `ProofTTL Code Checks` run `33943378049` completed successfully for code checkpoint `02bfe4feafb86919c23dc40baabf520c9429a123`.
+- `test:evidence-independence` remains in `test:local` and therefore the standard predeploy gate covers these regressions.
+- The previous evidence-latency checkpoint also subsequently completed successfully as GitHub Actions run `33940887824` at log head `60439968a0c3e1e6ba60186d472bf06e5efb8dd1`.
+- Web sprint and web `main` remain identical at `ce43f9eb4000048547e3451aac836c68da0678dd`; no visual churn was introduced.
+- Live Vercel inspection confirms the matching sprint preview `dpl_G9gffm5Dka7uMmLyxskp2PwYYGX9` and production deployment `dpl_6HELAY62mzgDuNRmQ8KNBCFrAXpK` are both `READY` at that same web commit.
+- The flagship boundary remains unchanged: independent source discovery and a genuinely separate adversarial contradiction retrieval pass must still execute inside public `/verify` before ProofTTL can truthfully claim those stages are live.
