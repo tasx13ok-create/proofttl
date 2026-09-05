@@ -14,6 +14,7 @@ export function assessEvidence(input = {}, context = {}) {
   const freshness = freshnessScore({ observedAt, publishedAt, volatility });
   const entailment = normalizeEntailment(input.entailment);
   const stance = normalizeStance(input.stance, entailment);
+  const stanceConsistent = isStanceConsistent(entailment, stance);
   const conflictPenalty = clamp01(input.conflict_of_interest ? 0.2 : 0);
   const sourceUrl = normalizeUrl(input.source_url);
   const traceableSource = isTraceableSourceUrl(sourceUrl);
@@ -24,7 +25,7 @@ export function assessEvidence(input = {}, context = {}) {
   const weighted = authority * 0.22 + directness * 0.22 + independence * 0.16 + specificity * 0.16 + reputation * 0.1 + freshness * 0.14;
   const entailmentMultiplier = entailment === "FULL_SUPPORT" || entailment === "CONTRADICTORY" ? 1 : entailment === "PARTIAL_SUPPORT" ? 0.75 : entailment === "CONTEXT_ONLY" ? 0.45 : entailment === "IRRELEVANT" ? 0 : 0.55;
   const qualityScore = clamp01((weighted - conflictPenalty) * entailmentMultiplier);
-  const accepted = traceableSource && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
+  const accepted = traceableSource && stanceConsistent && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
 
   return {
     version: "proofttl-evidence-quality-v1",
@@ -43,7 +44,7 @@ export function assessEvidence(input = {}, context = {}) {
     conflict_of_interest: Boolean(input.conflict_of_interest),
     underlying_source_id: cleanText(input.underlying_source_id, 200),
     provenance: input.provenance && typeof input.provenance === "object" ? input.provenance : null,
-    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, accepted })
+    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, accepted })
   };
 }
 
@@ -189,11 +190,18 @@ function normalizeStance(value, entailment) {
   return "AMBIGUOUS";
 }
 
-function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, accepted }) {
+function isStanceConsistent(entailment, stance) {
+  if (entailment === "FULL_SUPPORT" || entailment === "PARTIAL_SUPPORT") return stance === "FOR";
+  if (entailment === "CONTRADICTORY") return stance === "AGAINST";
+  return true;
+}
+
+function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, accepted }) {
   return [
     `SOURCE_${sourceType}`,
     `ENTAILMENT_${entailment}`,
     traceableSource ? "TRACEABLE_HTTP_SOURCE" : "REJECTED_UNTRACEABLE_SOURCE",
+    stanceConsistent ? "STANCE_ENTAILMENT_CONSISTENT" : "REJECTED_STANCE_ENTAILMENT_MISMATCH",
     definitiveEntailment ? (verbatimEvidence ? "VERBATIM_EVIDENCE_PRESENT" : "REJECTED_MISSING_VERBATIM_EVIDENCE") : "VERBATIM_EVIDENCE_NOT_REQUIRED",
     freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS",
     independence < 0.5 ? "LOW_INDEPENDENCE" : "INDEPENDENT_OR_NEUTRAL",
