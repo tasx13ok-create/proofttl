@@ -118,8 +118,7 @@ async function validateSourceBindings(kind, value, request, validateSourceUrl) {
   if (kind === "SOURCE_FETCH") {
     const expected = normalizeUrl(request?.candidate?.source_url);
     const actual = normalizeUrl(value.source_url);
-    const requested = normalizeUrl(value.requested_source_url);
-    if (!expected || (actual !== expected && requested !== expected)) {
+    if (!expected || actual !== expected) {
       throw contractError(kind, "SOURCE_FETCH_NOT_BOUND_TO_CANDIDATE");
     }
   }
