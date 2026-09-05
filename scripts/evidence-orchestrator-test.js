@@ -219,6 +219,42 @@ const allowPublic = async () => ({ ok: true });
 
 {
   const calls = [];
+  const sharedUrl = "https://shared-counterexample.example/evidence";
+  const providers = {
+    CANDIDATE_QUERY: async () => ({ value: [{ source_url: sharedUrl }] }),
+    CONTRADICTION_QUERY: async () => ({ value: [{ source_url: sharedUrl }] }),
+    SOURCE_FETCH: async ({ request }) => {
+      calls.push(["fetch", request.candidate.discovery_provenance, request.candidate.source_url]);
+      return { value: { source_url: request.candidate.source_url, text: "shared source evidence" } };
+    },
+    SEMANTIC_EVALUATION: async ({ request }) => {
+      calls.push(["semantic", request.source.discovery_provenance, request.source.source_url]);
+      return { value: {
+        source_url: request.source.source_url,
+        publisher: "Shared Evidence Publisher",
+        source_type: "SECONDARY",
+        entailment: "CONTEXT_ONLY",
+        stance: "AMBIGUOUS",
+        authority_score: 0.8,
+        directness_score: 0.8,
+        specificity_score: 0.8,
+        independence_score: 0.8,
+        reputation_score: 0.8,
+        observed_at: observed,
+        provenance: { evidence_excerpt: "The same URL was returned by both discovery paths." }
+      } };
+    }
+  };
+
+  const result = await executeEvidencePlan({ claim_contract: claim, pricing, providers, validate_source_url: allowPublic });
+  assert.equal(result.evidence_items.length, 1, "duplicate discovery paths must still count as one source origin");
+  assert.equal(result.evidence_items[0].provenance.discovery_provenance, "ADVERSARIAL_CONTRADICTION");
+  assert.ok(calls.some(([kind, provenance]) => kind === "fetch" && provenance === "ADVERSARIAL_CONTRADICTION"));
+  assert.ok(calls.some(([kind, provenance]) => kind === "semantic" && provenance === "ADVERSARIAL_CONTRADICTION"));
+}
+
+{
+  const calls = [];
   const providers = {
     CANDIDATE_QUERY: async () => ({ value: [
       { source_url: "https://budget-primary-a.example/evidence" },
