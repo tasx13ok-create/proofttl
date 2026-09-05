@@ -16,7 +16,8 @@
 
 - Core sprint branch started this pass at `ef3c3c6d2621b904d6d70f9a690cf08c71fcad49`.
 - Code/test commits produced during this pass: `aa12ab746d9aabdf76651b0aaf27b78fc63c7898`, `080438140bdc062b8e48e59bedea9a80d57bebc4`, `cbfe4f5b8051783b7504fecbf669010b49f0ac76`, and `a342755f780e3e4e4d30922d38b98003d0d7e90e`.
-- GitHub Actions `ProofTTL Code Checks` run `33951489370` for checkpoint `a342755f780e3e4e4d30922d38b98003d0d7e90e` was still in progress during finalization; no green result is claimed until the workflow completes.
+- GitHub Actions `ProofTTL Code Checks` run `33951489370` completed successfully for code checkpoint `a342755f780e3e4e4d30922d38b98003d0d7e90e`.
+- Final diff review from the pass start to the pre-log checkpoint is coherent and reversible: only `src/evidence-executor.js`, `src/verification-plan.js`, their two focused regression files, and this execution log changed.
 - `proofttl-web/10xeffort-12-day-sprint` was rechecked against web `main` and remains identical at `ce43f9eb4000048547e3451aac836c68da0678dd`; no cosmetic or unrelated web churn was introduced.
 
 ### Remaining
