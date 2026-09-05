@@ -5,6 +5,7 @@ import {
   upsertMonitorSchedule
 } from "./monitor-schedule.js";
 import { buildClaimContract } from "./claim-contract.js";
+import { buildEvidencePlan, triageClaimContract } from "./verification-plan.js";
 import { deriveTtlPolicy } from "./ttl-policy.js";
 import { attachDerivedVerificationOutcome } from "./verification-context.js";
 import {
@@ -194,6 +195,25 @@ export function attachImmutableVerificationContext(lease) {
     } catch (error) {
       console.error(JSON.stringify({
         event: "lease_claim_contract_build_failed",
+        lease_id: lease.lease_id,
+        error: error?.message || String(error)
+      }));
+    }
+  }
+
+  if (!lease.evidence_plan && lease.claim_contract) {
+    try {
+      const triage = triageClaimContract(lease.claim_contract);
+      const plan = buildEvidencePlan(lease.claim_contract, triage);
+      lease.evidence_plan = {
+        ...plan,
+        execution_status: "NOT_EXECUTED_BY_PUBLIC_VERIFY",
+        executed_action_count: 0,
+        execution_note: "The current public /verify path evaluates only the caller-provided source. Planned discovery and contradiction actions are not yet executed."
+      };
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "lease_evidence_plan_build_failed",
         lease_id: lease.lease_id,
         error: error?.message || String(error)
       }));
