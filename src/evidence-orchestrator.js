@@ -25,13 +25,13 @@ export async function executeEvidencePlan({ claim_contract, triage = null, evide
   for (let i = 0; i < primaryIntents.length; i += 1) {
     const intent = primaryIntents[i];
     const result = await run(executor, actionResults, "CANDIDATE_QUERY", `candidate:${i}`, runtimeBudget.reserve_cost_usd.CANDIDATE_QUERY, { claim_contract, intent });
-    if (result.status === "COMPLETED") candidates.push(...tagCandidates(result.value, "PRIMARY_DISCOVERY"));
+    if (result.status === "COMPLETED") candidates.push(...tagCandidates(result.value, "PRIMARY_DISCOVERY", intent, i));
   }
 
   if (resolvedPlan.contradiction_pass_required === true) {
     const intent = resolvedPlan.query_intents.find((item) => item?.purpose === "ADVERSARIAL_CONTRADICTION");
     const result = await run(executor, actionResults, "CONTRADICTION_QUERY", "contradiction:0", runtimeBudget.reserve_cost_usd.CONTRADICTION_QUERY, { claim_contract, intent });
-    if (result.status === "COMPLETED") candidates.push(...tagCandidates(result.value, "ADVERSARIAL_CONTRADICTION"));
+    if (result.status === "COMPLETED") candidates.push(...tagCandidates(result.value, "ADVERSARIAL_CONTRADICTION", intent, 0));
   }
 
   const unique = selectCandidatesForFetch(
@@ -48,7 +48,9 @@ export async function executeEvidencePlan({ claim_contract, triage = null, evide
     const source = {
       ...fetchResult.value,
       discovery_source_url: candidate.source_url,
-      discovery_provenance: candidate.discovery_provenance
+      discovery_provenance: candidate.discovery_provenance,
+      discovery_intent_purpose: candidate.discovery_intent_purpose || null,
+      discovery_intent_index: Number.isInteger(candidate.discovery_intent_index) ? candidate.discovery_intent_index : null
     };
     fetched.push(source);
 
@@ -65,7 +67,9 @@ export async function executeEvidencePlan({ claim_contract, triage = null, evide
       provenance: {
         ...semanticResult.value.provenance,
         discovery_source_url: source.discovery_source_url || null,
-        discovery_provenance: source.discovery_provenance || null
+        discovery_provenance: source.discovery_provenance || null,
+        discovery_intent_purpose: source.discovery_intent_purpose || null,
+        discovery_intent_index: Number.isInteger(source.discovery_intent_index) ? source.discovery_intent_index : null
       }
     });
   }
@@ -160,7 +164,16 @@ function contractError(kind, reason = null) {
   return error;
 }
 
-function tagCandidates(items, provenance) { return items.map((item) => ({ ...item, discovery_provenance: provenance })); }
+function tagCandidates(items, provenance, intent, intentIndex) {
+  const purpose = String(intent?.purpose || "").trim() || null;
+  const index = Number.isInteger(intentIndex) && intentIndex >= 0 ? intentIndex : null;
+  return items.map((item) => ({
+    ...item,
+    discovery_provenance: provenance,
+    discovery_intent_purpose: purpose,
+    discovery_intent_index: index
+  }));
+}
 function dedupeCandidates(items) {
   const indexByUrl = new Map();
   const unique = [];
