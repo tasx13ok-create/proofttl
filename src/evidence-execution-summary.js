@@ -19,6 +19,8 @@ export function summarizeEvidenceExecution({ evidence_plan, action_results = [] 
       execution_status: "NOT_EXECUTED",
       executed_action_count: 0,
       completed_action_count: 0,
+      discovery_pass_required: false,
+      discovery_pass_completed: false,
       contradiction_pass_required: false,
       contradiction_pass_completed: false,
       denials: [],
@@ -47,6 +49,8 @@ export function summarizeEvidenceExecution({ evidence_plan, action_results = [] 
 
   const executed = receipts.filter((receipt) => receipt.reservation?.status === "SETTLED");
   const completed = executed.filter((receipt) => receipt.reservation?.outcome === "COMPLETED");
+  const discoveryRequired = requiresIndependentDiscovery(evidence_plan);
+  const discoveryCompleted = completed.some((receipt) => receipt.kind === "CANDIDATE_QUERY");
   const contradictionCompleted = completed.some((receipt) => receipt.kind === "CONTRADICTION_QUERY");
   const contradictionRequired = evidence_plan.contradiction_pass_required === true;
 
@@ -54,22 +58,32 @@ export function summarizeEvidenceExecution({ evidence_plan, action_results = [] 
     ? "BUDGET_TRUNCATED"
     : failures.length > 0
       ? "EXECUTION_INCOMPLETE"
-      : contradictionRequired && !contradictionCompleted
-        ? "CONTRADICTION_PASS_INCOMPLETE"
-        : receipts.length === 0
-          ? "NOT_EXECUTED"
-          : "COMPLETE";
+      : discoveryRequired && !discoveryCompleted
+        ? "DISCOVERY_PASS_INCOMPLETE"
+        : contradictionRequired && !contradictionCompleted
+          ? "CONTRADICTION_PASS_INCOMPLETE"
+          : receipts.length === 0
+            ? "NOT_EXECUTED"
+            : "COMPLETE";
 
   return Object.freeze({
     version: SUMMARY_VERSION,
     execution_status: executionStatus,
     executed_action_count: executed.length,
     completed_action_count: completed.length,
+    discovery_pass_required: discoveryRequired,
+    discovery_pass_completed: discoveryCompleted,
     contradiction_pass_required: contradictionRequired,
     contradiction_pass_completed: contradictionCompleted,
     denials: Object.freeze(denials),
     failures: Object.freeze(failures)
   });
+}
+
+function requiresIndependentDiscovery(plan) {
+  if (plan.status !== "PLANNED") return false;
+  const intents = Array.isArray(plan.query_intents) ? plan.query_intents : [];
+  return intents.some((intent) => String(intent?.purpose || "").toUpperCase() !== "ADVERSARIAL_CONTRADICTION");
 }
 
 function normalizeActionResult(result) {
@@ -193,8 +207,17 @@ function sameReceipt(a, b) {
 }
 
 function stable(value) {
-  if (value == null) return "null";
-  return JSON.stringify(value, Object.keys(value).sort());
+  return JSON.stringify(canonicalize(value));
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalize(value[key])])
+  );
 }
 
 function validatePlan(plan) {
