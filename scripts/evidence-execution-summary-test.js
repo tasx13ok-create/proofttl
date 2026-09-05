@@ -13,6 +13,13 @@ const optionalPlan = {
   contradiction_pass_required: false
 };
 
+const discoveryPlan = {
+  version: "proofttl-evidence-plan-v1",
+  status: "PLANNED",
+  contradiction_pass_required: false,
+  query_intents: [{ purpose: "PRIMARY_SUPPORT_OR_REFUTATION" }]
+};
+
 const completed = (kind, key) => ({
   status: "COMPLETED",
   denial: null,
@@ -48,6 +55,26 @@ const completed = (kind, key) => ({
   });
   assert.equal(summary.execution_status, "CONTRADICTION_PASS_INCOMPLETE");
   assert.equal(summary.contradiction_pass_completed, false);
+}
+
+{
+  const summary = summarizeEvidenceExecution({
+    evidence_plan: discoveryPlan,
+    action_results: [completed("SOURCE_FETCH", "source:without-discovery")]
+  });
+  assert.equal(summary.execution_status, "DISCOVERY_PASS_INCOMPLETE");
+  assert.equal(summary.discovery_pass_required, true);
+  assert.equal(summary.discovery_pass_completed, false);
+}
+
+{
+  const summary = summarizeEvidenceExecution({
+    evidence_plan: discoveryPlan,
+    action_results: [completed("CANDIDATE_QUERY", "candidate:discovery")]
+  });
+  assert.equal(summary.execution_status, "COMPLETE");
+  assert.equal(summary.discovery_pass_required, true);
+  assert.equal(summary.discovery_pass_completed, true);
 }
 
 {
@@ -108,6 +135,16 @@ const completed = (kind, key) => ({
   assert.equal(summary.execution_status, "COMPLETE");
   assert.equal(summary.executed_action_count, 1);
   assert.equal(summary.completed_action_count, 1);
+}
+
+{
+  const first = completed("SOURCE_FETCH", "source:nested-order");
+  first.reservation.accounting = { reserved: { usd: 0.02, provider: "alpha" }, tags: ["a", "b"] };
+  const second = completed("SOURCE_FETCH", "source:nested-order");
+  second.reservation.accounting = { tags: ["a", "b"], reserved: { provider: "alpha", usd: 0.02 } };
+  const summary = summarizeEvidenceExecution({ evidence_plan: optionalPlan, action_results: [first, second] });
+  assert.equal(summary.execution_status, "COMPLETE");
+  assert.equal(summary.executed_action_count, 1);
 }
 
 {
