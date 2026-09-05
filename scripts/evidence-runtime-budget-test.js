@@ -44,6 +44,24 @@ const pricing = {
   assert.equal(runtime.configured_cost_ceiling_usd, 0.1);
 }
 
+{
+  const noContradictionPlan = {
+    ...plan,
+    execution_budget: {
+      ...plan.execution_budget,
+      max_contradiction_queries: 0
+    }
+  };
+  const runtime = materializeEvidenceExecutionBudget(noContradictionPlan, {
+    candidate_query: 0.01,
+    source_fetch: 0.02,
+    semantic_evaluation: 0.03
+  });
+  assert.equal(runtime.reserve_cost_usd.CONTRADICTION_QUERY, 0);
+  assert.equal(runtime.worst_case_cost_usd, 0.17);
+  assert.equal(runtime.execution_budget.hard_cost_ceiling_usd, 0.17);
+}
+
 assert.throws(
   () => materializeEvidenceExecutionBudget({ ...plan, status: "NOT_SCHEDULED" }, pricing),
   /evidence_runtime_budget_plan_not_executable/
