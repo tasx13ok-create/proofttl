@@ -2,6 +2,12 @@ const SUMMARY_VERSION = "proofttl-evidence-execution-summary-v1";
 const PLAN_VERSION = "proofttl-evidence-plan-v1";
 const DENIAL_VERSION = "proofttl-evidence-budget-denial-v1";
 const RESULT_STATUSES = new Set(["COMPLETED", "FAILED", "DENIED", "ALREADY_SETTLED", "ALREADY_RESERVED"]);
+const ACTION_LIMIT_FIELD = Object.freeze({
+  CANDIDATE_QUERY: "max_candidate_queries",
+  SOURCE_FETCH: "max_source_fetches",
+  SEMANTIC_EVALUATION: "max_semantic_evaluations",
+  CONTRADICTION_QUERY: "max_contradiction_queries"
+});
 
 export function summarizeEvidenceExecution({ evidence_plan, action_results = [] } = {}) {
   validatePlan(evidence_plan);
@@ -37,6 +43,8 @@ export function summarizeEvidenceExecution({ evidence_plan, action_results = [] 
   }
 
   const receipts = [...byKey.values()];
+  validateReceiptsAgainstPlan(evidence_plan, receipts);
+
   const executed = receipts.filter((receipt) => receipt.reservation?.status === "SETTLED");
   const completed = executed.filter((receipt) => receipt.reservation?.outcome === "COMPLETED");
   const contradictionCompleted = completed.some((receipt) => receipt.kind === "CONTRADICTION_QUERY");
@@ -90,13 +98,10 @@ function normalizeActionResult(result) {
   const key = String(reservation?.idempotency_key || denial?.idempotency_key || "").trim();
   const kind = String(reservation?.kind || denial?.kind || "").toUpperCase();
   if (!key || !kind) throw new Error("evidence_execution_receipt_identity_required");
+  if (!ACTION_LIMIT_FIELD[kind]) throw new Error("evidence_execution_receipt_kind_unsupported");
 
   const failure = reservation?.status === "RESERVED"
-    ? Object.freeze({
-        kind,
-        idempotency_key: key,
-        outcome: "UNSETTLED"
-      })
+    ? Object.freeze({ kind, idempotency_key: key, outcome: "UNSETTLED" })
     : reservation?.status === "SETTLED" && reservation?.outcome !== "COMPLETED"
       ? Object.freeze({
           kind,
@@ -153,6 +158,30 @@ function validateReceiptCoherence(status, reservation, denial) {
 
   if (status === "ALREADY_RESERVED" && reservationStatus !== "RESERVED") {
     throw new Error("evidence_execution_reserved_replay_incoherent");
+  }
+}
+
+function validateReceiptsAgainstPlan(plan, receipts) {
+  const budget = plan.execution_budget;
+  if (receipts.length === 0 || budget == null) return;
+  if (!budget || typeof budget !== "object" || Array.isArray(budget)) {
+    throw new Error("evidence_execution_plan_budget_invalid");
+  }
+
+  const reservedCounts = Object.fromEntries(Object.keys(ACTION_LIMIT_FIELD).map((kind) => [kind, 0]));
+  for (const receipt of receipts) {
+    if (!receipt.reservation) continue;
+    reservedCounts[receipt.kind] += 1;
+  }
+
+  for (const [kind, field] of Object.entries(ACTION_LIMIT_FIELD)) {
+    const limit = Number(budget[field]);
+    if (!Number.isInteger(limit) || limit < 0) {
+      throw new Error(`evidence_execution_plan_budget_invalid_${field}`);
+    }
+    if (reservedCounts[kind] > limit) {
+      throw new Error(`evidence_execution_receipts_exceed_plan_${field}`);
+    }
   }
 }
 
