@@ -39,23 +39,31 @@ export async function executeEvidencePlan({ claim_contract, triage = null, evide
     runtimeBudget.execution_budget.max_source_fetches,
     resolvedPlan.contradiction_pass_required === true
   );
+  let semanticAttempts = 0;
   for (let i = 0; i < unique.length; i += 1) {
     const candidate = unique[i];
-    const result = await run(executor, actionResults, "SOURCE_FETCH", `fetch:${i}:${candidate.source_url}`, runtimeBudget.reserve_cost_usd.SOURCE_FETCH, { claim_contract, candidate });
-    if (result.status === "COMPLETED") fetched.push({
-      ...result.value,
+    const fetchResult = await run(executor, actionResults, "SOURCE_FETCH", `fetch:${i}:${candidate.source_url}`, runtimeBudget.reserve_cost_usd.SOURCE_FETCH, { claim_contract, candidate });
+    if (fetchResult.status !== "COMPLETED") continue;
+
+    const source = {
+      ...fetchResult.value,
       discovery_source_url: candidate.source_url,
       discovery_provenance: candidate.discovery_provenance
-    });
-  }
+    };
+    fetched.push(source);
 
-  for (let i = 0; i < Math.min(fetched.length, runtimeBudget.execution_budget.max_semantic_evaluations); i += 1) {
-    const source = fetched[i];
-    const result = await run(executor, actionResults, "SEMANTIC_EVALUATION", `semantic:${i}:${source.source_url}`, runtimeBudget.reserve_cost_usd.SEMANTIC_EVALUATION, { claim_contract, source });
-    if (result.status === "COMPLETED") evidenceItems.push({
-      ...result.value,
+    // Complete a usable fetch -> semantic pipeline before spending the next
+    // source-fetch reservation. Under a tightened runtime cost ceiling this
+    // preserves the maximum amount of actual evidence instead of exhausting
+    // the remaining budget on raw retrievals that can never be evaluated.
+    if (semanticAttempts >= runtimeBudget.execution_budget.max_semantic_evaluations) continue;
+    const semanticIndex = semanticAttempts;
+    semanticAttempts += 1;
+    const semanticResult = await run(executor, actionResults, "SEMANTIC_EVALUATION", `semantic:${semanticIndex}:${source.source_url}`, runtimeBudget.reserve_cost_usd.SEMANTIC_EVALUATION, { claim_contract, source });
+    if (semanticResult.status === "COMPLETED") evidenceItems.push({
+      ...semanticResult.value,
       provenance: {
-        ...result.value.provenance,
+        ...semanticResult.value.provenance,
         discovery_source_url: source.discovery_source_url || null,
         discovery_provenance: source.discovery_provenance || null
       }
