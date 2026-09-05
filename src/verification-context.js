@@ -80,6 +80,7 @@ export function deriveExecutedVerificationOutcome({
   const outcome = finalizeVerificationOutcome({
     evidence_ledger: evidenceLedger,
     execution: {
+      execution_status: executionSummary.execution_status,
       contradiction_pass_required: executionSummary.contradiction_pass_required,
       contradiction_pass_completed: executionSummary.contradiction_pass_completed,
       denials: executionSummary.denials,
