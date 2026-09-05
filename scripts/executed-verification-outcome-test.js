@@ -97,4 +97,24 @@ const completed = (kind, key) => ({
   assert.equal(outcome.execution_failures[0].outcome, "TIMEOUT");
 }
 
+{
+  const outcome = deriveExecutedVerificationOutcome({
+    claim_contract: claimContract,
+    evidence_items: supportEvidence,
+    action_results: [],
+    evidence_plan: {
+      version: "proofttl-evidence-plan-v1",
+      status: "PLANNED",
+      contradiction_pass_required: false
+    }
+  });
+
+  assert.equal(outcome.evidence_verdict, "SUPPORTED");
+  assert.equal(outcome.execution_summary.execution_status, "NOT_EXECUTED");
+  assert.equal(outcome.execution_status, "NOT_EXECUTED");
+  assert.equal(outcome.verdict, "UNKNOWN");
+  assert.equal(outcome.confidence, null);
+  assert.equal(outcome.confidence_status, "WITHHELD_EXECUTION_INCOMPLETE");
+}
+
 console.log("executed verification outcome tests passed");
