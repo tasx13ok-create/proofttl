@@ -5,6 +5,8 @@ const EXECUTION_STATUSES = new Set([
   "BUDGET_TRUNCATED",
   "EXECUTION_INCOMPLETE",
   "DISCOVERY_PASS_INCOMPLETE",
+  "SOURCE_FETCH_INCOMPLETE",
+  "SEMANTIC_EVALUATION_INCOMPLETE",
   "CONTRADICTION_PASS_INCOMPLETE"
 ]);
 
@@ -27,8 +29,9 @@ export function finalizeVerificationOutcome({ evidence_ledger, execution = {} } 
   const evidenceVerdict = evidence_ledger.verdict;
   // A definitive verdict is only publishable when the planned verification
   // execution completed. Budget denials, provider failures, an unfinished
-  // discovery/contradiction pass, or a receipt-derived NOT_EXECUTED state all
-  // withhold the final verdict. Preserve the evidence-level verdict for auditability.
+  // discovery/fetch/semantic/contradiction stage, or a receipt-derived
+  // NOT_EXECUTED state all withhold the final verdict. Preserve the
+  // evidence-level verdict for auditability.
   const finalVerdict = executionIncomplete ? "UNKNOWN" : evidenceVerdict;
   const confidence = executionIncomplete ? null : evidence_ledger.confidence;
   const finalExecutionStatus = budgetTruncated
