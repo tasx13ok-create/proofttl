@@ -174,4 +174,47 @@ const allowPublic = async () => ({ ok: true });
   assert.equal(result.outcome.verdict, "UNKNOWN");
 }
 
+{
+  const calls = [];
+  const manyPrimaryCandidates = Array.from({ length: 20 }, (_, index) => ({
+    source_url: `https://primary-${index}.example/evidence`
+  }));
+  const providers = {
+    CANDIDATE_QUERY: async () => ({ value: manyPrimaryCandidates }),
+    CONTRADICTION_QUERY: async () => ({ value: [{ source_url: "https://counter.example/evidence" }] }),
+    SOURCE_FETCH: async ({ request }) => {
+      calls.push(["fetch", request.candidate.discovery_provenance, request.candidate.source_url]);
+      return { value: { source_url: request.candidate.source_url, text: "bounded evidence" } };
+    },
+    SEMANTIC_EVALUATION: async ({ request }) => {
+      calls.push(["semantic", request.source.discovery_provenance, request.source.source_url]);
+      return { value: {
+        source_url: request.source.source_url,
+        publisher: "Test Publisher",
+        source_type: "SECONDARY",
+        entailment: "CONTEXT_ONLY",
+        stance: "AMBIGUOUS",
+        authority_score: 0.8,
+        directness_score: 0.8,
+        specificity_score: 0.8,
+        independence_score: 0.8,
+        reputation_score: 0.8,
+        observed_at: observed,
+        provenance: { evidence_excerpt: "Context inspected." }
+      } };
+    }
+  };
+
+  const result = await executeEvidencePlan({ claim_contract: claim, pricing, providers, validate_source_url: allowPublic });
+  assert.ok(
+    calls.some(([kind, provenance, url]) => kind === "fetch" && provenance === "ADVERSARIAL_CONTRADICTION" && url === "https://counter.example/evidence"),
+    "bounded fetch selection must reserve room for an adversarial candidate"
+  );
+  assert.ok(
+    calls.some(([kind, provenance, url]) => kind === "semantic" && provenance === "ADVERSARIAL_CONTRADICTION" && url === "https://counter.example/evidence"),
+    "adversarial candidates that survive fetch selection must also reach semantic evaluation"
+  );
+  assert.ok(result.evidence_items.some((item) => item.provenance.discovery_provenance === "ADVERSARIAL_CONTRADICTION"));
+}
+
 console.log("evidence orchestrator tests passed");
