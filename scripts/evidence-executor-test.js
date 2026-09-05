@@ -212,4 +212,52 @@ const budget = {
   assert.equal(events.some((event) => event.type === "EVIDENCE_BUDGET_CLOSED"), true);
 }
 
+for (const [label, providerResult] of [
+  ["null", null],
+  ["primitive", "ok"],
+  ["missing-value", { actual_cost_usd: 0.01 }]
+]) {
+  const executor = createEvidenceExecutor({
+    execution_budget: budget,
+    providers: {
+      CANDIDATE_QUERY: async () => providerResult
+    }
+  });
+
+  const result = await executor.run({
+    kind: "CANDIDATE_QUERY",
+    idempotency_key: `candidate:malformed-result:${label}`,
+    reserve_cost_usd: 0.1
+  });
+
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.value, null);
+  assert.equal(result.error_code, "evidence_provider_result_invalid");
+  assert.equal(result.reservation.status, "SETTLED");
+  assert.equal(result.reservation.outcome, "PROVIDER_ACCOUNTING_INVALID");
+  assert.equal(result.reservation.actual_cost_usd, 0.1);
+  assert.equal(executor.snapshot().closed, true);
+  assert.equal(executor.snapshot().close_reason, "evidence_provider_result_invalid");
+}
+
+{
+  const executor = createEvidenceExecutor({
+    execution_budget: budget,
+    providers: {
+      CANDIDATE_QUERY: async () => ({ actual_cost_usd: 0, value: null })
+    }
+  });
+
+  const result = await executor.run({
+    kind: "CANDIDATE_QUERY",
+    idempotency_key: "candidate:explicit-null-value",
+    reserve_cost_usd: 0.1
+  });
+
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(result.value, null);
+  assert.equal(result.reservation.outcome, "COMPLETED");
+  assert.equal(executor.snapshot().closed, false);
+}
+
 console.log("evidence executor tests passed");
