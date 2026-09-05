@@ -99,8 +99,12 @@ export function createEvidenceExecutor({ execution_budget, providers = {}, emit 
       return failForLatency(attempt.grant);
     }
 
-    const providerCost = finiteOptionalCost(result?.actual_cost_usd);
-    if (result?.actual_cost_usd != null && providerCost == null) {
+    if (!validProviderResult(result)) {
+      return failClosedSettlement(attempt.grant, "evidence_provider_result_invalid");
+    }
+
+    const providerCost = finiteOptionalCost(result.actual_cost_usd);
+    if (result.actual_cost_usd != null && providerCost == null) {
       return failClosedSettlement(attempt.grant, "evidence_provider_actual_cost_invalid");
     }
     if (providerCost != null && providerCost > attempt.grant.reserved_cost_usd) {
@@ -114,7 +118,7 @@ export function createEvidenceExecutor({ execution_budget, providers = {}, emit 
     });
     const reservation = getEvidenceReservation(state, attempt.grant.idempotency_key);
     emitEvent({ version: EXECUTOR_VERSION, type: "EVIDENCE_ACTION_SETTLED", reservation });
-    return { status: "COMPLETED", denial: null, reservation, value: result?.value ?? null };
+    return { status: "COMPLETED", denial: null, reservation, value: result.value };
   }
 
   async function runProviderWithinDeadline(provider, grant, request) {
@@ -241,6 +245,13 @@ function normalizeProviders(providers) {
     if (typeof provider === "function") normalized[kind] = provider;
   }
   return Object.freeze(normalized);
+}
+
+function validProviderResult(result) {
+  return result !== null
+    && typeof result === "object"
+    && !Array.isArray(result)
+    && Object.prototype.hasOwnProperty.call(result, "value");
 }
 
 function finiteOptionalCost(value) {
