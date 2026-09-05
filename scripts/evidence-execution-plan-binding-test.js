@@ -56,11 +56,15 @@ assert.throws(
   const replay = completed("SOURCE_FETCH", "fetch:stable");
   const summary = summarizeEvidenceExecution({
     evidence_plan: plan(),
-    action_results: [replay, structuredClone(replay)]
+    action_results: [
+      replay,
+      structuredClone(replay),
+      completed("SEMANTIC_EVALUATION", "semantic:stable")
+    ]
   });
   assert.equal(summary.execution_status, "COMPLETE");
-  assert.equal(summary.executed_action_count, 1);
-  assert.equal(summary.completed_action_count, 1);
+  assert.equal(summary.executed_action_count, 2);
+  assert.equal(summary.completed_action_count, 2);
 }
 
 console.log("evidence execution plan binding tests passed");
