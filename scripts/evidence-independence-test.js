@@ -35,6 +35,44 @@ const sameHost = aggregateEvidence([
 assert.equal(sameHost.evidence_for.length, 2, "distinct pages should remain distinct ledger items");
 assert.equal(sameHost.metrics.independent_support_groups, 1, "same publisher host must count as one independent origin");
 
+const samePublisherAcrossSubdomains = aggregateEvidence([
+  {
+    source_url: "https://docs.acme.example/pricing/current",
+    publisher: "Acme Corporation",
+    underlying_source_id: "sha256:docs-page",
+    source_type: "PRIMARY",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 0.98,
+    directness_score: 0.98,
+    specificity_score: 0.98,
+    independence_score: 0.9,
+    reputation_score: 0.95,
+    provenance: excerpt("Acme Pro costs $20 per month.")
+  },
+  {
+    source_url: "https://newsroom.acme.example/releases/pro-pricing",
+    publisher: "Acme Corporation",
+    underlying_source_id: "sha256:newsroom-page",
+    source_type: "PRIMARY",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 0.98,
+    directness_score: 0.98,
+    specificity_score: 0.98,
+    independence_score: 0.9,
+    reputation_score: 0.95,
+    provenance: excerpt("Acme confirms Pro remains $20 monthly.")
+  }
+]);
+
+assert.equal(samePublisherAcrossSubdomains.evidence_for.length, 2, "sibling-subdomain pages should remain distinct ledger items");
+assert.equal(
+  samePublisherAcrossSubdomains.metrics.independent_support_groups,
+  1,
+  "explicit publisher identity must prevent sibling subdomains from manufacturing independent corroboration"
+);
+
 const separateHosts = aggregateEvidence([
   {
     source_url: "https://docs.acme.example/pricing/current",
