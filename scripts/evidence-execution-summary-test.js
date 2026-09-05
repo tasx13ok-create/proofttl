@@ -20,6 +20,19 @@ const discoveryPlan = {
   query_intents: [{ purpose: "PRIMARY_SUPPORT_OR_REFUTATION" }]
 };
 
+const budgetedPlan = {
+  version: "proofttl-evidence-plan-v1",
+  status: "PLANNED",
+  contradiction_pass_required: false,
+  query_intents: [{ purpose: "PRIMARY_SUPPORT_OR_REFUTATION" }],
+  execution_budget: {
+    max_candidate_queries: 2,
+    max_source_fetches: 3,
+    max_semantic_evaluations: 3,
+    max_contradiction_queries: 0
+  }
+};
+
 const completed = (kind, key) => ({
   status: "COMPLETED",
   denial: null,
@@ -75,6 +88,46 @@ const completed = (kind, key) => ({
   assert.equal(summary.execution_status, "COMPLETE");
   assert.equal(summary.discovery_pass_required, true);
   assert.equal(summary.discovery_pass_completed, true);
+}
+
+{
+  const summary = summarizeEvidenceExecution({
+    evidence_plan: budgetedPlan,
+    action_results: [completed("CANDIDATE_QUERY", "candidate:no-fetch")]
+  });
+  assert.equal(summary.execution_status, "SOURCE_FETCH_INCOMPLETE");
+  assert.equal(summary.source_fetch_required, true);
+  assert.equal(summary.source_fetch_completed, false);
+  assert.equal(summary.semantic_evaluation_required, true);
+  assert.equal(summary.semantic_evaluation_completed, false);
+}
+
+{
+  const summary = summarizeEvidenceExecution({
+    evidence_plan: budgetedPlan,
+    action_results: [
+      completed("CANDIDATE_QUERY", "candidate:fetched"),
+      completed("SOURCE_FETCH", "source:fetched")
+    ]
+  });
+  assert.equal(summary.execution_status, "SEMANTIC_EVALUATION_INCOMPLETE");
+  assert.equal(summary.source_fetch_completed, true);
+  assert.equal(summary.semantic_evaluation_completed, false);
+}
+
+{
+  const summary = summarizeEvidenceExecution({
+    evidence_plan: budgetedPlan,
+    action_results: [
+      completed("CANDIDATE_QUERY", "candidate:full"),
+      completed("SOURCE_FETCH", "source:full"),
+      completed("SEMANTIC_EVALUATION", "semantic:full")
+    ]
+  });
+  assert.equal(summary.execution_status, "COMPLETE");
+  assert.equal(summary.discovery_pass_completed, true);
+  assert.equal(summary.source_fetch_completed, true);
+  assert.equal(summary.semantic_evaluation_completed, true);
 }
 
 {
