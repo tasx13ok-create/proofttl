@@ -76,6 +76,19 @@ await check("budget denials are structured", () => {
   assert.equal(attempt.denial.idempotency_key, "claim:1:contradiction:1");
 });
 
+await check("invalid latency budgets fail before any evidence work", () => {
+  for (const latency_budget_ms of [undefined, null, 0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(
+      () => createEvidenceBudgetState({ ...budget, latency_budget_ms }),
+      /latency_budget_ms_required/
+    );
+  }
+  assert.throws(
+    () => createEvidenceExecutor({ execution_budget: { ...budget, latency_budget_ms: 0 } }),
+    /latency_budget_ms_required/
+  );
+});
+
 await check("settled spend remains committed against hard ceiling", () => {
   let state = createEvidenceBudgetState(budget);
   state = reserveEvidenceAction(state, { kind: "SEMANTIC_EVALUATION", idempotency_key: "claim:1:semantic:a", reserve_cost_usd: 0.006 });
