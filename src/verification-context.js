@@ -106,13 +106,17 @@ function buildOutcomeFromSourceVerdict(lease, sourceVerdict, source) {
   const outcome = finalizeVerificationOutcome({
     evidence_ledger: evidenceLedger,
     execution: {
+      // The public caller-source path does not execute the Evidence Plan.
+      // This must be explicit even for low-assurance claims; otherwise the
+      // finalizer defaults to COMPLETE and can publish a definitive verdict
+      // while the adjacent signed evidence_plan truthfully says discovery was
+      // not executed. Keep the source-level semantic result auditable, but
+      // withhold the final verdict until receipt-backed execution occurs.
+      execution_status: evidencePlan.status === "PLANNED" ? "NOT_EXECUTED" : "NOT_EXECUTED",
       contradiction_pass_required: contradictionRequired,
       // A caller-provided source is evidence for/against the proposition, not
       // an adversarial contradiction search against the preliminary result.
-      // Reverification must obey this same boundary as issuance; otherwise a
-      // changed source can compare a provisional verdict against a fail-closed
-      // signed UNKNOWN and spuriously revoke a high-assurance lease.
-      contradiction_pass_completed: !contradictionRequired,
+      contradiction_pass_completed: false,
       denials: [],
       failures: []
     }
