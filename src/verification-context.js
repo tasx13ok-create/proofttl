@@ -1,4 +1,5 @@
 import { aggregateEvidence } from "./evidence-quality.js";
+import { summarizeEvidenceExecution } from "./evidence-execution-summary.js";
 import { buildEvidencePlan, triageClaimContract } from "./verification-plan.js";
 import { finalizeVerificationOutcome } from "./verification-outcome.js";
 
@@ -49,6 +50,47 @@ export function deriveReverificationOutcome(lease, sourceVerdict, source = {}) {
     source_fingerprint: source.source_fingerprint || lease.last_source_fingerprint || lease.source_fingerprint || null,
     observed_at: source.observed_at || lease.last_observed_at || lease.observed_at || lease.issued_at || null
   });
+}
+
+// Integration boundary for the real evidence runtime. Providers/orchestration
+// supply evidence items plus the executor's action results; this function
+// derives execution truth only from those receipts and feeds it into the same
+// fail-closed final-outcome primitive used by issuance/reverification.
+export function deriveExecutedVerificationOutcome({
+  claim_contract,
+  evidence_items = [],
+  action_results = [],
+  triage = null,
+  evidence_plan = null
+} = {}) {
+  if (!claim_contract || typeof claim_contract !== "object") {
+    throw new Error("executed_verification_claim_contract_required");
+  }
+  if (!Array.isArray(evidence_items)) {
+    throw new Error("executed_verification_evidence_items_required");
+  }
+
+  const resolvedTriage = triage || triageClaimContract(claim_contract);
+  const resolvedPlan = evidence_plan || buildEvidencePlan(claim_contract, resolvedTriage);
+  const executionSummary = summarizeEvidenceExecution({
+    evidence_plan: resolvedPlan,
+    action_results
+  });
+  const evidenceLedger = aggregateEvidence(evidence_items, { claim_contract });
+  const outcome = finalizeVerificationOutcome({
+    evidence_ledger: evidenceLedger,
+    execution: {
+      contradiction_pass_required: executionSummary.contradiction_pass_required,
+      contradiction_pass_completed: executionSummary.contradiction_pass_completed,
+      denials: executionSummary.denials,
+      failures: executionSummary.failures
+    }
+  });
+
+  outcome.triage = resolvedTriage;
+  outcome.evidence_plan = resolvedPlan;
+  outcome.execution_summary = executionSummary;
+  return outcome;
 }
 
 function buildOutcomeFromSourceVerdict(lease, sourceVerdict, source) {
