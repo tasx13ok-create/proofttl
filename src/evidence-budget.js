@@ -178,6 +178,10 @@ function validateExecutionBudget(budget) {
     const value = Number(budget[field]);
     if (!Number.isInteger(value) || value < 0) throw new Error(`evidence_budget_invalid_${field}`);
   }
+  const latency = Number(budget.latency_budget_ms);
+  if (!Number.isFinite(latency) || !Number.isInteger(latency) || latency <= 0) {
+    throw new Error("evidence_budget_latency_budget_ms_required");
+  }
   const cost = Number(budget.hard_cost_ceiling_usd);
   if (!Number.isFinite(cost) || cost < 0) throw new Error("evidence_budget_hard_cost_ceiling_required");
 }
@@ -194,7 +198,7 @@ function normalizeBudget(budget) {
     max_source_fetches: Number(budget.max_source_fetches),
     max_semantic_evaluations: Number(budget.max_semantic_evaluations),
     max_contradiction_queries: Number(budget.max_contradiction_queries),
-    latency_budget_ms: Math.max(0, Number(budget.latency_budget_ms) || 0),
+    latency_budget_ms: Number(budget.latency_budget_ms),
     hard_cost_ceiling_usd: roundUsd(Number(budget.hard_cost_ceiling_usd))
   };
 }
