@@ -29,6 +29,12 @@ for (const [address, prefix] of [
 for (const [address, prefix] of [
   ["::", 128],
   ["::1", 128],
+  // Reject the entire IPv4-mapped IPv6 representation space. URL parsers
+  // canonicalize inputs such as ::ffff:127.0.0.1 to ::ffff:7f00:1; relying
+  // on dotted-decimal extraction alone therefore lets mapped loopback/private
+  // literals bypass the IPv4 denylist. Public sources should use their native
+  // IPv4 literal or hostname instead of an ambiguous mapped representation.
+  ["::ffff:0:0", 96],
   ["64:ff9b::", 96],
   ["100::", 64],
   ["2001:2::", 48],
