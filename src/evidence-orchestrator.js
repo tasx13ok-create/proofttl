@@ -162,12 +162,27 @@ function contractError(kind, reason = null) {
 
 function tagCandidates(items, provenance) { return items.map((item) => ({ ...item, discovery_provenance: provenance })); }
 function dedupeCandidates(items) {
-  const seen = new Set();
+  const indexByUrl = new Map();
   const unique = [];
   for (const item of items) {
     const key = normalizeUrl(item.source_url);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
+    if (!key) continue;
+
+    const existingIndex = indexByUrl.get(key);
+    if (existingIndex != null) {
+      // A URL discovered by both the normal search and the separately executed
+      // contradiction search is still one source origin, but it must retain
+      // the adversarial discovery path. Otherwise dedupe silently downgrades
+      // it to PRIMARY_DISCOVERY and bounded selection can lose the only
+      // counterevidence candidate returned by the contradiction provider.
+      if (item.discovery_provenance === "ADVERSARIAL_CONTRADICTION"
+        && unique[existingIndex].discovery_provenance !== "ADVERSARIAL_CONTRADICTION") {
+        unique[existingIndex] = { ...unique[existingIndex], ...item, source_url: key };
+      }
+      continue;
+    }
+
+    indexByUrl.set(key, unique.length);
     unique.push({ ...item, source_url: key });
   }
   return unique;
