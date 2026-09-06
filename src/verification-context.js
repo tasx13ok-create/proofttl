@@ -7,7 +7,14 @@ const OUTCOME_VERSION = "proofttl-verification-outcome-v1";
 
 export function attachDerivedVerificationOutcome(lease) {
   if (!lease || typeof lease !== "object") return lease;
-  if (lease.verification_outcome?.version === OUTCOME_VERSION) return lease;
+  if (lease.verification_outcome?.version === OUTCOME_VERSION) {
+    alignLeaseWithOutcome(
+      lease,
+      lease.verification_outcome,
+      lease.source_verdict || lease.verification_outcome.source_verdict || null
+    );
+    return lease;
+  }
   if (!lease.claim_contract || !lease.source_url || !lease.status) return lease;
 
   const sourceVerdict = snapshotSourceVerdict(lease);
@@ -19,26 +26,31 @@ export function attachDerivedVerificationOutcome(lease) {
 
   lease.verification_outcome = outcome;
   lease.source_verdict = sourceVerdict;
+  alignLeaseWithOutcome(lease, outcome, sourceVerdict);
+  return lease;
+}
 
-  // Keep every public issuance-status alias aligned with the signed final
-  // outcome. The paid /verify response derives issued_status/current_status
-  // before this immutable context is attached, so only changing lease.status
-  // could otherwise leak a stale single-source SUPPORTED value beside a final
-  // fail-closed UNKNOWN verdict. The original one-source result remains in
-  // source_verdict for auditability.
-  lease.status = outcome.verdict;
-  lease.issued_status = outcome.verdict;
-  lease.current_status = outcome.verdict;
-  lease.confidence = Number.isFinite(Number(outcome.confidence))
+function alignLeaseWithOutcome(lease, outcome, sourceVerdict = null) {
+  // Keep every public issuance-status alias aligned with the authoritative
+  // verification outcome, even when the outcome was attached by an earlier
+  // version of the service. This repairs stale persisted aliases instead of
+  // treating the presence of an outcome object as proof that the surrounding
+  // lease fields are still coherent.
+  const verdict = normalizeVerdict(outcome?.verdict);
+  lease.status = verdict;
+  lease.issued_status = verdict;
+  lease.current_status = verdict;
+  lease.confidence = Number.isFinite(Number(outcome?.confidence))
     ? Number(outcome.confidence)
     : 0;
 
-  if (outcome.verdict !== sourceVerdict.status) {
-    lease.reason = `verification_outcome:${outcome.execution_status}`;
+  const sourceStatus = sourceVerdict?.status
+    ? normalizeVerdict(sourceVerdict.status)
+    : null;
+  if (sourceStatus && verdict !== sourceStatus) {
+    lease.reason = `verification_outcome:${outcome?.execution_status || "UNKNOWN"}`;
     lease.proof_basis = "EVIDENCE_LEDGER";
   }
-
-  return lease;
 }
 
 export function deriveReverificationOutcome(lease, sourceVerdict, source = {}) {
