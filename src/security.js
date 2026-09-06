@@ -91,6 +91,23 @@ export async function validatePublicSourceUrl(urlLike, { resolver = dns.promises
     withTimeout(resolver.resolve6(host), DNS_TIMEOUT_MS)
   ]);
 
+  // A missing A or AAAA family is normal and is represented by ENODATA (or an
+  // empty result from injected resolvers). Any other rejection means we did
+  // not completely inspect the hostname's address surface. Do not accept the
+  // hostname merely because the other family happened to resolve publicly:
+  // a timeout/SERVFAIL/other resolver error can otherwise leave a later
+  // connection eligible to use an address family that was never validated.
+  for (const [recordType, result] of [["A", v4Result], ["AAAA", v6Result]]) {
+    if (result.status === "rejected" && !isExpectedDnsNoData(result.reason)) {
+      return {
+        ok: false,
+        reason: "source_dns_resolution_incomplete",
+        failed_record_type: recordType,
+        dns_error_code: dnsErrorCode(result.reason)
+      };
+    }
+  }
+
   const addresses = [];
   if (v4Result.status === "fulfilled" && Array.isArray(v4Result.value)) {
     addresses.push(...v4Result.value);
@@ -124,6 +141,17 @@ export async function validatePublicSourceUrl(urlLike, { resolver = dns.promises
   }
 
   return { ok: true, host, addresses: unique, dns_checked: true };
+}
+
+function isExpectedDnsNoData(error) {
+  return String(error?.code || "").toUpperCase() === "ENODATA";
+}
+
+function dnsErrorCode(error) {
+  const code = String(error?.code || "").trim();
+  if (code) return code.slice(0, 64);
+  const message = String(error?.message || "dns_resolution_error").trim();
+  return message.slice(0, 64) || "dns_resolution_error";
 }
 
 function isPublicIp(address, type) {
