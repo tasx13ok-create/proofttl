@@ -13,10 +13,11 @@ async function expectAllowed(url, message) {
   assert(result.ok === true, `${message} (${url})`);
 }
 
-async function expectBlocked(url, reason, message) {
-  const result = await validatePublicSourceUrl(url);
+async function expectBlocked(url, reason, message, options = undefined) {
+  const result = await validatePublicSourceUrl(url, options);
   assert(result.ok === false, `${message} is blocked (${url})`);
   assert(result.reason === reason, `${message} returns ${reason}`);
+  return result;
 }
 
 async function run() {
@@ -71,6 +72,44 @@ async function run() {
   await expectBlocked("ftp://8.8.8.8", "source_scheme_not_allowed", "non-HTTP scheme");
   await expectBlocked("https://user:pass@8.8.8.8", "source_credentials_not_allowed", "URL credentials");
   await expectBlocked("https://8.8.8.8:8443", "source_port_not_allowed", "nonstandard HTTPS port");
+
+  // Resolver answer sets are part of the SSRF boundary. Every unique answer
+  // must be inspected; we must never truncate a large set and silently leave
+  // unchecked addresses eligible for a later connection.
+  const publicAnswers = Array.from({ length: 32 }, (_, index) => `8.8.8.${index + 1}`);
+  const allowedDns = await validatePublicSourceUrl("https://example.test", {
+    resolver: {
+      resolve4: async () => publicAnswers,
+      resolve6: async () => []
+    }
+  });
+  assert(allowedDns.ok === true, "DNS source with exactly 32 unique public answers is allowed");
+  assert(allowedDns.addresses.length === 32, "all 32 DNS answers are retained after validation");
+
+  await expectBlocked(
+    "https://example.test",
+    "source_dns_answer_limit_exceeded",
+    "DNS source with more than 32 unique answers",
+    {
+      resolver: {
+        resolve4: async () => [...publicAnswers, "1.1.1.1"],
+        resolve6: async () => []
+      }
+    }
+  );
+
+  const mixed = await expectBlocked(
+    "https://example.test",
+    "source_dns_resolves_non_public",
+    "DNS source with a private answer anywhere in the validated set",
+    {
+      resolver: {
+        resolve4: async () => [...publicAnswers.slice(0, 31), "127.0.0.1"],
+        resolve6: async () => []
+      }
+    }
+  );
+  assert(mixed.blocked_address === "127.0.0.1", "DNS rejection identifies the non-public answer");
 
   console.log(`\nSUCCESS: ${passed} ProofTTL source security checks passed.`);
 }
