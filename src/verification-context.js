@@ -31,24 +31,42 @@ export function attachDerivedVerificationOutcome(lease) {
 }
 
 function alignLeaseWithOutcome(lease, outcome, sourceVerdict = null) {
-  // Keep every public issuance-status alias aligned with the authoritative
-  // verification outcome, even when the outcome was attached by an earlier
-  // version of the service. This repairs stale persisted aliases instead of
-  // treating the presence of an outcome object as proof that the surrounding
-  // lease fields are still coherent.
   const verdict = normalizeVerdict(outcome?.verdict);
-  lease.status = verdict;
-  lease.issued_status = verdict;
-  lease.current_status = verdict;
-  lease.confidence = Number.isFinite(Number(outcome?.confidence))
+  const outcomeConfidence = Number.isFinite(Number(outcome?.confidence))
     ? Number(outcome.confidence)
     : 0;
-
   const sourceStatus = sourceVerdict?.status
     ? normalizeVerdict(sourceVerdict.status)
     : null;
-  if (sourceStatus && verdict !== sourceStatus) {
-    lease.reason = `verification_outcome:${outcome?.execution_status || "UNKNOWN"}`;
+  const outcomeReason = sourceStatus && verdict !== sourceStatus
+    ? `verification_outcome:${outcome?.execution_status || "UNKNOWN"}`
+    : null;
+  const hasSignedIssuance = Boolean(lease?.issued_attestation && lease?.signature?.value);
+
+  // status/current_status describe the authoritative present product verdict.
+  // For ordinary/new leases, issuance aliases are kept aligned as well. A
+  // legacy lease that already carries an issuance signature is different:
+  // issued_status/confidence/reason/proof_basis are part of that immutable
+  // signed attestation. Rewriting those mirrors would silently invalidate the
+  // historical signature. Preserve its issuance truth, expose the corrected
+  // final truth through status/current_* fields, and leave the stored
+  // attestation byte-for-byte untouched.
+  lease.status = verdict;
+  lease.current_status = verdict;
+
+  if (hasSignedIssuance) {
+    lease.current_confidence = outcomeConfidence;
+    if (outcomeReason) {
+      lease.current_reason = outcomeReason;
+      lease.current_proof_basis = "EVIDENCE_LEDGER";
+    }
+    return;
+  }
+
+  lease.issued_status = verdict;
+  lease.confidence = outcomeConfidence;
+  if (outcomeReason) {
+    lease.reason = outcomeReason;
     lease.proof_basis = "EVIDENCE_LEDGER";
   }
 }
