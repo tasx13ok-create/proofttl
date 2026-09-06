@@ -33,7 +33,7 @@
     "test:lease-store": "node scripts/lease-store-test.js",
     "test:lease-signing": "node scripts/lease-signing-test.js",
     "test:claim-contract-ttl": "node scripts/claim-contract-ttl-test.js",
-    "test:verification-primitives": "node scripts/verification-primitives-test.js",
+    "test:verification-primitives": "node scripts/verification-primitives-test.js && node scripts/evidence-temporal-integrity-test.js",
     "test:evidence-independence": "node scripts/evidence-independence-test.js",
     "test:verification-plan": "node scripts/verification-plan-test.js",
     "test:evidence-budget": "node scripts/evidence-budget-test.js",
