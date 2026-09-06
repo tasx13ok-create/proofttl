@@ -40,7 +40,7 @@
     "test:evidence-budget": "node scripts/evidence-budget-test.js",
     "test:evidence-executor": "node scripts/evidence-executor-test.js",
     "test:evidence-runtime-budget": "node scripts/evidence-runtime-budget-test.js",
-    "test:evidence-orchestrator": "node scripts/evidence-orchestrator-test.js",
+    "test:evidence-orchestrator": "node scripts/evidence-orchestrator-test.js && node scripts/evidence-fetch-network-binding-test.js",
     "test:evidence-intent-lineage": "node scripts/evidence-intent-lineage-test.js",
     "test:evidence-execution-summary": "node scripts/evidence-execution-summary-test.js",
     "test:evidence-execution-plan-binding": "node scripts/evidence-execution-plan-binding-test.js",
