@@ -62,10 +62,41 @@ const allowPublic = async () => ({ ok: true });
   assert.equal(result.evidence_items[0].provenance.discovery_provenance, "PRIMARY_DISCOVERY");
   assert.equal(result.evidence_items[1].provenance.discovery_provenance, "ADVERSARIAL_CONTRADICTION");
   assert.equal(result.evidence_items[0].provenance.discovery_source_url, "https://docs.acme.example/pricing");
-  assert.equal(safetyCalls, 2, "source safety validation should be cached per normalized URL across stages");
+  assert.equal(safetyCalls, 4, "each selected source is revalidated immediately before fetch after discovery-time validation");
   assert.ok(calls.some(([kind]) => kind === "candidate"));
   assert.ok(calls.some(([kind]) => kind === "contradiction"));
   assert.ok(calls.some(([kind, provenance]) => kind === "fetch" && provenance === "ADVERSARIAL_CONTRADICTION"));
+}
+
+{
+  let validationCalls = 0;
+  let fetchCalls = 0;
+  const sourceUrl = "https://rebind.example/evidence";
+  const result = await executeEvidencePlan({
+    claim_contract: claim,
+    pricing,
+    validate_source_url: async (url) => {
+      if (String(url) !== sourceUrl) return { ok: true };
+      validationCalls += 1;
+      return validationCalls === 1
+        ? { ok: true, addresses: ["8.8.8.8"], dns_checked: true }
+        : { ok: false, reason: "source_dns_resolves_non_public", blocked_address: "127.0.0.1" };
+    },
+    providers: {
+      CANDIDATE_QUERY: async () => ({ value: [{ source_url: sourceUrl }] }),
+      CONTRADICTION_QUERY: async () => ({ value: [] }),
+      SOURCE_FETCH: async ({ request }) => {
+        fetchCalls += 1;
+        return { value: { source_url: request.candidate.source_url, text: "must not be fetched" } };
+      }
+    }
+  });
+  const fetchResult = result.action_results.find((item) => item.reservation?.kind === "SOURCE_FETCH");
+  assert.equal(validationCalls, 2, "selected source is revalidated after discovery and immediately before retrieval");
+  assert.equal(fetchCalls, 0, "SOURCE_FETCH provider is not invoked when fresh prefetch validation fails");
+  assert.equal(fetchResult.status, "FAILED");
+  assert.match(fetchResult.error_code, /UNSAFE_REQUEST_SOURCE_URL/);
+  assert.equal(result.outcome.verdict, "UNKNOWN");
 }
 
 {
