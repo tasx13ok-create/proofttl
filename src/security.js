@@ -40,7 +40,7 @@ for (const [address, prefix] of [
   blocked.addSubnet(address, prefix, "ipv6");
 }
 
-export async function validatePublicSourceUrl(urlLike) {
+export async function validatePublicSourceUrl(urlLike, { resolver = dns.promises } = {}) {
   let url;
   try {
     url = urlLike instanceof URL ? urlLike : new URL(urlLike);
@@ -82,9 +82,13 @@ export async function validatePublicSourceUrl(urlLike) {
       : { ok: false, reason: "source_ip_not_public" };
   }
 
+  if (!resolver || typeof resolver.resolve4 !== "function" || typeof resolver.resolve6 !== "function") {
+    return { ok: false, reason: "source_dns_resolution_failed" };
+  }
+
   const [v4Result, v6Result] = await Promise.allSettled([
-    withTimeout(dns.promises.resolve4(host), DNS_TIMEOUT_MS),
-    withTimeout(dns.promises.resolve6(host), DNS_TIMEOUT_MS)
+    withTimeout(resolver.resolve4(host), DNS_TIMEOUT_MS),
+    withTimeout(resolver.resolve6(host), DNS_TIMEOUT_MS)
   ]);
 
   const addresses = [];
@@ -95,9 +99,17 @@ export async function validatePublicSourceUrl(urlLike) {
     addresses.push(...v6Result.value);
   }
 
-  const unique = [...new Set(addresses)].slice(0, MAX_DNS_ANSWERS);
+  const unique = [...new Set(addresses)];
   if (unique.length === 0) {
     return { ok: false, reason: "source_dns_resolution_failed" };
+  }
+
+  // Never silently discard resolver answers before applying the public-address
+  // policy. A hostname with more answers than we are willing to inspect is
+  // rejected rather than allowing an unchecked address to remain eligible for
+  // a later network connection.
+  if (unique.length > MAX_DNS_ANSWERS) {
+    return { ok: false, reason: "source_dns_answer_limit_exceeded" };
   }
 
   for (const address of unique) {
