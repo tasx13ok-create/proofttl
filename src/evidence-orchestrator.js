@@ -90,6 +90,7 @@ function finalize(claimContract, triage, plan, evidenceItems, actionResults, run
 function wrapProviders(providers, validateSourceUrl) {
   if (!providers || typeof providers !== "object" || Array.isArray(providers)) throw new Error("evidence_orchestrator_providers_required");
   const wrapped = {};
+  const validateDiscoverySourceUrl = cachedValidator(validateSourceUrl);
   for (const kind of ["CANDIDATE_QUERY", "SOURCE_FETCH", "SEMANTIC_EVALUATION", "CONTRADICTION_QUERY"]) {
     const provider = providers[kind];
     if (provider == null) continue;
@@ -108,7 +109,7 @@ function wrapProviders(providers, validateSourceUrl) {
       const result = await provider(context);
       if (!result || typeof result !== "object" || Array.isArray(result) || !Object.prototype.hasOwnProperty.call(result, "value")) throw contractError(kind);
       validateValue(kind, result.value);
-      await validateSourceBindings(kind, result.value, context?.request, validateSourceUrl);
+      await validateSourceBindings(kind, result.value, context?.request, validateDiscoverySourceUrl);
       return result;
     };
   }
@@ -139,9 +140,9 @@ function validateValue(kind, value) {
 
 async function validateSourceBindings(kind, value, request, validateSourceUrl) {
   // Network-bearing discovery results are validated when they enter the
-  // candidate set. SOURCE_FETCH is revalidated immediately before provider
-  // invocation by validateFetchRequestSource. Semantic evaluation performs no
-  // source retrieval and is instead bound exactly to the fetched source URL.
+  // candidate set. Duplicate URLs discovered by multiple query intents share
+  // that discovery-stage result only. SOURCE_FETCH itself always uses the raw,
+  // uncached validator immediately before provider invocation.
   if (kind === "CANDIDATE_QUERY" || kind === "CONTRADICTION_QUERY") {
     for (const sourceUrl of value.map((item) => item.source_url)) {
       const safety = await validateSourceUrl(sourceUrl);
@@ -166,6 +167,15 @@ async function validateSourceBindings(kind, value, request, validateSourceUrl) {
       throw contractError(kind, "SEMANTIC_RESULT_NOT_BOUND_TO_SOURCE");
     }
   }
+}
+
+function cachedValidator(validateSourceUrl) {
+  const cache = new Map();
+  return async (sourceUrl) => {
+    const key = normalizeUrl(sourceUrl) || String(sourceUrl);
+    if (!cache.has(key)) cache.set(key, Promise.resolve(validateSourceUrl(sourceUrl)));
+    return cache.get(key);
+  };
 }
 
 function contractError(kind, reason = null) {
