@@ -9,15 +9,22 @@ export function assessEvidence(input = {}, context = {}) {
   const assessmentNow = new Date();
   const observationChronologyValid = !parsedObservedAt || parsedObservedAt.getTime() <= assessmentNow.getTime() + MAX_OBSERVATION_CLOCK_SKEW_MS;
   const observedAt = parsedObservedAt || assessmentNow;
-  const publishedValue = input.published_at || input.updated_at;
-  const publishedAt = safeDate(publishedValue);
-  const publishedAtProvided = hasProvidedTimestamp(publishedValue);
+
+  const publishedAt = safeDate(input.published_at);
+  const publishedAtProvided = hasProvidedTimestamp(input.published_at);
   const publishedAtValid = !publishedAtProvided || Boolean(publishedAt);
-  // Evidence cannot have been published/updated after the moment we claim to
-  // have observed it. Previously freshnessScore() clamped negative ages to 0,
-  // so a future publication timestamp could receive maximum freshness. Treat
-  // this impossible chronology as a provenance failure instead of rewarding it.
+  const updatedAt = safeDate(input.updated_at);
+  const updatedAtProvided = hasProvidedTimestamp(input.updated_at);
+  const updatedAtValid = !updatedAtProvided || Boolean(updatedAt);
+
+  // Publication and update timestamps are separate provenance claims. Do not
+  // let one mask an invalid or impossible value in the other. An update must
+  // not predate publication, and neither timestamp may occur after observation.
   const publicationChronologyValid = !publishedAt || publishedAt.getTime() <= observedAt.getTime();
+  const updateChronologyValid = !updatedAt || updatedAt.getTime() <= observedAt.getTime();
+  const publicationUpdateOrderValid = !publishedAt || !updatedAt || publishedAt.getTime() <= updatedAt.getTime();
+  const freshnessAt = updatedAt || publishedAt;
+
   const volatility = context.volatility || context.claim_contract?.volatility?.level || "MEDIUM";
   const sourceType = normalizeSourceType(input.source_type, input.primary);
   const authority = clamp01(input.authority_score ?? authorityDefault(sourceType));
@@ -25,7 +32,7 @@ export function assessEvidence(input = {}, context = {}) {
   const independence = clamp01(input.independence_score ?? (input.independent === false ? 0.25 : 0.8));
   const specificity = clamp01(input.specificity_score ?? specificityDefault(input.entailment));
   const reputation = clamp01(input.reputation_score ?? 0.65);
-  const freshness = freshnessScore({ observedAt, publishedAt, volatility });
+  const freshness = freshnessScore({ observedAt, publishedAt: freshnessAt, volatility });
   const entailment = normalizeEntailment(input.entailment);
   const stance = normalizeStance(input.stance, entailment);
   const stanceConsistent = isStanceConsistent(entailment, stance);
@@ -39,7 +46,7 @@ export function assessEvidence(input = {}, context = {}) {
   const weighted = authority * 0.22 + directness * 0.22 + independence * 0.16 + specificity * 0.16 + reputation * 0.1 + freshness * 0.14;
   const entailmentMultiplier = entailment === "FULL_SUPPORT" || entailment === "CONTRADICTORY" ? 1 : entailment === "PARTIAL_SUPPORT" ? 0.75 : entailment === "CONTEXT_ONLY" ? 0.45 : entailment === "IRRELEVANT" ? 0 : 0.55;
   const qualityScore = clamp01((weighted - conflictPenalty) * entailmentMultiplier);
-  const accepted = observedAtValid && observationChronologyValid && publishedAtValid && publicationChronologyValid && traceableSource && stanceConsistent && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
+  const accepted = observedAtValid && observationChronologyValid && publishedAtValid && updatedAtValid && publicationChronologyValid && updateChronologyValid && publicationUpdateOrderValid && traceableSource && stanceConsistent && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
 
   return {
     version: "proofttl-evidence-quality-v1",
@@ -50,6 +57,7 @@ export function assessEvidence(input = {}, context = {}) {
     primary: sourceType === "PRIMARY",
     observed_at: observedAt.toISOString(),
     published_at: publishedAt ? publishedAt.toISOString() : null,
+    updated_at: updatedAt ? updatedAt.toISOString() : null,
     stance,
     entailment,
     quality_score: round3(qualityScore),
@@ -58,7 +66,7 @@ export function assessEvidence(input = {}, context = {}) {
     conflict_of_interest: Boolean(input.conflict_of_interest),
     underlying_source_id: cleanText(input.underlying_source_id, 200),
     provenance: input.provenance && typeof input.provenance === "object" ? input.provenance : null,
-    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, observationChronologyValid, publishedAtValid, publicationChronologyValid, accepted })
+    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, observationChronologyValid, publishedAtValid, updatedAtValid, publicationChronologyValid, updateChronologyValid, publicationUpdateOrderValid, accepted })
   };
 }
 
@@ -259,7 +267,7 @@ function isStanceConsistent(entailment, stance) {
   return true;
 }
 
-function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, observationChronologyValid, publishedAtValid, publicationChronologyValid, accepted }) {
+function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, observationChronologyValid, publishedAtValid, updatedAtValid, publicationChronologyValid, updateChronologyValid, publicationUpdateOrderValid, accepted }) {
   return [
     `SOURCE_${sourceType}`,
     `ENTAILMENT_${entailment}`,
@@ -267,7 +275,10 @@ function evidenceReasons({ sourceType, entailment, freshness, independence, conf
     observedAtValid ? "OBSERVATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_OBSERVATION_TIMESTAMP",
     observationChronologyValid ? "OBSERVATION_CHRONOLOGY_VALID" : "REJECTED_OBSERVATION_IN_FUTURE",
     publishedAtValid ? "PUBLICATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_PUBLICATION_TIMESTAMP",
+    updatedAtValid ? "UPDATE_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_UPDATE_TIMESTAMP",
     publicationChronologyValid ? "PUBLICATION_CHRONOLOGY_VALID" : "REJECTED_PUBLICATION_AFTER_OBSERVATION",
+    updateChronologyValid ? "UPDATE_CHRONOLOGY_VALID" : "REJECTED_UPDATE_AFTER_OBSERVATION",
+    publicationUpdateOrderValid ? "PUBLICATION_UPDATE_ORDER_VALID" : "REJECTED_UPDATE_BEFORE_PUBLICATION",
     stanceConsistent ? "STANCE_ENTAILMENT_CONSISTENT" : "REJECTED_STANCE_ENTAILMENT_MISMATCH",
     definitiveEntailment ? (verbatimEvidence ? "VERBATIM_EVIDENCE_PRESENT" : "REJECTED_MISSING_VERBATIM_EVIDENCE") : "VERBATIM_EVIDENCE_NOT_REQUIRED",
     freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS",
