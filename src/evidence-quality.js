@@ -1,19 +1,18 @@
 const ENTAILMENT_STATES = new Set(["FULL_SUPPORT", "PARTIAL_SUPPORT", "CONTRADICTORY", "CONTEXT_ONLY", "IRRELEVANT", "UNKNOWN"]);
 const STANCES = new Set(["FOR", "AGAINST", "AMBIGUOUS"]);
+const MAX_OBSERVATION_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 export function assessEvidence(input = {}, context = {}) {
   const parsedObservedAt = safeDate(input.observed_at);
   const observedAtProvided = hasProvidedTimestamp(input.observed_at);
   const observedAtValid = !observedAtProvided || Boolean(parsedObservedAt);
-  const observedAt = parsedObservedAt || new Date();
+  const assessmentNow = new Date();
+  const observationChronologyValid = !parsedObservedAt || parsedObservedAt.getTime() <= assessmentNow.getTime() + MAX_OBSERVATION_CLOCK_SKEW_MS;
+  const observedAt = parsedObservedAt || assessmentNow;
   const publishedValue = input.published_at || input.updated_at;
   const publishedAt = safeDate(publishedValue);
   const publishedAtProvided = hasProvidedTimestamp(publishedValue);
   const publishedAtValid = !publishedAtProvided || Boolean(publishedAt);
-  // Evidence cannot have been published/updated after the moment we claim to
-  // have observed it. Previously freshnessScore() clamped negative ages to 0,
-  // so a future publication timestamp could receive maximum freshness. Treat
-  // this impossible chronology as a provenance failure instead of rewarding it.
   const publicationChronologyValid = !publishedAt || publishedAt.getTime() <= observedAt.getTime();
   const volatility = context.volatility || context.claim_contract?.volatility?.level || "MEDIUM";
   const sourceType = normalizeSourceType(input.source_type, input.primary);
@@ -36,7 +35,7 @@ export function assessEvidence(input = {}, context = {}) {
   const weighted = authority * 0.22 + directness * 0.22 + independence * 0.16 + specificity * 0.16 + reputation * 0.1 + freshness * 0.14;
   const entailmentMultiplier = entailment === "FULL_SUPPORT" || entailment === "CONTRADICTORY" ? 1 : entailment === "PARTIAL_SUPPORT" ? 0.75 : entailment === "CONTEXT_ONLY" ? 0.45 : entailment === "IRRELEVANT" ? 0 : 0.55;
   const qualityScore = clamp01((weighted - conflictPenalty) * entailmentMultiplier);
-  const accepted = observedAtValid && publishedAtValid && publicationChronologyValid && traceableSource && stanceConsistent && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
+  const accepted = observedAtValid && observationChronologyValid && publishedAtValid && publicationChronologyValid && traceableSource && stanceConsistent && (!definitiveEntailment || verbatimEvidence) && qualityScore >= 0.45 && entailment !== "IRRELEVANT";
 
   return {
     version: "proofttl-evidence-quality-v1",
@@ -55,7 +54,7 @@ export function assessEvidence(input = {}, context = {}) {
     conflict_of_interest: Boolean(input.conflict_of_interest),
     underlying_source_id: cleanText(input.underlying_source_id, 200),
     provenance: input.provenance && typeof input.provenance === "object" ? input.provenance : null,
-    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, publishedAtValid, publicationChronologyValid, accepted })
+    reasons: evidenceReasons({ sourceType, entailment, freshness, independence, conflict: Boolean(input.conflict_of_interest), qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, observationChronologyValid, publishedAtValid, publicationChronologyValid, accepted })
   };
 }
 
@@ -63,18 +62,8 @@ export function aggregateEvidence(items = [], context = {}) {
   const assessed = dedupeEvidence(items.map((item) => assessEvidence(item, context)));
   const accepted = assessed.filter((item) => item.accepted);
   const rejected = assessed.filter((item) => !item.accepted);
-
-  // A directional provider stance is not enough to move the ledger. Only
-  // entailments that actually express support/refutation are allowed onto a
-  // verdict-bearing side. CONTEXT_ONLY/UNKNOWN evidence may remain accepted as
-  // useful context, but it must stay non-directional even if a provider labels
-  // it FOR or AGAINST.
-  const evidenceFor = accepted.filter(
-    (item) => item.stance === "FOR" && (item.entailment === "FULL_SUPPORT" || item.entailment === "PARTIAL_SUPPORT")
-  );
-  const evidenceAgainst = accepted.filter(
-    (item) => item.stance === "AGAINST" && item.entailment === "CONTRADICTORY"
-  );
+  const evidenceFor = accepted.filter((item) => item.stance === "FOR" && (item.entailment === "FULL_SUPPORT" || item.entailment === "PARTIAL_SUPPORT"));
+  const evidenceAgainst = accepted.filter((item) => item.stance === "AGAINST" && item.entailment === "CONTRADICTORY");
   const directional = new Set([...evidenceFor, ...evidenceAgainst]);
   const ambiguous = accepted.filter((item) => !directional.has(item));
   const support = sideStrength(evidenceFor);
@@ -88,15 +77,7 @@ export function aggregateEvidence(items = [], context = {}) {
     version: "proofttl-evidence-ledger-v1",
     verdict,
     confidence,
-    metrics: {
-      support_strength: round3(support),
-      contradiction_strength: round3(contradiction),
-      independent_support_groups: independentSupport,
-      independent_contradiction_groups: independentContradiction,
-      accepted_count: accepted.length,
-      rejected_count: rejected.length,
-      ambiguous_count: ambiguous.length
-    },
+    metrics: { support_strength: round3(support), contradiction_strength: round3(contradiction), independent_support_groups: independentSupport, independent_contradiction_groups: independentContradiction, accepted_count: accepted.length, rejected_count: rejected.length, ambiguous_count: ambiguous.length },
     evidence_for: sortEvidence(evidenceFor),
     evidence_against: sortEvidence(evidenceAgainst),
     ambiguous_evidence: sortEvidence(ambiguous),
@@ -123,36 +104,24 @@ export function deriveConfidence({ support = 0, contradiction = 0, independentSu
 
 export function dedupeEvidence(items = []) {
   const groups = [];
-
   for (const item of items) {
     const keys = evidenceIdentityKeys(item);
     const matching = [];
-    for (let i = 0; i < groups.length; i += 1) {
-      if (keys.some((key) => groups[i].keys.has(key))) matching.push(i);
-    }
-
-    if (matching.length === 0) {
-      groups.push({ keys: new Set(keys), best: item });
-      continue;
-    }
-
+    for (let i = 0; i < groups.length; i += 1) if (keys.some((key) => groups[i].keys.has(key))) matching.push(i);
+    if (matching.length === 0) { groups.push({ keys: new Set(keys), best: item }); continue; }
     const mergedKeys = new Set(keys);
     let best = item;
     const matchingSet = new Set(matching);
     const retained = [];
     for (let i = 0; i < groups.length; i += 1) {
       const group = groups[i];
-      if (!matchingSet.has(i)) {
-        retained.push(group);
-        continue;
-      }
+      if (!matchingSet.has(i)) { retained.push(group); continue; }
       for (const key of group.keys) mergedKeys.add(key);
       if (group.best.quality_score > best.quality_score) best = group.best;
     }
     retained.push({ keys: mergedKeys, best });
     groups.splice(0, groups.length, ...retained);
   }
-
   return groups.map((group) => group.best);
 }
 
@@ -161,119 +130,23 @@ function evidenceIdentityKeys(item) {
   if (item.underlying_source_id) keys.push(`underlying:${item.underlying_source_id.toLowerCase()}`);
   const urlIdentity = urlEvidenceIdentity(item.source_url);
   if (urlIdentity) keys.push(urlIdentity);
-  if (keys.length === 0) {
-    keys.push(["fallback", item.publisher || "unknown-publisher", item.title || "untitled", item.source_url || "no-url", item.published_at || "no-publication-time", item.entailment || "unknown-entailment", item.stance || "unknown-stance"].join(":").toLowerCase());
-  }
+  if (keys.length === 0) keys.push(["fallback", item.publisher || "unknown-publisher", item.title || "untitled", item.source_url || "no-url", item.published_at || "no-publication-time", item.entailment || "unknown-entailment", item.stance || "unknown-stance"].join(":").toLowerCase());
   return keys;
 }
-
-function urlEvidenceIdentity(sourceUrl) {
-  try {
-    const url = new URL(sourceUrl);
-    const pathname = url.pathname.replace(/\/$/, "");
-    return `url:${url.hostname.toLowerCase()}${pathname}`;
-  } catch {
-    return null;
-  }
+function urlEvidenceIdentity(sourceUrl) { try { const url = new URL(sourceUrl); const pathname = url.pathname.replace(/\/$/, ""); return `url:${url.hostname.toLowerCase()}${pathname}`; } catch { return null; } }
+function independentGroupCount(items) { const groups = new Set(); for (const item of items) { if (item.publisher) { groups.add(`p:${item.publisher.toLowerCase()}`); continue; } try { groups.add(`h:${new URL(item.source_url).hostname.toLowerCase()}`); continue; } catch {} if (item.underlying_source_id) groups.add(`u:${item.underlying_source_id.toLowerCase()}`); } return groups.size; }
+function sideStrength(items) { if (!items.length) return 0; const sorted = [...items].map((item) => item.quality_score).sort((a, b) => b - a); const top = sorted[0] || 0; const corroboration = sorted.slice(1, 4).reduce((sum, score, index) => sum + score * [0.35, 0.2, 0.1][index], 0); return clamp01(top + corroboration); }
+function freshnessScore({ observedAt, publishedAt, volatility }) { if (!publishedAt) return 0.55; const ageDays = Math.max(0, (observedAt.getTime() - publishedAt.getTime()) / 86400000); const halfLifeDays = volatility === "VERY_HIGH" ? 0.25 : volatility === "HIGH" ? 14 : volatility === "LOW" ? 3650 : 180; return clamp01(Math.exp(-Math.log(2) * ageDays / halfLifeDays)); }
+function authorityDefault(sourceType) { return sourceType === "PRIMARY" ? 0.9 : sourceType === "SECONDARY" ? 0.7 : 0.5; }
+function directnessDefault(entailment) { const normalized = normalizeEntailment(entailment); return normalized === "FULL_SUPPORT" || normalized === "CONTRADICTORY" ? 0.9 : normalized === "PARTIAL_SUPPORT" ? 0.65 : normalized === "CONTEXT_ONLY" ? 0.4 : 0.25; }
+function specificityDefault(entailment) { const normalized = normalizeEntailment(entailment); return normalized === "FULL_SUPPORT" || normalized === "CONTRADICTORY" ? 0.9 : normalized === "PARTIAL_SUPPORT" ? 0.6 : normalized === "CONTEXT_ONLY" ? 0.35 : 0.2; }
+function normalizeSourceType(value, primary) { if (primary === true) return "PRIMARY"; const normalized = String(value || "").trim().toUpperCase(); return ["PRIMARY", "SECONDARY", "TERTIARY"].includes(normalized) ? normalized : "SECONDARY"; }
+function normalizeEntailment(value) { const normalized = String(value || "UNKNOWN").trim().toUpperCase(); return ENTAILMENT_STATES.has(normalized) ? normalized : "UNKNOWN"; }
+function normalizeStance(value, entailment) { const normalized = String(value || "").trim().toUpperCase(); if (STANCES.has(normalized)) return normalized; if (entailment === "CONTRADICTORY") return "AGAINST"; if (entailment === "FULL_SUPPORT" || entailment === "PARTIAL_SUPPORT") return "FOR"; return "AMBIGUOUS"; }
+function isStanceConsistent(entailment, stance) { if (entailment === "FULL_SUPPORT" || entailment === "PARTIAL_SUPPORT") return stance === "FOR"; if (entailment === "CONTRADICTORY") return stance === "AGAINST"; return true; }
+function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, observationChronologyValid, publishedAtValid, publicationChronologyValid, accepted }) {
+  return [`SOURCE_${sourceType}`, `ENTAILMENT_${entailment}`, traceableSource ? "TRACEABLE_HTTP_SOURCE" : "REJECTED_UNTRACEABLE_SOURCE", observedAtValid ? "OBSERVATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_OBSERVATION_TIMESTAMP", observationChronologyValid ? "OBSERVATION_CHRONOLOGY_VALID" : "REJECTED_OBSERVATION_IN_FUTURE", publishedAtValid ? "PUBLICATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_PUBLICATION_TIMESTAMP", publicationChronologyValid ? "PUBLICATION_CHRONOLOGY_VALID" : "REJECTED_PUBLICATION_AFTER_OBSERVATION", stanceConsistent ? "STANCE_ENTAILMENT_CONSISTENT" : "REJECTED_STANCE_ENTAILMENT_MISMATCH", definitiveEntailment ? (verbatimEvidence ? "VERBATIM_EVIDENCE_PRESENT" : "REJECTED_MISSING_VERBATIM_EVIDENCE") : "VERBATIM_EVIDENCE_NOT_REQUIRED", freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS", independence < 0.5 ? "LOW_INDEPENDENCE" : "INDEPENDENT_OR_NEUTRAL", ...(conflict ? ["DISCLOSED_SOURCE_CONFLICT"] : []), qualityScore < 0.45 ? "REJECTED_LOW_COMPOSITE_QUALITY" : "COMPOSITE_QUALITY_PASSED", accepted ? "ACCEPTED_FOR_LEDGER" : "REJECTED_FROM_LEDGER"];
 }
-
-function independentGroupCount(items) {
-  const groups = new Set();
-  for (const item of items) {
-    // Independence is about distinct publishing organizations, not distinct
-    // pages, hostnames, or content fingerprints. When a normalized publisher
-    // identity is present, prefer it so sibling subdomains controlled by one
-    // organization cannot manufacture corroboration. Hostname remains the
-    // conservative fallback for sources that do not declare a publisher.
-    if (item.publisher) {
-      groups.add(`p:${item.publisher.toLowerCase()}`);
-      continue;
-    }
-    try {
-      groups.add(`h:${new URL(item.source_url).hostname.toLowerCase()}`);
-      continue;
-    } catch {
-      // Traceable evidence normally has a valid source URL, but retain the
-      // underlying-source fallback for defensive compatibility with callers
-      // that reuse this helper on pre-assessed evidence.
-    }
-    if (item.underlying_source_id) groups.add(`u:${item.underlying_source_id.toLowerCase()}`);
-  }
-  return groups.size;
-}
-
-function sideStrength(items) {
-  if (!items.length) return 0;
-  const sorted = [...items].map((item) => item.quality_score).sort((a, b) => b - a);
-  const top = sorted[0] || 0;
-  const corroboration = sorted.slice(1, 4).reduce((sum, score, index) => sum + score * [0.35, 0.2, 0.1][index], 0);
-  return clamp01(top + corroboration);
-}
-
-function freshnessScore({ observedAt, publishedAt, volatility }) {
-  if (!publishedAt) return 0.55;
-  const ageDays = Math.max(0, (observedAt.getTime() - publishedAt.getTime()) / 86400000);
-  const halfLifeDays = volatility === "VERY_HIGH" ? 0.25 : volatility === "HIGH" ? 14 : volatility === "LOW" ? 3650 : 180;
-  return clamp01(Math.exp(-Math.log(2) * ageDays / halfLifeDays));
-}
-
-function authorityDefault(sourceType) {
-  return sourceType === "PRIMARY" ? 0.9 : sourceType === "SECONDARY" ? 0.7 : 0.5;
-}
-
-function directnessDefault(entailment) {
-  const normalized = normalizeEntailment(entailment);
-  return normalized === "FULL_SUPPORT" || normalized === "CONTRADICTORY" ? 0.9 : normalized === "PARTIAL_SUPPORT" ? 0.65 : normalized === "CONTEXT_ONLY" ? 0.4 : 0.25;
-}
-
-function specificityDefault(entailment) {
-  const normalized = normalizeEntailment(entailment);
-  return normalized === "FULL_SUPPORT" || normalized === "CONTRADICTORY" ? 0.9 : normalized === "PARTIAL_SUPPORT" ? 0.6 : normalized === "CONTEXT_ONLY" ? 0.35 : 0.2;
-}
-
-function normalizeSourceType(value, primary) {
-  if (primary === true) return "PRIMARY";
-  const normalized = String(value || "").trim().toUpperCase();
-  return ["PRIMARY", "SECONDARY", "TERTIARY"].includes(normalized) ? normalized : "SECONDARY";
-}
-
-function normalizeEntailment(value) {
-  const normalized = String(value || "UNKNOWN").trim().toUpperCase();
-  return ENTAILMENT_STATES.has(normalized) ? normalized : "UNKNOWN";
-}
-
-function normalizeStance(value, entailment) {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (STANCES.has(normalized)) return normalized;
-  if (entailment === "CONTRADICTORY") return "AGAINST";
-  if (entailment === "FULL_SUPPORT" || entailment === "PARTIAL_SUPPORT") return "FOR";
-  return "AMBIGUOUS";
-}
-
-function isStanceConsistent(entailment, stance) {
-  if (entailment === "FULL_SUPPORT" || entailment === "PARTIAL_SUPPORT") return stance === "FOR";
-  if (entailment === "CONTRADICTORY") return stance === "AGAINST";
-  return true;
-}
-
-function evidenceReasons({ sourceType, entailment, freshness, independence, conflict, qualityScore, traceableSource, definitiveEntailment, verbatimEvidence, stanceConsistent, observedAtValid, publishedAtValid, publicationChronologyValid, accepted }) {
-  return [
-    `SOURCE_${sourceType}`,
-    `ENTAILMENT_${entailment}`,
-    traceableSource ? "TRACEABLE_HTTP_SOURCE" : "REJECTED_UNTRACEABLE_SOURCE",
-    observedAtValid ? "OBSERVATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_OBSERVATION_TIMESTAMP",
-    publishedAtValid ? "PUBLICATION_TIMESTAMP_VALID_OR_OMITTED" : "REJECTED_INVALID_PUBLICATION_TIMESTAMP",
-    publicationChronologyValid ? "PUBLICATION_CHRONOLOGY_VALID" : "REJECTED_PUBLICATION_AFTER_OBSERVATION",
-    stanceConsistent ? "STANCE_ENTAILMENT_CONSISTENT" : "REJECTED_STANCE_ENTAILMENT_MISMATCH",
-    definitiveEntailment ? (verbatimEvidence ? "VERBATIM_EVIDENCE_PRESENT" : "REJECTED_MISSING_VERBATIM_EVIDENCE") : "VERBATIM_EVIDENCE_NOT_REQUIRED",
-    freshness < 0.35 ? "STALE_OR_TEMPORALLY_WEAK" : freshness > 0.8 ? "FRESH_EVIDENCE" : "MODERATE_FRESHNESS",
-    independence < 0.5 ? "LOW_INDEPENDENCE" : "INDEPENDENT_OR_NEUTRAL",
-    ...(conflict ? ["DISCLOSED_SOURCE_CONFLICT"] : []),
-    qualityScore < 0.45 ? "REJECTED_LOW_COMPOSITE_QUALITY" : "COMPOSITE_QUALITY_PASSED",
-    accepted ? "ACCEPTED_FOR_LEDGER" : "REJECTED_FROM_LEDGER"
-  ];
-}
-
 function sortEvidence(items) { return [...items].sort((a, b) => b.quality_score - a.quality_score); }
 function normalizeUrl(value) { try { return new URL(String(value || "")).toString(); } catch { return cleanText(value, 2048); } }
 function isTraceableSourceUrl(value) { try { const url = new URL(String(value || "")); return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname); } catch { return false; } }
