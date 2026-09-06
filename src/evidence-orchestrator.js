@@ -14,8 +14,7 @@ export async function executeEvidencePlan({ claim_contract, triage = null, evide
   if (resolvedPlan.status !== "PLANNED") return finalize(claim_contract, resolvedTriage, resolvedPlan, [], [], null, null);
 
   const runtimeBudget = materializeEvidenceExecutionBudget(resolvedPlan, pricing, { hard_cost_ceiling_usd });
-  const validateSourceUrl = cachedValidator(validate_source_url);
-  const executor = createEvidenceExecutor({ execution_budget: runtimeBudget.execution_budget, providers: wrapProviders(providers, validateSourceUrl), emit, now });
+  const executor = createEvidenceExecutor({ execution_budget: runtimeBudget.execution_budget, providers: wrapProviders(providers, validate_source_url), emit, now });
   const actionResults = [];
   const candidates = [];
   const fetched = [];
@@ -96,6 +95,16 @@ function wrapProviders(providers, validateSourceUrl) {
     if (provider == null) continue;
     if (typeof provider !== "function") throw new Error(`evidence_provider_invalid:${kind}`);
     wrapped[kind] = async (context) => {
+      // Discovery-time validation is not sufficient for a later network fetch:
+      // DNS can change between stages. Revalidate the exact candidate immediately
+      // before invoking SOURCE_FETCH so stale discovery-time safety decisions are
+      // never reused to authorize retrieval. The eventual network transport must
+      // still bind its connection to the validated address set (or equivalent
+      // egress controls) to fully close DNS-rebinding TOCTOU.
+      if (kind === "SOURCE_FETCH") {
+        await validateFetchRequestSource(context?.request, validateSourceUrl);
+      }
+
       const result = await provider(context);
       if (!result || typeof result !== "object" || Array.isArray(result) || !Object.prototype.hasOwnProperty.call(result, "value")) throw contractError(kind);
       validateValue(kind, result.value);
@@ -104,6 +113,15 @@ function wrapProviders(providers, validateSourceUrl) {
     };
   }
   return wrapped;
+}
+
+async function validateFetchRequestSource(request, validateSourceUrl) {
+  const sourceUrl = request?.candidate?.source_url;
+  if (!validUrl(sourceUrl)) throw contractError("SOURCE_FETCH", "SOURCE_FETCH_REQUEST_INVALID");
+  const safety = await validateSourceUrl(sourceUrl);
+  if (!safety || safety.ok !== true) {
+    throw contractError("SOURCE_FETCH", "UNSAFE_REQUEST_SOURCE_URL");
+  }
 }
 
 function validateValue(kind, value) {
@@ -120,14 +138,16 @@ function validateValue(kind, value) {
 }
 
 async function validateSourceBindings(kind, value, request, validateSourceUrl) {
-  const urls = kind === "CANDIDATE_QUERY" || kind === "CONTRADICTION_QUERY"
-    ? value.map((item) => item.source_url)
-    : [value.source_url];
-
-  for (const sourceUrl of urls) {
-    const safety = await validateSourceUrl(sourceUrl);
-    if (!safety || safety.ok !== true) {
-      throw contractError(kind, "UNSAFE_SOURCE_URL");
+  // Network-bearing discovery results are validated when they enter the
+  // candidate set. SOURCE_FETCH is revalidated immediately before provider
+  // invocation by validateFetchRequestSource. Semantic evaluation performs no
+  // source retrieval and is instead bound exactly to the fetched source URL.
+  if (kind === "CANDIDATE_QUERY" || kind === "CONTRADICTION_QUERY") {
+    for (const sourceUrl of value.map((item) => item.source_url)) {
+      const safety = await validateSourceUrl(sourceUrl);
+      if (!safety || safety.ok !== true) {
+        throw contractError(kind, "UNSAFE_SOURCE_URL");
+      }
     }
   }
 
@@ -146,15 +166,6 @@ async function validateSourceBindings(kind, value, request, validateSourceUrl) {
       throw contractError(kind, "SEMANTIC_RESULT_NOT_BOUND_TO_SOURCE");
     }
   }
-}
-
-function cachedValidator(validateSourceUrl) {
-  const cache = new Map();
-  return async (sourceUrl) => {
-    const key = normalizeUrl(sourceUrl) || String(sourceUrl);
-    if (!cache.has(key)) cache.set(key, Promise.resolve(validateSourceUrl(sourceUrl)));
-    return cache.get(key);
-  };
 }
 
 function contractError(kind, reason = null) {
