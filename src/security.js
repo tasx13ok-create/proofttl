@@ -29,12 +29,6 @@ for (const [address, prefix] of [
 for (const [address, prefix] of [
   ["::", 128],
   ["::1", 128],
-  // Reject the entire IPv4-mapped IPv6 representation space. URL parsers
-  // canonicalize inputs such as ::ffff:127.0.0.1 to ::ffff:7f00:1; relying
-  // on dotted-decimal extraction alone therefore lets mapped loopback/private
-  // literals bypass the IPv4 denylist. Public sources should use their native
-  // IPv4 literal or hostname instead of an ambiguous mapped representation.
-  ["::ffff:0:0", 96],
   ["64:ff9b::", 96],
   ["100::", 64],
   ["2001:2::", 48],
@@ -123,6 +117,9 @@ export async function validatePublicSourceUrl(urlLike) {
 function isPublicIp(address, type) {
   if (type === 4) return !blocked.check(address, "ipv4");
   if (type === 6) {
+    // WHATWG URL canonicalization rewrites mapped literals such as
+    // ::ffff:127.0.0.1 to ::ffff:7f00:1. Decode both dotted and canonical
+    // hexadecimal forms back to IPv4 before applying the IPv4 denylist.
     const mapped = extractMappedIpv4(address);
     if (mapped) return isPublicIp(mapped, 4);
     return !blocked.check(address, "ipv6");
@@ -131,11 +128,21 @@ function isPublicIp(address, type) {
 }
 
 function extractMappedIpv4(address) {
-  const match = address.toLowerCase().match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
-  if (!match) return null;
-  const octets = match[1].split(".").map(Number);
-  if (octets.some((value) => value < 0 || value > 255)) return null;
-  return match[1];
+  const normalized = address.toLowerCase();
+
+  const dotted = normalized.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (dotted) {
+    const octets = dotted[1].split(".").map(Number);
+    if (octets.some((value) => value < 0 || value > 255)) return null;
+    return dotted[1];
+  }
+
+  const hexadecimal = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (!hexadecimal) return null;
+
+  const high = Number.parseInt(hexadecimal[1], 16);
+  const low = Number.parseInt(hexadecimal[2], 16);
+  return [high >>> 8, high & 0xff, low >>> 8, low & 0xff].join(".");
 }
 
 function withTimeout(promise, ms) {
