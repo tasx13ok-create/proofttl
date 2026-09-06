@@ -20,6 +20,12 @@ async function expectBlocked(url, reason, message, options = undefined) {
   return result;
 }
 
+function dnsError(code, message = code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 async function run() {
   console.log("ProofTTL source URL security regression test\n");
 
@@ -110,6 +116,47 @@ async function run() {
     }
   );
   assert(mixed.blocked_address === "127.0.0.1", "DNS rejection identifies the non-public answer");
+
+  // A family with no records is safe to omit, but an unresolved family is not.
+  // If A or AAAA timed out/SERVFAILed, a later network connection could use an
+  // address from that unchecked family. Validation must therefore fail closed
+  // instead of accepting the public answers from the other family.
+  const noAaaa = await validatePublicSourceUrl("https://example.test", {
+    resolver: {
+      resolve4: async () => ["8.8.8.8"],
+      resolve6: async () => { throw dnsError("ENODATA", "no AAAA records"); }
+    }
+  });
+  assert(noAaaa.ok === true, "ENODATA for an absent DNS family does not reject a public source");
+  assert(noAaaa.addresses.length === 1 && noAaaa.addresses[0] === "8.8.8.8", "public answers from the present family are retained when the other family is absent");
+
+  const incompleteAaaa = await expectBlocked(
+    "https://example.test",
+    "source_dns_resolution_incomplete",
+    "public A response with failed AAAA validation",
+    {
+      resolver: {
+        resolve4: async () => ["8.8.8.8"],
+        resolve6: async () => { throw dnsError("ESERVFAIL", "temporary AAAA failure"); }
+      }
+    }
+  );
+  assert(incompleteAaaa.failed_record_type === "AAAA", "incomplete DNS rejection identifies the unchecked AAAA family");
+  assert(incompleteAaaa.dns_error_code === "ESERVFAIL", "incomplete DNS rejection preserves the resolver failure code");
+
+  const incompleteA = await expectBlocked(
+    "https://example.test",
+    "source_dns_resolution_incomplete",
+    "public AAAA response with failed A validation",
+    {
+      resolver: {
+        resolve4: async () => { throw new Error("dns_timeout"); },
+        resolve6: async () => ["2606:4700:4700::1111"]
+      }
+    }
+  );
+  assert(incompleteA.failed_record_type === "A", "incomplete DNS rejection identifies the unchecked A family");
+  assert(incompleteA.dns_error_code === "dns_timeout", "incomplete DNS rejection identifies timeout failures without a resolver code");
 
   console.log(`\nSUCCESS: ${passed} ProofTTL source security checks passed.`);
 }
