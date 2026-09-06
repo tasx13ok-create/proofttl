@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { attachImmutableVerificationContext } from "../src/lease-store.js";
+import { buildLeaseIssuanceAttestation } from "../src/lease-signing.js";
 import { deriveReverificationOutcome } from "../src/verification-context.js";
 
 let checks = 0;
@@ -154,6 +155,42 @@ check("persisted verification outcomes repair stale public aliases without repla
   assert.equal(lease.confidence, 0);
   assert.equal(lease.reason, "verification_outcome:CONTRADICTION_PASS_INCOMPLETE");
   assert.equal(lease.proof_basis, "EVIDENCE_LEDGER");
+});
+
+check("persisted signed issuance keeps immutable attestation fields while current verdict repairs", () => {
+  const lease = baseLease({
+    claim: "Acme is SOC 2 certified and costs $99 per month",
+    evidence: "Acme is SOC 2 certified and costs $99 per month",
+    source_fingerprint: "sha256:signed-alias-repair",
+    issued_status: "SUPPORTED",
+    current_status: "SUPPORTED"
+  });
+
+  // Capture a legacy issuance attestation before the final evidence-standard
+  // outcome existed, then attach modern context. The repair path must not
+  // rewrite fields covered by this historical signature.
+  lease.issued_attestation = buildLeaseIssuanceAttestation(lease);
+  lease.signature = { value: "legacy-signature-present" };
+  const issuanceBefore = JSON.stringify(lease.issued_attestation);
+  const issuedStatusBefore = lease.issued_status;
+  const confidenceBefore = lease.confidence;
+  const reasonBefore = lease.reason;
+  const proofBasisBefore = lease.proof_basis;
+
+  attachImmutableVerificationContext(lease);
+
+  assert.equal(lease.verification_outcome.verdict, "UNKNOWN");
+  assert.equal(lease.status, "UNKNOWN");
+  assert.equal(lease.current_status, "UNKNOWN");
+  assert.equal(lease.issued_status, issuedStatusBefore);
+  assert.equal(lease.confidence, confidenceBefore);
+  assert.equal(lease.reason, reasonBefore);
+  assert.equal(lease.proof_basis, proofBasisBefore);
+  assert.equal(lease.current_confidence, 0);
+  assert.equal(lease.current_reason, "verification_outcome:CONTRADICTION_PASS_INCOMPLETE");
+  assert.equal(lease.current_proof_basis, "EVIDENCE_LEDGER");
+  assert.equal(JSON.stringify(lease.issued_attestation), issuanceBefore);
+  assert.deepEqual(buildLeaseIssuanceAttestation(lease), lease.issued_attestation);
 });
 
 check("context enrichment is idempotent and does not rewrite the original source verdict", () => {
