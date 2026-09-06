@@ -207,6 +207,61 @@ check("mirrors of the same underlying report do not count as independent corrobo
   assert.equal(ledger.metrics.independent_support_groups, 1);
 });
 
+check("same source URL with conflicting underlying ids cannot manufacture corroboration", () => {
+  const ledger = aggregateEvidence([
+    {
+      source_url: "https://news.example/report",
+      underlying_source_id: "provider-id-a",
+      publisher: "Example News",
+      entailment: "FULL_SUPPORT",
+      stance: "FOR",
+      authority_score: 0.7,
+      directness_score: 0.7,
+      specificity_score: 0.7,
+      independence_score: 0.7,
+      reputation_score: 0.7,
+      provenance: excerpt("The report supports the claim.")
+    },
+    {
+      source_url: "https://news.example/report",
+      underlying_source_id: "provider-id-b",
+      publisher: "Example News",
+      entailment: "FULL_SUPPORT",
+      stance: "FOR",
+      authority_score: 0.7,
+      directness_score: 0.7,
+      specificity_score: 0.7,
+      independence_score: 0.7,
+      reputation_score: 0.7,
+      provenance: excerpt("The same report supports the claim.")
+    }
+  ]);
+  assert.equal(ledger.evidence_for.length, 1);
+  assert.equal(ledger.metrics.accepted_count, 1);
+  assert.equal(ledger.metrics.independent_support_groups, 1);
+});
+
+check("identity aliases collapse transitively across URL and underlying source id", () => {
+  const common = {
+    publisher: "Example News",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 0.8,
+    directness_score: 0.8,
+    specificity_score: 0.8,
+    independence_score: 0.8,
+    reputation_score: 0.8,
+    provenance: excerpt("Linked report evidence.")
+  };
+  const ledger = aggregateEvidence([
+    { ...common, source_url: "https://news.example/original", underlying_source_id: "report-a" },
+    { ...common, source_url: "https://news.example/original", underlying_source_id: "report-b" },
+    { ...common, source_url: "https://mirror.example/copy", underlying_source_id: "report-b" }
+  ]);
+  assert.equal(ledger.evidence_for.length, 1);
+  assert.equal(ledger.metrics.accepted_count, 1);
+});
+
 check("strong contradiction can produce CONTRADICTED without decorative confidence", () => {
   const ledger = aggregateEvidence([
     {
