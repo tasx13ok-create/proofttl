@@ -57,16 +57,16 @@ async function run() {
 
   // WHATWG URL canonicalization rewrites dotted IPv4-mapped IPv6 literals
   // (for example ::ffff:127.0.0.1 -> ::ffff:7f00:1). These representations
-  // must not become a second path around the IPv4 private/special-use denylist.
+  // must still inherit the underlying IPv4 public/private classification.
   for (const ip of [
     "::ffff:127.0.0.1",
     "::ffff:10.0.0.1",
     "::ffff:169.254.169.254",
-    "::ffff:192.168.1.1",
-    "::ffff:8.8.8.8"
+    "::ffff:192.168.1.1"
   ]) {
-    await expectBlocked(`http://[${ip}]`, "source_ip_not_public", `IPv4-mapped IPv6 literal ${ip}`);
+    await expectBlocked(`http://[${ip}]`, "source_ip_not_public", `non-public IPv4-mapped IPv6 literal ${ip}`);
   }
+  await expectAllowed("https://[::ffff:8.8.8.8]", "public IPv4-mapped IPv6 literal preserves public classification");
 
   await expectBlocked("ftp://8.8.8.8", "source_scheme_not_allowed", "non-HTTP scheme");
   await expectBlocked("https://user:pass@8.8.8.8", "source_credentials_not_allowed", "URL credentials");
