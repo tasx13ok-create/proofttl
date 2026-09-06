@@ -220,8 +220,12 @@ export function attachImmutableVerificationContext(lease) {
     }
   }
 
-  if (!lease.verification_outcome && lease.claim_contract) {
+  if (lease.claim_contract) {
     try {
+      // Always pass persisted leases through the outcome synchronizer. The
+      // derivation function is idempotent, and when an outcome already exists
+      // it repairs any stale public status/confidence aliases without replacing
+      // the immutable outcome or its original source-verdict snapshot.
       attachDerivedVerificationOutcome(lease);
     } catch (error) {
       console.error(JSON.stringify({
