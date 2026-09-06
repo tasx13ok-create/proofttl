@@ -92,8 +92,9 @@ export function aggregateEvidence(items = [], context = {}) {
   const contradiction = sideStrength(evidenceAgainst);
   const independentSupport = independentGroupCount(evidenceFor);
   const independentContradiction = independentGroupCount(evidenceAgainst);
+  const directionalCoverageGroups = independentGroupCount([...evidenceFor, ...evidenceAgainst]);
   const verdict = deriveVerdict({ support, contradiction, independentSupport, independentContradiction });
-  const confidence = deriveConfidence({ support, contradiction, independentSupport, independentContradiction, acceptedCount: accepted.length });
+  const confidence = deriveConfidence({ support, contradiction, independentSupport, independentContradiction, directionalCoverageGroups });
 
   return {
     version: "proofttl-evidence-ledger-v1",
@@ -121,14 +122,14 @@ export function deriveVerdict({ support = 0, contradiction = 0, independentSuppo
   return "UNKNOWN";
 }
 
-export function deriveConfidence({ support = 0, contradiction = 0, independentSupport = 0, independentContradiction = 0, acceptedCount = 0 } = {}) {
-  if (!acceptedCount) return 0;
+export function deriveConfidence({ support = 0, contradiction = 0, independentSupport = 0, independentContradiction = 0, directionalCoverageGroups = 0 } = {}) {
+  if (!directionalCoverageGroups) return 0;
   const strongest = Math.max(support, contradiction);
   const opposition = Math.min(support, contradiction);
   const separation = Math.max(0, strongest - opposition);
   const independentGroups = Math.max(independentSupport, independentContradiction);
   const corroboration = Math.min(1, independentGroups / 3);
-  const coverage = Math.min(1, acceptedCount / 4);
+  const coverage = Math.min(1, directionalCoverageGroups / 4);
   return round3(clamp01(strongest * 0.45 + separation * 0.3 + corroboration * 0.15 + coverage * 0.1));
 }
 
@@ -182,7 +183,11 @@ function urlEvidenceIdentity(sourceUrl) {
   try {
     const url = new URL(sourceUrl);
     const pathname = url.pathname.replace(/\/$/, "");
-    return `url:${url.hostname.toLowerCase()}${pathname}`;
+    const search = [...url.searchParams.entries()]
+      .sort(([aKey, aValue], [bKey, bValue]) => aKey.localeCompare(bKey) || aValue.localeCompare(bValue))
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .join("&");
+    return `url:${url.hostname.toLowerCase()}${pathname}${search ? `?${search}` : ""}`;
   } catch {
     return null;
   }
