@@ -73,6 +73,71 @@ assert.equal(
   "explicit publisher identity must prevent sibling subdomains from manufacturing independent corroboration"
 );
 
+const modestSamePublisher = aggregateEvidence([
+  {
+    source_url: "https://docs.acme.example/fact-a",
+    publisher: "Acme Corporation",
+    underlying_source_id: "sha256:modest-a",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 0.6,
+    directness_score: 0.6,
+    specificity_score: 0.6,
+    independence_score: 0.6,
+    reputation_score: 0.6,
+    provenance: excerpt("Acme page A supports the claim.")
+  },
+  {
+    source_url: "https://newsroom.acme.example/fact-b",
+    publisher: "Acme Corporation",
+    underlying_source_id: "sha256:modest-b",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 0.6,
+    directness_score: 0.6,
+    specificity_score: 0.6,
+    independence_score: 0.6,
+    reputation_score: 0.6,
+    provenance: excerpt("Acme page B supports the claim.")
+  }
+]);
+assert.equal(modestSamePublisher.evidence_for.length, 2, "same-publisher pages should remain visible in the ledger");
+assert.equal(modestSamePublisher.metrics.independent_support_groups, 1);
+assert.ok(modestSamePublisher.metrics.support_strength < 0.72, "same-publisher pages must not stack corroboration strength");
+assert.equal(modestSamePublisher.verdict, "UNKNOWN", "one publisher must not manufacture a definitive verdict by repeating modest evidence");
+
+const modestIndependentPublishers = aggregateEvidence([
+  {
+    source_url: "https://acme.example/fact-a",
+    publisher: "Acme Corporation",
+    underlying_source_id: "sha256:independent-a",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 0.6,
+    directness_score: 0.6,
+    specificity_score: 0.6,
+    independence_score: 0.6,
+    reputation_score: 0.6,
+    provenance: excerpt("Acme supports the claim.")
+  },
+  {
+    source_url: "https://registry.example/fact-b",
+    publisher: "Independent Registry",
+    underlying_source_id: "sha256:independent-b",
+    entailment: "FULL_SUPPORT",
+    stance: "FOR",
+    authority_score: 0.6,
+    directness_score: 0.6,
+    specificity_score: 0.6,
+    independence_score: 0.6,
+    reputation_score: 0.6,
+    provenance: excerpt("The independent registry supports the claim.")
+  }
+]);
+assert.equal(modestIndependentPublishers.metrics.independent_support_groups, 2);
+assert.ok(modestIndependentPublishers.metrics.support_strength >= 0.72, "a genuinely independent second origin may add corroboration strength");
+assert.equal(modestIndependentPublishers.verdict, "SUPPORTED");
+
 const separateHosts = aggregateEvidence([
   {
     source_url: "https://docs.acme.example/pricing/current",
