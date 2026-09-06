@@ -23,15 +23,20 @@ export function finalizeVerificationOutcome({ evidence_ledger, execution = {} } 
   const budgetTruncated = denials.length > 0;
   const contradictionIncomplete = contradictionRequired && !contradictionCompleted;
   const executionFailed = failures.length > 0;
-  const declaredIncomplete = declaredExecutionStatus != null && declaredExecutionStatus !== "COMPLETE";
+  // Completion is an affirmative, receipt-backed condition. A missing status
+  // must never be interpreted as COMPLETE, otherwise a future integration bug
+  // can publish a definitive evidence verdict without proving that the planned
+  // discovery/fetch/semantic execution actually finished.
+  const executionStatusMissing = declaredExecutionStatus == null;
+  const declaredIncomplete = declaredExecutionStatus !== "COMPLETE";
   const executionIncomplete = budgetTruncated || contradictionIncomplete || executionFailed || declaredIncomplete;
 
   const evidenceVerdict = evidence_ledger.verdict;
   // A definitive verdict is only publishable when the planned verification
   // execution completed. Budget denials, provider failures, an unfinished
-  // discovery/fetch/semantic/contradiction stage, or a receipt-derived
-  // NOT_EXECUTED state all withhold the final verdict. Preserve the
-  // evidence-level verdict for auditability.
+  // discovery/fetch/semantic/contradiction stage, a missing completion status,
+  // or a receipt-derived NOT_EXECUTED state all withhold the final verdict.
+  // Preserve the evidence-level verdict for auditability.
   const finalVerdict = executionIncomplete ? "UNKNOWN" : evidenceVerdict;
   const confidence = executionIncomplete ? null : evidence_ledger.confidence;
   const finalExecutionStatus = budgetTruncated
@@ -40,9 +45,11 @@ export function finalizeVerificationOutcome({ evidence_ledger, execution = {} } 
       ? "CONTRADICTION_PASS_INCOMPLETE"
       : executionFailed
         ? "EXECUTION_INCOMPLETE"
-        : declaredIncomplete
-          ? declaredExecutionStatus
-          : "COMPLETE";
+        : executionStatusMissing
+          ? "EXECUTION_INCOMPLETE"
+          : declaredIncomplete
+            ? declaredExecutionStatus
+            : "COMPLETE";
 
   return {
     version: OUTCOME_VERSION,

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { aggregateEvidence } from "../src/evidence-quality.js";
 import { deriveExecutedVerificationOutcome } from "../src/verification-context.js";
+import { finalizeVerificationOutcome } from "../src/verification-outcome.js";
 
 const claimContract = {
   version: "proofttl-claim-contract-v1",
@@ -113,6 +115,27 @@ const completed = (kind, key) => ({
   assert.equal(outcome.execution_summary.execution_status, "NOT_EXECUTED");
   assert.equal(outcome.execution_status, "NOT_EXECUTED");
   assert.equal(outcome.verdict, "UNKNOWN");
+  assert.equal(outcome.confidence, null);
+  assert.equal(outcome.confidence_status, "WITHHELD_EXECUTION_INCOMPLETE");
+}
+
+{
+  const ledger = aggregateEvidence(supportEvidence, { claim_contract: claimContract });
+  assert.equal(ledger.verdict, "SUPPORTED");
+
+  const outcome = finalizeVerificationOutcome({
+    evidence_ledger: ledger,
+    execution: {
+      contradiction_pass_required: false,
+      contradiction_pass_completed: true,
+      denials: [],
+      failures: []
+    }
+  });
+
+  assert.equal(outcome.evidence_verdict, "SUPPORTED");
+  assert.equal(outcome.verdict, "UNKNOWN");
+  assert.equal(outcome.execution_status, "EXECUTION_INCOMPLETE");
   assert.equal(outcome.confidence, null);
   assert.equal(outcome.confidence_status, "WITHHELD_EXECUTION_INCOMPLETE");
 }
