@@ -96,20 +96,26 @@ function wrapProviders(providers, validateSourceUrl) {
     if (provider == null) continue;
     if (typeof provider !== "function") throw new Error(`evidence_provider_invalid:${kind}`);
     wrapped[kind] = async (context) => {
+      let providerContext = context;
+      let fetchSafety = null;
+
       // Discovery-time validation is not sufficient for a later network fetch:
       // DNS can change between stages. Revalidate the exact candidate immediately
       // before invoking SOURCE_FETCH so stale discovery-time safety decisions are
-      // never reused to authorize retrieval. The eventual network transport must
-      // still bind its connection to the validated address set (or equivalent
-      // egress controls) to fully close DNS-rebinding TOCTOU.
+      // never reused to authorize retrieval. When validation returns the concrete
+      // public address set, pass that set into the provider contract so a real
+      // transport can bind its connection to those addresses rather than doing an
+      // unrestricted second DNS lookup.
       if (kind === "SOURCE_FETCH") {
-        await validateFetchRequestSource(context?.request, validateSourceUrl);
+        fetchSafety = await validateFetchRequestSource(context?.request, validateSourceUrl);
+        providerContext = withSourceNetworkBinding(context, fetchSafety);
       }
 
-      const result = await provider(context);
+      const result = await provider(providerContext);
       if (!result || typeof result !== "object" || Array.isArray(result) || !Object.prototype.hasOwnProperty.call(result, "value")) throw contractError(kind);
       validateValue(kind, result.value);
-      await validateSourceBindings(kind, result.value, context?.request, validateDiscoverySourceUrl);
+      if (kind === "SOURCE_FETCH") validateFetchNetworkBinding(result.value, fetchSafety);
+      await validateSourceBindings(kind, result.value, providerContext?.request, validateDiscoverySourceUrl);
       return result;
     };
   }
@@ -122,6 +128,38 @@ async function validateFetchRequestSource(request, validateSourceUrl) {
   const safety = await validateSourceUrl(sourceUrl);
   if (!safety || safety.ok !== true) {
     throw contractError("SOURCE_FETCH", "UNSAFE_REQUEST_SOURCE_URL");
+  }
+  return safety;
+}
+
+function withSourceNetworkBinding(context, safety) {
+  const addresses = Array.isArray(safety?.addresses)
+    ? [...new Set(safety.addresses.map((value) => String(value || "").trim()).filter(Boolean))]
+    : [];
+  if (addresses.length === 0) return context;
+
+  const binding = Object.freeze({
+    validated_source_url: normalizeUrl(context?.request?.candidate?.source_url),
+    host: String(safety?.host || "").trim() || null,
+    addresses: Object.freeze(addresses),
+    dns_checked: safety?.dns_checked === true
+  });
+  const request = Object.freeze({ ...context.request, source_network_binding: binding });
+  return Object.freeze({ ...context, request });
+}
+
+function validateFetchNetworkBinding(value, safety) {
+  const addresses = Array.isArray(safety?.addresses)
+    ? [...new Set(safety.addresses.map((item) => String(item || "").trim()).filter(Boolean))]
+    : [];
+  if (addresses.length === 0) return;
+
+  const connectedAddress = String(value?.connected_address || "").trim();
+  if (!connectedAddress) {
+    throw contractError("SOURCE_FETCH", "CONNECTED_ADDRESS_REQUIRED");
+  }
+  if (!addresses.includes(connectedAddress)) {
+    throw contractError("SOURCE_FETCH", "CONNECTED_ADDRESS_NOT_VALIDATED");
   }
 }
 
