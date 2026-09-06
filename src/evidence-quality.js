@@ -122,23 +122,58 @@ export function deriveConfidence({ support = 0, contradiction = 0, independentSu
 }
 
 export function dedupeEvidence(items = []) {
-  const byKey = new Map();
+  const groups = [];
+
   for (const item of items) {
-    const key = evidenceIdentity(item);
-    const existing = byKey.get(key);
-    if (!existing || item.quality_score > existing.quality_score) byKey.set(key, item);
+    const keys = evidenceIdentityKeys(item);
+    const matching = [];
+    for (let i = 0; i < groups.length; i += 1) {
+      if (keys.some((key) => groups[i].keys.has(key))) matching.push(i);
+    }
+
+    if (matching.length === 0) {
+      groups.push({ keys: new Set(keys), best: item });
+      continue;
+    }
+
+    const mergedKeys = new Set(keys);
+    let best = item;
+    const matchingSet = new Set(matching);
+    const retained = [];
+    for (let i = 0; i < groups.length; i += 1) {
+      const group = groups[i];
+      if (!matchingSet.has(i)) {
+        retained.push(group);
+        continue;
+      }
+      for (const key of group.keys) mergedKeys.add(key);
+      if (group.best.quality_score > best.quality_score) best = group.best;
+    }
+    retained.push({ keys: mergedKeys, best });
+    groups.splice(0, groups.length, ...retained);
   }
-  return [...byKey.values()];
+
+  return groups.map((group) => group.best);
 }
 
-function evidenceIdentity(item) {
-  if (item.underlying_source_id) return `underlying:${item.underlying_source_id.toLowerCase()}`;
+function evidenceIdentityKeys(item) {
+  const keys = [];
+  if (item.underlying_source_id) keys.push(`underlying:${item.underlying_source_id.toLowerCase()}`);
+  const urlIdentity = urlEvidenceIdentity(item.source_url);
+  if (urlIdentity) keys.push(urlIdentity);
+  if (keys.length === 0) {
+    keys.push(["fallback", item.publisher || "unknown-publisher", item.title || "untitled", item.source_url || "no-url", item.published_at || "no-publication-time", item.entailment || "unknown-entailment", item.stance || "unknown-stance"].join(":").toLowerCase());
+  }
+  return keys;
+}
+
+function urlEvidenceIdentity(sourceUrl) {
   try {
-    const url = new URL(item.source_url);
+    const url = new URL(sourceUrl);
     const pathname = url.pathname.replace(/\/$/, "");
     return `url:${url.hostname.toLowerCase()}${pathname}`;
   } catch {
-    return ["fallback", item.publisher || "unknown-publisher", item.title || "untitled", item.source_url || "no-url", item.published_at || "no-publication-time", item.entailment || "unknown-entailment", item.stance || "unknown-stance"].join(":").toLowerCase();
+    return null;
   }
 }
 
