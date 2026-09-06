@@ -122,6 +122,40 @@ check("pre-existing response status aliases cannot preserve a stale one-source v
   assert.equal(lease.current_status, "UNKNOWN");
 });
 
+check("persisted verification outcomes repair stale public aliases without replacing immutable evidence truth", () => {
+  const lease = baseLease({
+    claim: "Acme is SOC 2 certified and costs $99 per month",
+    evidence: "Acme is SOC 2 certified and costs $99 per month",
+    source_fingerprint: "sha256:persisted-alias-repair"
+  });
+
+  attachImmutableVerificationContext(lease);
+  const outcomeBefore = JSON.stringify(lease.verification_outcome);
+  const sourceVerdictBefore = JSON.stringify(lease.source_verdict);
+
+  // Simulate a persisted lease written by an older path that already has the
+  // immutable outcome but still exposes the original single-source verdict in
+  // public aliases. A later persistence/enrichment pass must repair those
+  // aliases instead of skipping the lease because verification_outcome exists.
+  lease.status = "SUPPORTED";
+  lease.issued_status = "SUPPORTED";
+  lease.current_status = "SUPPORTED";
+  lease.confidence = 0.99;
+  lease.reason = "stale_source_level_reason";
+  lease.proof_basis = "EXACT_TEXT";
+
+  attachImmutableVerificationContext(lease);
+
+  assert.equal(JSON.stringify(lease.verification_outcome), outcomeBefore);
+  assert.equal(JSON.stringify(lease.source_verdict), sourceVerdictBefore);
+  assert.equal(lease.status, "UNKNOWN");
+  assert.equal(lease.issued_status, "UNKNOWN");
+  assert.equal(lease.current_status, "UNKNOWN");
+  assert.equal(lease.confidence, 0);
+  assert.equal(lease.reason, "verification_outcome:CONTRADICTION_PASS_INCOMPLETE");
+  assert.equal(lease.proof_basis, "EVIDENCE_LEDGER");
+});
+
 check("context enrichment is idempotent and does not rewrite the original source verdict", () => {
   const lease = baseLease({
     claim: "Acme is SOC 2 certified and costs $99 per month",
