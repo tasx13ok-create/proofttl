@@ -188,6 +188,16 @@ function urlEvidenceIdentity(sourceUrl) {
   }
 }
 
+function independenceGroupKey(item) {
+  if (item.publisher) return `p:${item.publisher.toLowerCase()}`;
+  try {
+    return `h:${new URL(item.source_url).hostname.toLowerCase()}`;
+  } catch {
+    if (item.underlying_source_id) return `u:${item.underlying_source_id.toLowerCase()}`;
+    return null;
+  }
+}
+
 function independentGroupCount(items) {
   const groups = new Set();
   for (const item of items) {
@@ -196,26 +206,28 @@ function independentGroupCount(items) {
     // identity is present, prefer it so sibling subdomains controlled by one
     // organization cannot manufacture corroboration. Hostname remains the
     // conservative fallback for sources that do not declare a publisher.
-    if (item.publisher) {
-      groups.add(`p:${item.publisher.toLowerCase()}`);
-      continue;
-    }
-    try {
-      groups.add(`h:${new URL(item.source_url).hostname.toLowerCase()}`);
-      continue;
-    } catch {
-      // Traceable evidence normally has a valid source URL, but retain the
-      // underlying-source fallback for defensive compatibility with callers
-      // that reuse this helper on pre-assessed evidence.
-    }
-    if (item.underlying_source_id) groups.add(`u:${item.underlying_source_id.toLowerCase()}`);
+    const key = independenceGroupKey(item);
+    if (key) groups.add(key);
   }
   return groups.size;
 }
 
 function sideStrength(items) {
   if (!items.length) return 0;
-  const sorted = [...items].map((item) => item.quality_score).sort((a, b) => b - a);
+
+  // Corroboration must come from independent publishing origins. Multiple
+  // pages from one publisher remain auditable ledger items, but only the
+  // strongest item from that origin may contribute verdict-bearing strength.
+  // Otherwise a single organization can manufacture a definitive verdict by
+  // publishing the same claim across several pages or sibling subdomains.
+  const strongestByGroup = new Map();
+  items.forEach((item, index) => {
+    const key = independenceGroupKey(item) || `unresolved:${index}`;
+    const previous = strongestByGroup.get(key) || 0;
+    if (item.quality_score > previous) strongestByGroup.set(key, item.quality_score);
+  });
+
+  const sorted = [...strongestByGroup.values()].sort((a, b) => b - a);
   const top = sorted[0] || 0;
   const corroboration = sorted.slice(1, 4).reduce((sum, score, index) => sum + score * [0.35, 0.2, 0.1][index], 0);
   return clamp01(top + corroboration);
