@@ -1,3 +1,4 @@
+import { auditTestDb } from './audit-test-db.js';
 import { handleAuditStatus, handleAuditAdmin } from '../src/audit-sales.js';
 
 let passed = 0;
@@ -7,9 +8,7 @@ function assert(condition, message) {
   console.log(`PASS ${passed}: ${message}`);
 }
 
-function dbFor(row = {}) {
-  const state = {
-    row: {
+function dbFor(overrides = {}) { return auditTestDb({
       id: 'ati_11111111111111111111111111111111',
       status: 'received',
       offer_type: 'full_audit',
@@ -32,55 +31,7 @@ function dbFor(row = {}) {
       watch_started_at_ms: null,
       watch_ends_at_ms: null,
       fulfilled_at_ms: null,
-      ...row
-    }
-  };
-  return {
-    state,
-    prepare(sql) {
-      return {
-        args: [],
-        bind(...args) { this.args = args; return this; },
-        async first() {
-          if (sql.includes('lower(email)')) {
-            const [id, email] = this.args;
-            return id === state.row.id && email === state.row.email.toLowerCase() ? { ...state.row } : null;
-          }
-          if (sql.includes('WHERE id = ?')) return this.args[0] === state.row.id ? { ...state.row } : null;
-          return null;
-        },
-        async all() { return { results: [{ ...state.row }] }; },
-        async run() {
-          if (sql.includes("SET status = 'scoped', scope_summary")) {
-            const [summary, price, amountDue, turnaround, scopedAt] = this.args;
-            Object.assign(state.row, {
-              status: 'scoped', scope_summary: summary, scoped_price_usd: price, prior_credit_usd: 0,
-              amount_due_usd: amountDue, scope_turnaround: turnaround, scoped_at_ms: scopedAt,
-              payment_url: null, payment_provider: null, payment_state: 'not_requested',
-              human_approved_at_ms: null, human_approved_by: null, report_url: null, report_sha256: null,
-              report_delivered_at_ms: null, watch_started_at_ms: null, watch_ends_at_ms: null, fulfilled_at_ms: null
-            });
-          } else if (sql.includes("SET status = 'paid'")) {
-            Object.assign(state.row, { status: 'paid', payment_state: 'paid', paid_at_ms: this.args[0] });
-          } else if (sql.includes('human_approved_at_ms = ?')) {
-            const [approvedAt, reviewer] = this.args;
-            Object.assign(state.row, { human_approved_at_ms: approvedAt, human_approved_by: reviewer });
-          } else if (sql.includes("SET status = 'fulfilled'")) {
-            const [reportUrl, reportSha256, deliveredAt, watchStarted, watchEnds, fulfilledAt] = this.args;
-            Object.assign(state.row, {
-              status: 'fulfilled', report_url: reportUrl, report_sha256: reportSha256,
-              report_delivered_at_ms: deliveredAt, watch_started_at_ms: watchStarted,
-              watch_ends_at_ms: watchEnds, fulfilled_at_ms: fulfilledAt
-            });
-          } else if (sql.includes("SET status = 'cancelled'")) {
-            state.row.status = 'cancelled';
-          }
-          return { success: true };
-        }
-      };
-    }
-  };
-}
+      ...overrides }); }
 
 function adminRequest(path, body, token = 'secret') {
   return new Request(`https://proofttl.test${path}`, {
@@ -136,8 +87,10 @@ async function run() {
 
   const paid = await handleAuditAdmin(adminRequest(`/admin/audit/intakes/${id}/mark-paid`, {}), env, `/admin/audit/intakes/${id}/mark-paid`);
   const paidBody = await paid.json();
-  assert(paid.status === 200 && env.MONITOR_DB.state.row.status === 'paid', 'payment can be marked after scope is ready');
-  assert(paidBody.next_step === 'human_approval_required', 'paid audit explicitly requires human approval next');
+  assert(paid.status === 409 && env.MONITOR_DB.state.row.status === 'scoped', 'manual marking cannot fabricate payment');
+  assert(paidBody.error === 'stripe_verification_required', 'manual payment requires Stripe reconciliation');
+  // Paid fixture; Stripe evidence is exercised by stripe-payments-test.js.
+  env.MONITOR_DB.sqlite.prepare("UPDATE audit_intakes SET status='paid', payment_state='paid'").run();
 
   const prematureFulfill = await handleAuditAdmin(adminRequest(`/admin/audit/intakes/${id}/fulfill`, {
     report_url: 'https://reports.proofttl.test/report.pdf', report_sha256: 'a'.repeat(64)
@@ -170,6 +123,17 @@ async function run() {
   assert(fulfilledStatusBody.human_review?.approved === true, 'buyer status confirms human approval');
   assert(fulfilledStatusBody.delivery?.report_url === 'https://reports.proofttl.test/report.pdf', 'buyer status exposes delivered proof/report after delivery');
   assert(fulfilledStatusBody.watch?.state === 'active', 'buyer status exposes active seven-day watch');
+
+  for (const lockedStatus of ['payment_ready', 'paid', 'fulfilled', 'cancelled']) {
+    env.MONITOR_DB.sqlite.prepare("UPDATE audit_intakes SET status=?").run(lockedStatus);
+    const rescope = await handleAuditAdmin(adminRequest(`/admin/audit/intakes/${id}/scope`, {
+      scope_summary: 'Do not erase payment history', price_usd: 1500, scope_turnaround: '3–5 business days'
+    }), env, `/admin/audit/intakes/${id}/scope`);
+    assert(rescope.status === 409, `${lockedStatus} audits cannot be rescoped and lose payment/delivery history`);
+    assert(env.MONITOR_DB.state.row.status === lockedStatus, `${lockedStatus} remains unchanged`);
+    const cancel = await handleAuditAdmin(adminRequest(`/admin/audit/intakes/${id}/cancel`, {}), env, `/admin/audit/intakes/${id}/cancel`);
+    assert(cancel.status === 409 && env.MONITOR_DB.state.row.status === lockedStatus, `${lockedStatus} cancellation cannot erase payment or fulfillment state`);
+  }
 
   console.log(`\nSUCCESS: ${passed} audit-sales checks passed.`);
 }

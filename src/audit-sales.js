@@ -130,6 +130,7 @@ export async function handleAuditAdmin(request, env, pathname) {
 
   const now = Date.now();
   if (action === 'scope') {
+    if (!['received', 'scoped'].includes(existing.status)) return json({ error: 'audit_scope_locked_after_checkout' }, 409);
     let body;
     try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
     const summary = clean(body?.scope_summary, 5000);
@@ -140,22 +141,19 @@ export async function handleAuditAdmin(request, env, pathname) {
     if (existing.approximate_claims === '25+') return json({ error: 'fact_audit_scope_exceeds_25_claims' }, 409);
     if (price !== FACT_AUDIT_PRICE_USD) return json({ error: 'fact_audit_price_must_be_1500' }, 400);
 
-    await env.MONITOR_DB.prepare(
+    const scoped = await env.MONITOR_DB.prepare(
       `UPDATE audit_intakes SET status = 'scoped', scope_summary = ?, scoped_price_usd = ?,
        prior_credit_usd = 0, amount_due_usd = ?, scope_turnaround = ?, scoped_at_ms = ?, payment_url = NULL,
        payment_provider = NULL, payment_state = 'not_requested', human_approved_at_ms = NULL,
        human_approved_by = NULL, report_url = NULL, report_sha256 = NULL, report_delivered_at_ms = NULL,
-       watch_started_at_ms = NULL, watch_ends_at_ms = NULL, fulfilled_at_ms = NULL WHERE id = ?`
-    ).bind(summary, FACT_AUDIT_PRICE_USD, FACT_AUDIT_PRICE_USD, turnaround, now, id).run();
+       watch_started_at_ms = NULL, watch_ends_at_ms = NULL, fulfilled_at_ms = NULL WHERE id = ? AND status IN ('received','scoped') RETURNING id`
+    ).bind(summary, FACT_AUDIT_PRICE_USD, FACT_AUDIT_PRICE_USD, turnaround, now, id).first();
+    if (!scoped) return json({ error: 'audit_scope_locked_after_checkout' }, 409);
     return json({ ok: true, audit_intake_id: id, status: 'scoped', amount_due_usd: FACT_AUDIT_PRICE_USD });
   }
 
   if (action === 'mark-paid') {
-    if (!['payment_ready', 'scoped'].includes(existing.status)) return json({ error: 'intake_not_ready_for_payment' }, 409);
-    await env.MONITOR_DB.prepare(
-      `UPDATE audit_intakes SET status = 'paid', payment_state = 'paid', paid_at_ms = ? WHERE id = ?`
-    ).bind(now, id).run();
-    return json({ ok: true, audit_intake_id: id, status: 'paid', next_step: 'human_approval_required' });
+    return json({ error: 'stripe_verification_required', message: 'Use the checkout endpoint to recover a Stripe-confirmed paid session, or replay the verified Stripe webhook.' }, 409);
   }
 
   if (action === 'approve') {
@@ -164,9 +162,10 @@ export async function handleAuditAdmin(request, env, pathname) {
     try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
     const reviewer = clean(body?.reviewer, 160);
     if (!reviewer) return json({ error: 'human_reviewer_required' }, 400);
-    await env.MONITOR_DB.prepare(
+    const approved = await env.MONITOR_DB.prepare(
       `UPDATE audit_intakes SET human_approved_at_ms = ?, human_approved_by = ? WHERE id = ? AND status = 'paid'`
     ).bind(now, reviewer, id).run();
+    if (approved.meta?.changes === 0) return json({ error: 'intake_not_paid' }, 409);
     return json({ ok: true, audit_intake_id: id, status: 'paid', human_review: { approved: true, approved_at_ms: now } });
   }
 
@@ -180,11 +179,12 @@ export async function handleAuditAdmin(request, env, pathname) {
     if (!isHttps(reportUrl)) return json({ error: 'valid_https_report_url_required' }, 400);
     if (!/^[a-f0-9]{64}$/.test(reportSha256)) return json({ error: 'valid_report_sha256_required' }, 400);
     const watchEnds = now + WATCH_DURATION_MS;
-    await env.MONITOR_DB.prepare(
+    const delivered = await env.MONITOR_DB.prepare(
       `UPDATE audit_intakes SET status = 'fulfilled', report_url = ?, report_sha256 = ?,
        report_delivered_at_ms = ?, watch_started_at_ms = ?, watch_ends_at_ms = ?, fulfilled_at_ms = ?
        WHERE id = ? AND status = 'paid' AND human_approved_at_ms IS NOT NULL`
     ).bind(reportUrl, reportSha256, now, now, watchEnds, now, id).run();
+    if (delivered.meta?.changes === 0) return json({ error: 'fulfillment_state_changed' }, 409);
     return json({
       ok: true,
       audit_intake_id: id,
@@ -194,7 +194,12 @@ export async function handleAuditAdmin(request, env, pathname) {
     });
   }
 
-  await env.MONITOR_DB.prepare(`UPDATE audit_intakes SET status = 'cancelled' WHERE id = ?`).bind(id).run();
+  // Checkout-bearing and paid records require payment reconciliation, not cancellation.
+  const cancelled = await env.MONITOR_DB.prepare(
+    `UPDATE audit_intakes SET status = 'cancelled' WHERE id = ? AND status IN ('received','scoped')
+       AND payment_state != 'paid' AND stripe_checkout_session_id IS NULL AND checkout_attempt_id IS NULL RETURNING id`
+  ).bind(id).first();
+  if (!cancelled) return json({ error: 'audit_cancellation_requires_reconciliation' }, 409);
   return json({ ok: true, audit_intake_id: id, status: 'cancelled' });
 }
 

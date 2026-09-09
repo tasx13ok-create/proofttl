@@ -1,0 +1,15 @@
+{
+  "name": "proofttl-local-workstation",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node agent.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.3.289"
+  }
+}

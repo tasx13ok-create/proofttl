@@ -30,30 +30,11 @@ Common use cases include:
 - public certification, partnership, pricing, or company-claim checks
 - selected public due-diligence claim verification
 
-## Commercial offers
+## Commercial offer
 
-### Claim Stress Test — $129 USD
+**$1,500 USD Fact Audit**: 10–25 real outputs or claims. Confirm the exact claim set before payment. Rank all scoped findings by consequence, deeply verify the highest-risk findings, and deliver an evidence-backed report with SUPPORTED / CONTRADICTED / UNKNOWN verdicts, explicit limitations and recommended fixes. Human approval precedes customer-facing publication. Seven-day monitoring of agreed important findings and a final reread are included. Target turnaround is 3–5 business days after scope and payment.
 
-- 3–5 high-stakes factual claims
-- target 48-hour turnaround after payment and scope confirmation
-- claim-level `SUPPORTED`, `CONTRADICTED`, or `UNKNOWN` verdicts
-- public source links and evidence context
-- signed ProofTTL Fact Leases
-- no ongoing monitoring
-
-### Full Verification Audit — $500 USD
-
-- 10–25 factual claims
-- target 3–5 business-day turnaround after payment and scope confirmation
-- full verification report
-- claim-level verdicts and source evidence
-- signed Fact Leases
-- contradictions prioritized
-- 7 days of monitoring for the scoped claims
-
-### Upgrade
-
-The original $129 Claim Stress Test payment is credited in full toward a $500 Full Verification Audit. Additional upgrade balance: $371 USD.
+Runtime `src/audit-intake.js`, `src/audit-sales.js`, and `src/stripe-payments.js` enforce this single offer. No active upgrade credit or pilot rate. Never edit a customer payment amount to match an old document.
 
 ## Scope before payment
 

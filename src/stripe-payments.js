@@ -1,3 +1,4 @@
+import { readTextLimited } from './bounded-body.js';
 const STRIPE_API = 'https://api.stripe.com/v1';
 const WEBHOOK_TOLERANCE_SECONDS = 300;
 const FACT_AUDIT_PRICE_USD = 1500;
@@ -10,7 +11,7 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
   const row = await env.MONITOR_DB.prepare(
     `SELECT id, status, offer_type, email, company_or_project, scoped_price_usd,
             scope_summary, scope_turnaround, prior_credit_usd, amount_due_usd,
-            payment_state, payment_url, payment_created_at_ms, stripe_checkout_session_id
+            payment_state, payment_url, payment_created_at_ms, stripe_checkout_session_id, checkout_attempt_id
        FROM audit_intakes WHERE id = ? LIMIT 1`
   ).bind(intakeId).first();
 
@@ -36,12 +37,13 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
   if (previousSessionId) {
     const existing = await retrieveStripeCheckout(secret, previousSessionId);
     if (!existing.ok) {
-      if (existing.status !== 404) {
+      {
         console.error(JSON.stringify({ event: 'stripe_checkout_lookup_failed', intake_id: row.id, session_id: previousSessionId, status: existing.status }));
         return json({ error: 'stripe_checkout_lookup_failed' }, 502);
       }
-      await clearCheckoutIfCurrent(env, row.id, previousSessionId);
     } else if (existing.session?.status === 'open' && existing.session?.url) {
+      const checked = validateSessionAmount(existing.session, row.id, amountDue);
+      if (!checked.ok) return json({ error: checked.error }, 409);
       return json({
         ok: true,
         reused: true,
@@ -61,6 +63,21 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
     } else {
       return json({ error: 'stripe_checkout_not_reusable', stripe_status: existing.session?.status || 'unknown' }, 409);
     }
+  }
+
+  // Atomic reservation locks scope and gives concurrent/retried calls one key.
+  // Never rotate an uncertain attempt after Stripe's 24-hour retention window.
+  const reserved = await env.MONITOR_DB.prepare(
+    `UPDATE audit_intakes SET status = 'payment_ready',
+       checkout_attempt_id = COALESCE(checkout_attempt_id, ?),
+       payment_created_at_ms = CASE WHEN checkout_attempt_id IS NULL THEN ? ELSE payment_created_at_ms END
+     WHERE id = ? AND status IN ('scoped','payment_ready') AND payment_state != 'paid'
+       AND stripe_checkout_session_id IS NULL AND scope_summary = ?
+     RETURNING checkout_attempt_id, payment_created_at_ms`
+  ).bind(crypto.randomUUID(), Date.now(), row.id, row.scope_summary).first();
+  if (!reserved) return json({ error: 'checkout_state_changed_retry' }, 409);
+  if (Date.now() - Number(reserved.payment_created_at_ms) >= 23 * 60 * 60 * 1000) {
+    return json({ error: 'checkout_reconciliation_required' }, 409);
   }
 
   const offerName = 'ProofTTL Fact Audit';
@@ -84,14 +101,12 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
   params.set('payment_intent_data[metadata][offer_type]', row.offer_type);
   params.set('payment_intent_data[metadata][amount_due_usd]', String(amountDue));
 
-  const checkoutWindow = Math.floor(Date.now() / (60 * 60 * 1000));
-  const generation = previousSessionId || 'initial';
   const stripeResponse = await fetch(`${STRIPE_API}/checkout/sessions`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${secret}`,
       'content-type': 'application/x-www-form-urlencoded',
-      'idempotency-key': `proofttl-audit-${row.id}-${amountDue}-${checkoutWindow}-${generation}`.slice(0, 255)
+      'idempotency-key': `proofttl-audit-${row.id}-${reserved.checkout_attempt_id}`
     },
     body: params.toString()
   });
@@ -103,12 +118,17 @@ export async function createAuditCheckoutSession(request, env, intakeId) {
   }
 
   const now = Date.now();
-  await env.MONITOR_DB.prepare(
+  const stored = await env.MONITOR_DB.prepare(
     `UPDATE audit_intakes SET status = 'payment_ready', payment_state = 'ready',
        payment_url = ?, payment_provider = 'stripe', amount_due_usd = ?,
        stripe_checkout_session_id = ?, payment_created_at_ms = ?
-       WHERE id = ? AND status IN ('scoped','payment_ready') AND payment_state != 'paid'`
-  ).bind(session.url, amountDue, session.id, now, row.id).run();
+       WHERE id = ? AND status IN ('scoped','payment_ready') AND payment_state != 'paid'
+         AND checkout_attempt_id = ? RETURNING id`
+  ).bind(session.url, amountDue, session.id, now, row.id, reserved.checkout_attempt_id).first();
+  if (!stored) {
+    await expireStripeCheckout(secret, session.id);
+    return json({ error: 'checkout_state_changed_retry' }, 409);
+  }
 
   return json({
     ok: true,
@@ -126,7 +146,9 @@ export async function handleStripeWebhook(request, env) {
   if (!webhookSecret) return json({ error: 'stripe_webhook_not_configured' }, 503);
 
   const signature = request.headers.get('stripe-signature') || '';
-  const rawBody = await request.text();
+  let rawBody;
+  try { rawBody = await readTextLimited(request, 262144); }
+  catch (error) { return json({ error: error instanceof RangeError ? 'request_too_large' : 'invalid_webhook_body' }, error instanceof RangeError ? 413 : 400); }
   const verified = await verifyStripeSignature(rawBody, signature, webhookSecret);
   if (!verified.ok) return json({ error: verified.error }, 400);
 
@@ -151,7 +173,7 @@ export async function handleStripeWebhook(request, env) {
      VALUES (?, ?, ?, ?, 0)`
   ).bind(eventId, eventType, now, intakeId || null).run();
 
-  if (eventType === 'checkout.session.completed') {
+  if (eventType === 'checkout.session.completed' || eventType === 'checkout.session.async_payment_succeeded') {
     if (!/^ati_[a-f0-9]{32}$/.test(intakeId)) return json({ error: 'missing_audit_intake_metadata' }, 400);
     if (object.payment_status !== 'paid') {
       await markWebhookProcessed(env, eventId);
@@ -176,7 +198,7 @@ export async function handleStripeWebhook(request, env) {
     await markWebhookProcessed(env, eventId);
 
     if (siblingSessionId && siblingSessionId !== object.id) {
-      void expireStripeCheckout(clean(env?.STRIPE_SECRET_KEY, 300), siblingSessionId).catch(() => {});
+      await expireStripeCheckout(clean(env?.STRIPE_SECRET_KEY, 300), siblingSessionId);
     }
     return json({ ok: true });
   }
@@ -190,9 +212,15 @@ export async function handleStripeWebhook(request, env) {
 }
 
 function validatePaidSession(session, intakeId, expectedAmountUsd) {
+  if (session?.payment_status !== 'paid') return { ok: false, error: 'stripe_session_not_paid' };
+  return validateSessionAmount(session, intakeId, expectedAmountUsd);
+}
+
+function validateSessionAmount(session, intakeId, expectedAmountUsd) {
   const sessionIntakeId = clean(session?.metadata?.audit_intake_id || session?.client_reference_id, 80);
   if (sessionIntakeId !== intakeId) return { ok: false, error: 'stripe_audit_metadata_mismatch' };
-  if (session?.payment_status !== 'paid') return { ok: false, error: 'stripe_session_not_paid' };
+  if (session?.currency !== 'usd') return { ok: false, error: 'stripe_currency_mismatch' };
+  if (!Number.isInteger(session?.amount_total) || expectedAmountUsd <= 0) return { ok: false, error: 'stripe_amount_mismatch' };
   const paidUsd = Number(session?.amount_total || 0) / 100;
   if (Number(expectedAmountUsd || 0) !== paidUsd) return { ok: false, error: 'stripe_amount_mismatch' };
   return { ok: true };
@@ -203,7 +231,7 @@ async function markAuditPaid(env, intakeId, session, eventId) {
     `UPDATE audit_intakes SET status = 'paid', payment_state = 'paid', paid_at_ms = ?,
        payment_provider = 'stripe', payment_url = NULL, stripe_checkout_session_id = ?,
        stripe_payment_intent_id = ?, stripe_last_event_id = ?
-       WHERE id = ? AND status != 'fulfilled'`
+       WHERE id = ? AND status NOT IN ('paid','fulfilled')`
   ).bind(Date.now(), clean(session?.id, 200) || null, clean(session?.payment_intent, 200) || null, eventId, intakeId).run();
 }
 
@@ -214,7 +242,8 @@ async function clearCheckoutIfCurrent(env, intakeId, sessionId) {
        payment_state = CASE WHEN payment_state = 'ready' THEN 'not_requested' ELSE payment_state END,
        payment_url = CASE WHEN payment_state = 'ready' THEN NULL ELSE payment_url END,
        stripe_checkout_session_id = CASE WHEN payment_state = 'ready' THEN NULL ELSE stripe_checkout_session_id END,
-       payment_created_at_ms = CASE WHEN payment_state = 'ready' THEN NULL ELSE payment_created_at_ms END
+       payment_created_at_ms = CASE WHEN payment_state = 'ready' THEN NULL ELSE payment_created_at_ms END,
+       checkout_attempt_id = CASE WHEN payment_state = 'ready' THEN NULL ELSE checkout_attempt_id END
        WHERE id = ? AND stripe_checkout_session_id = ? AND status NOT IN ('paid','fulfilled')`
   ).bind(intakeId, sessionId).run();
 }

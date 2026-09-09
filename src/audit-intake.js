@@ -1,4 +1,5 @@
 import { getOptionalProofTTLSession } from './auth.js';
+import { readTextLimited } from './bounded-body.js';
 
 const OFFERS = {
   full_audit: {
@@ -37,10 +38,18 @@ export async function handleAuditIntake(request, env) {
 
   let body;
   try {
-    const raw = await request.text();
-    if (raw.length > 12000) return json({ error: 'request_too_large' }, 413);
+    // Allow the advertised 12,000-character claim field plus the other fields,
+    // including escaped and multibyte Unicode, while bounding actual streamed bytes.
+    const raw = await readTextLimited(request, 100000);
     body = JSON.parse(raw);
-  } catch { return json({ error: 'invalid_json' }, 400); }
+  } catch (error) { return error instanceof RangeError ? json({ error: 'request_too_large' }, 413) : json({ error: 'invalid_json' }, 400); }
+
+  const limits = { email: 254, company_or_project: 160, website_url: 600, claim_scope: 12000, why_it_matters: 2500, deadline: 120 };
+  for (const [field, limit] of Object.entries(limits)) {
+    if (body?.[field] != null && (typeof body[field] !== 'string' || body[field].length > limit)) {
+      return json({ error: 'invalid_field_length', message: `${field} must be text of at most ${limit} characters.` }, 400);
+    }
+  }
 
   if (typeof body?.company_site === 'string' && body.company_site.trim()) return json({ ok: true, status: 'received' });
 
@@ -49,7 +58,7 @@ export async function handleAuditIntake(request, env) {
   const email = clean(body?.email, 254).toLowerCase();
   const companyOrProject = clean(body?.company_or_project, 160);
   const websiteUrl = clean(body?.website_url, 600);
-  const claimScope = clean(body?.claim_scope, 4000);
+  const claimScope = clean(body?.claim_scope, 12000);
   const approximateClaims = clean(body?.approximate_claims, 20);
   const whyItMatters = clean(body?.why_it_matters, 2500);
   const deadline = clean(body?.deadline, 120);
@@ -104,14 +113,24 @@ export async function handleAuditIntake(request, env) {
   const recent = await env.MONITOR_DB.prepare('SELECT COUNT(*) AS count FROM audit_intakes WHERE request_fingerprint = ? AND created_at_ms >= ?').bind(fingerprint, now - WINDOW_MS).first();
   if (Number(recent?.count || 0) >= MAX_PER_WINDOW) return json({ error: 'audit_intake_rate_limited', retry_after_seconds: 600 }, 429, { 'retry-after': '600' });
 
-  const id = `ati_${crypto.randomUUID().replaceAll('-', '')}`;
-  await env.MONITOR_DB.prepare(
+  let id = `ati_${crypto.randomUUID().replaceAll('-', '')}`;
+  const inserted = await env.MONITOR_DB.prepare(
     `INSERT INTO audit_intakes (
       id, created_at_ms, status, email, company_or_project, website_url,
       claim_scope, approximate_claims, why_it_matters, deadline, request_fingerprint,
       offer_type
-    ) VALUES (?, ?, 'received', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, now, email, companyOrProject, websiteUrl || null, claimScope, approximateClaims, whyItMatters, deadline || null, fingerprint, offerType).run();
+    ) SELECT ?, ?, 'received', ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM audit_intakes WHERE lower(email) = ? AND offer_type = ? AND claim_scope = ? AND created_at_ms >= ?)
+      RETURNING id`
+  ).bind(id, now, email, companyOrProject, websiteUrl || null, claimScope, approximateClaims, whyItMatters, deadline || null, fingerprint, offerType,
+    email, offerType, claimScope, now - WINDOW_MS).first();
+  if (!inserted) {
+    const winner = await env.MONITOR_DB.prepare(
+      `SELECT id FROM audit_intakes WHERE lower(email) = ? AND offer_type = ? AND claim_scope = ? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 1`
+    ).bind(email, offerType, claimScope, now - WINDOW_MS).first();
+    if (!winner) return json({ error: 'audit_intake_retry_required' }, 503);
+    id = winner.id;
+  }
 
   const linkedToAccount = await ensureAccountLink(env, authenticatedSession, id, now);
   if (productionAuthConfigured(env) && !linkedToAccount) {

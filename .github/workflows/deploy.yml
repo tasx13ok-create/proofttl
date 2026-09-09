@@ -48,7 +48,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.freshness.outputs.current == 'true'
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Run full local release suite
         if: steps.freshness.outputs.current == 'true'
@@ -74,7 +74,7 @@ jobs:
 
       - name: Deploy Cloudflare Worker
         if: steps.freshness.outputs.current == 'true'
-        run: npx wrangler deploy
+        run: npx wrangler deploy --message "git:${{ github.sha }}"
 
       - name: Run live smoke suite
         if: steps.freshness.outputs.current == 'true'

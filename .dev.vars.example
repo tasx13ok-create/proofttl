@@ -1,0 +1,14 @@
+# LOCAL ONLY. Copy to .dev.vars (ignored). Never commit real values.
+# Generate a fresh LOCAL auth secret, never reuse the production one.
+BETTER_AUTH_SECRET=replace_with_a_local_random_secret_at_least_32_characters
+BETTER_AUTH_URL=http://localhost:8787
+PROOFTTL_AUTH_PUBLIC_URL=http://localhost:8787
+PROOFTTL_WEB_URL=http://localhost:3000
+PROOFTTL_AUTH_TRUSTED_ORIGINS=http://localhost:3000,http://localhost:8787
+PROOFTTL_AUTH_CROSS_ORIGIN=false
+# Optional test-only payment setup. Leave unset unless intentionally testing.
+# STRIPE_SECRET_KEY=sk_test_replace_me
+# STRIPE_WEBHOOK_SECRET=whsec_replace_me
+# PROOFTTL_ADMIN_TOKEN=local_only_replace_me
+# PROOFTTL_SIGNING_PRIVATE_JWK={local_test_key_only}
+# OAuth providers require separately registered local callbacks.

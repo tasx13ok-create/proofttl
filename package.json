@@ -34,7 +34,7 @@
     "test:event-signing": "node scripts/event-signing-test.js",
     "test:audit-intake": "node scripts/audit-intake-test.js",
     "test:audit-sales": "node scripts/audit-sales-test.js",
-    "test:stripe-payments": "node scripts/stripe-payments-test.js",
+    "test:stripe-payments": "node scripts/stripe-payments-test.js && node scripts/audit-journey-test.js",
     "test:account-workspace": "node scripts/account-workspace-test.js",
     "test:studio-runner": "node scripts/studio-runner-test.js",
     "test:capabilities": "node scripts/capability-registry-test.js",

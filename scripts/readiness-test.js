@@ -114,4 +114,9 @@ await check("production remains locked independently of testnet readiness", asyn
   assert(result.production.blockers.includes("paid_membership_billing"));
 });
 
+await check("readiness advertises only the active commercial offer", async () => {
+  const result = await getDeploymentReadiness(completeEnv(), request);
+  assert.deepEqual(result.commercial_services.offers, ["fact_audit_1500"]);
+});
+
 console.log(`\n${checks} readiness checks passed.`);

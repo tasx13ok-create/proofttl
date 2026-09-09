@@ -20,6 +20,7 @@ function fakeDb(initialCount = 0) {
         },
         async first() {
           if (sql.includes('COUNT(*)')) return { count: initialCount };
+          if (sql.includes('INSERT INTO audit_intakes')) { rows.push(this.args.slice(0, 11)); return { id: this.args[0] }; }
           return null;
         },
         async run() {
@@ -72,6 +73,16 @@ async function run() {
   assert(body.payment?.required_now === false, 'intake does not request payment before scope review');
   assert(db.rows.length === 1, 'valid intake is persisted exactly once');
   assert(db.rows[0].at(-1) === 'full_audit', 'selected offer type is persisted');
+
+  const longScope = 'Evidence claim 界\\n'.repeat(700).slice(0, 12000);
+  const longDb = fakeDb();
+  const longResponse = await handleAuditIntake(request({ ...fullAudit, claim_scope: longScope, why_it_matters: '界'.repeat(2500) }), { MONITOR_DB: longDb });
+  assert(longResponse.status === 201, 'advertised maximum claim length accepts Unicode and full context');
+  assert(longDb.rows[0][5] === longScope, 'entire long claim scope is stored without silent truncation');
+  const oversized = await handleAuditIntake(request({ ...fullAudit, claim_scope: 'x'.repeat(12001) }), { MONITOR_DB: fakeDb() });
+  assert(oversized.status === 400, 'overlong claims get an explicit error instead of truncation');
+  const huge = await handleAuditIntake(request({ padding: 'x'.repeat(100001) }), { MONITOR_DB: fakeDb() });
+  assert(huge.status === 413, 'oversized streamed request is rejected before JSON parsing');
 
   const retiredOffer = await handleAuditIntake(request({ ...fullAudit, offer_type: 'stress_test', approximate_claims: '3-5' }), { MONITOR_DB: fakeDb() });
   assert(retiredOffer.status === 400, 'retired stress-test offer is rejected');
