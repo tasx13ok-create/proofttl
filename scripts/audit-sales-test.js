@@ -171,6 +171,15 @@ async function run() {
   assert(fulfilledStatusBody.delivery?.report_url === 'https://reports.proofttl.test/report.pdf', 'buyer status exposes delivered proof/report after delivery');
   assert(fulfilledStatusBody.watch?.state === 'active', 'buyer status exposes active seven-day watch');
 
+  for (const lockedStatus of ['payment_ready', 'paid', 'fulfilled', 'cancelled']) {
+    env.MONITOR_DB.state.row.status = lockedStatus;
+    const rescope = await handleAuditAdmin(adminRequest(`/admin/audit/intakes/${id}/scope`, {
+      scope_summary: 'Do not erase payment history', price_usd: 1500, scope_turnaround: '3–5 business days'
+    }), env, `/admin/audit/intakes/${id}/scope`);
+    assert(rescope.status === 409, `${lockedStatus} audits cannot be rescoped and lose payment/delivery history`);
+    assert(env.MONITOR_DB.state.row.status === lockedStatus, `${lockedStatus} remains unchanged`);
+  }
+
   console.log(`\nSUCCESS: ${passed} audit-sales checks passed.`);
 }
 

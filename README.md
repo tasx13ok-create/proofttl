@@ -18,10 +18,9 @@ The name **ProofTTL** refers to this claim-verification product and website. In 
 
 The current commercial wedge is a scope-first paid verification service:
 
-- **$129 Claim Stress Test** — 3–5 high-stakes claims, target 48-hour turnaround after payment and scope confirmation, source-backed verdicts, and signed Fact Leases.
-- **$500 Full Verification Audit** — 10–25 claims, target 3–5 business days after payment and scope confirmation, a verification report, signed Fact Leases, and 7 days of monitoring.
-- **$371 upgrade balance** — the original $129 is credited in full toward the $500 audit.
-- Scope is confirmed before payment is requested.
+- **$1,500 Fact Audit** — 10–25 real outputs or consequential claims, risk-ranked findings, deep verification of the highest-risk claims, source-backed report/proof deliverables, human approval before publication, and seven days of monitoring with a final reread. Target delivery: 3–5 business days after scope confirmation and payment.
+- Scope is confirmed before payment. No card at intake. There is no active pilot or upgrade offer.
+- Runtime source of truth: `src/audit-intake.js`, `src/audit-sales.js`, and `src/stripe-payments.js`; Stripe Checkout uses server-created USD 150000 cents, not a client price or a dashboard Price ID.
 
 Good use cases include AI-output fact checking, pre-publication review, marketing claims, startup and pitch claims, research claims, website claims, product and competitor claims, public company claims, certifications, partnerships, market statistics, and selected public due-diligence claims.
 
@@ -150,7 +149,7 @@ The backend also owns the live human verification intake/payment lifecycle:
 - Stripe Checkout creation after scope approval
 - Stripe webhook verification and payment-state transitions
 - account-to-audit ownership links
-- $129 Stress Test, $500 Full Verification Audit, and $371 credited upgrade semantics
+- $1,500 Fact Audit; retired offers and upgrade credits rejected
 
 The customer-facing audit flow is intentionally separate from the Base Sepolia x402 testnet endpoint.
 

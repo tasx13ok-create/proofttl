@@ -1,4 +1,5 @@
 import { getOptionalProofTTLSession } from './auth.js';
+import { readTextLimited } from './bounded-body.js';
 
 const OFFERS = {
   full_audit: {
@@ -37,10 +38,18 @@ export async function handleAuditIntake(request, env) {
 
   let body;
   try {
-    const raw = await request.text();
-    if (raw.length > 12000) return json({ error: 'request_too_large' }, 413);
+    // Allow the advertised 12,000-character claim field plus the other fields,
+    // including escaped and multibyte Unicode, while bounding actual streamed bytes.
+    const raw = await readTextLimited(request, 100000);
     body = JSON.parse(raw);
-  } catch { return json({ error: 'invalid_json' }, 400); }
+  } catch (error) { return error instanceof RangeError ? json({ error: 'request_too_large' }, 413) : json({ error: 'invalid_json' }, 400); }
+
+  const limits = { email: 254, company_or_project: 160, website_url: 600, claim_scope: 12000, why_it_matters: 2500, deadline: 120 };
+  for (const [field, limit] of Object.entries(limits)) {
+    if (body?.[field] != null && (typeof body[field] !== 'string' || body[field].length > limit)) {
+      return json({ error: 'invalid_field_length', message: `${field} must be text of at most ${limit} characters.` }, 400);
+    }
+  }
 
   if (typeof body?.company_site === 'string' && body.company_site.trim()) return json({ ok: true, status: 'received' });
 
@@ -49,7 +58,7 @@ export async function handleAuditIntake(request, env) {
   const email = clean(body?.email, 254).toLowerCase();
   const companyOrProject = clean(body?.company_or_project, 160);
   const websiteUrl = clean(body?.website_url, 600);
-  const claimScope = clean(body?.claim_scope, 4000);
+  const claimScope = clean(body?.claim_scope, 12000);
   const approximateClaims = clean(body?.approximate_claims, 20);
   const whyItMatters = clean(body?.why_it_matters, 2500);
   const deadline = clean(body?.deadline, 120);

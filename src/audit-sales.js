@@ -130,6 +130,7 @@ export async function handleAuditAdmin(request, env, pathname) {
 
   const now = Date.now();
   if (action === 'scope') {
+    if (!['received', 'scoped'].includes(existing.status)) return json({ error: 'audit_scope_locked_after_checkout' }, 409);
     let body;
     try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
     const summary = clean(body?.scope_summary, 5000);
@@ -145,7 +146,7 @@ export async function handleAuditAdmin(request, env, pathname) {
        prior_credit_usd = 0, amount_due_usd = ?, scope_turnaround = ?, scoped_at_ms = ?, payment_url = NULL,
        payment_provider = NULL, payment_state = 'not_requested', human_approved_at_ms = NULL,
        human_approved_by = NULL, report_url = NULL, report_sha256 = NULL, report_delivered_at_ms = NULL,
-       watch_started_at_ms = NULL, watch_ends_at_ms = NULL, fulfilled_at_ms = NULL WHERE id = ?`
+       watch_started_at_ms = NULL, watch_ends_at_ms = NULL, fulfilled_at_ms = NULL WHERE id = ? AND status IN ('received','scoped')`
     ).bind(summary, FACT_AUDIT_PRICE_USD, FACT_AUDIT_PRICE_USD, turnaround, now, id).run();
     return json({ ok: true, audit_intake_id: id, status: 'scoped', amount_due_usd: FACT_AUDIT_PRICE_USD });
   }

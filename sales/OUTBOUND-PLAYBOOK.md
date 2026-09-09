@@ -1,164 +1,29 @@
-# ProofTTL First-Sale Outbound Playbook
+# First-customer playbook
 
-Goal: close the first three paid Verification Audits. Do not sell the whole ProofTTL universe in the opening message.
+Sell one $1,500 scope-first Fact Audit: 10–25 outputs/claims, consequence ranking, deep verification of the highest-risk findings, source-backed verdicts and repairs, human approval, seven-day watch and final reread. Runtime code plus COMMERCIAL-VERIFICATION.md is price authority. Old pilots are retired.
 
-## Initial ICP
+Start with small AI support/documentation companies where you can reach product leadership. Frigade, My AskAI and Kapa are practical starting hypotheses. Crescendo scores highest on fit but may have slower enterprise routing. Enterpret's private-feedback use case needs qualification for public-source scope. No prospect is a confirmed buyer.
 
-AI/RAG/agent product teams at B2B SaaS companies that launched or materially expanded an assistant, copilot, RAG feature, or agent in the last 90 days.
+1. Find a public product page or dated release. Record exact URL, date and observation. A vendor statement is not independent proof of its performance.
+2. Define the precise output at risk, who acts on it and what public evidence could check it. Reject vague fits and confidential-source work outside your capability.
+3. Score each factor 0–5: factual exposure 20%, generative AI 15%, publishing volume 10%, consequence 20%, plausible budget 10%, reachable role 10%, immediate trigger 15%. Unknown budget scores low. Fit scores are hypotheses, not conversion probabilities.
+4. Check prior outreach in sent mail and prospects-2026-08-18.csv. Normalize domains, verify the business contact route and role. Never guess personal emails.
+5. Use one observation and one useful question from OUTREACH-TEMPLATES.md. Never claim to have found errors unless the work is recorded. SELF-AUDIT-SAMPLE.md demonstrates actual work on ProofTTL itself.
+6. Owner reviews and sends perhaps 3–5 carefully selected messages per working day from an established account. This is a suggested pace, not automation. Identify yourself truthfully, use a working reply route, respect recipient contact policies and opt-outs.
+7. Record date/variant immediately. One useful follow-up after about four days, final close-out seven days later. Stop after decline/opt-out.
 
-## Trigger rule
+Qualify exact claims, evidence access, consequence, deadline and purchasing owner. Confirm which claims receive deep verification, exclusions, human approval, report delivery and monitoring. Offer a sample before a meeting. A single public-claim discussion can assess fit; do not promise an unpaid full audit or an unsupported discount.
 
-Never send a generic message. Every prospect must have a concrete public trigger:
+Create Checkout only after agreed scope. Start work after verified payment. Use AUDIT-DELIVERY-TEMPLATE.md; keep customer material out of public Git. A stored watch timer is not a performed source check.
 
-- recent assistant/copilot/agent launch
-- new RAG or knowledge feature
-- cited/source-linked answers
-- action-taking agent
-- public statement about stale or unverified data
+Track researched → ready → sent → replied → interested → scoped → payment requested → paid → delivered. Count opt-outs and delivery hours. After 15–20 careful attempts without useful conversations, reassess the target, observation and sample before increasing volume.
 
-## Opening value proposition
+Competition researched 2026-09-09:
+- Factiverse offers automated claim-checking products: https://www.factiverse.ai/products
+- Galileo documents factual-error evaluation: https://docs.galileo.ai/how-to-guides/conversational-ai/fixing-hallucinations-and-factual-errors
+- Evidently provides open-source evaluation workflows: https://docs.evidentlyai.com/docs/library/overview
 
-**Know when a verified claim stops being safe to rely on.**
+These are alternatives. ProofTTL's proposed distinction is a small human-reviewed engagement with a defined public evidence trail, repairs and freshness window. Prove it through delivery; do not claim uniqueness or perfect detection.
 
-ProofTTL reviews high-risk factual claims against current sources, returns a defensible evidence report, and watches those claims for drift after the audit.
+Search results indicate an active category, not keyword volume. No Search Console performance data or paid keyword tool was available. Preserve existing purchase-intent pages and 32-page sitemap. Look at actual impressions, clicks and inquiries before adding pages. Buyers matter more than additional manifests.
 
-Do not lead with Fact Leases, signatures, x402, L.O.V.E., or protocol architecture. Those are supporting differentiation after the buyer understands the problem.
-
-## Offer
-
-**ProofTTL Verification Audit — $500 early pilot**
-
-- 10–25 factual claims
-- source-backed verdicts
-- contradiction/unknown report
-- human-readable evidence summary
-- machine-readable records where issued
-- 7-day source/change monitoring
-- one no-charge re-review for a disputed claim
-- scope confirmed before payment
-
-Do not promise a 48-hour turnaround until a full real customer workflow has demonstrated it reliably.
-
-## Cold email template
-
-Subject: quick question about [FEATURE NAME]
-
-[First name],
-
-I saw you recently launched [specific AI feature / assistant / agent].
-
-How are you handling factual drift when the sources behind its answers change after launch?
-
-I built ProofTTL for that exact gap: we audit a small set of high-risk claims against their current sources and keep watching the evidence so a once-correct answer does not quietly stay in circulation after the source changes.
-
-I have a short public sample showing what the output looks like. The early pilot is $500 for 10–25 claims plus 7 days of monitoring.
-
-Worth sending the sample over?
-
-— Collin
-
-## Stronger version when the prospect already uses stale-data language
-
-Subject: you already described the problem I built for
-
-[First name],
-
-Your [launch/post] called out [their exact stale-data / verification problem]. That is almost exactly why I built ProofTTL.
-
-Instead of treating a verified statement as permanently true, ProofTTL gives the claim a validity window, rechecks the source, and records when the evidence no longer supports relying on it.
-
-I am running a small $500 verification-audit pilot right now for 10–25 high-risk claims. I can send you the sample report first so you can judge the output before spending time on a call.
-
-Want it?
-
-— Collin
-
-## Follow-up 1 — 3 days
-
-Subject: re: [same subject]
-
-[First name],
-
-Here is the short version: the audit is meant to catch claims that were correct when they entered the system but became stale after the underlying source changed.
-
-That is the part normal groundedness checks and page-change alerts often leave disconnected.
-
-If that is relevant to [feature], I can send the public sample.
-
-— Collin
-
-## Follow-up 2 — 7 days
-
-Subject: one question then I will leave you alone
-
-Do you currently have a process for knowing when a previously verified factual claim in [feature] should stop being trusted because its source changed?
-
-If yes, I would genuinely like to know how you handle it.
-
-If not, that is the gap ProofTTL is testing with the $500 pilot.
-
-— Collin
-
-## 45-second Loom structure
-
-Do not demo the platform architecture.
-
-0–7 sec: show the prospect's public AI feature or launch announcement.
-
-"I saw you just launched [feature]. This is the specific thing that caught my eye."
-
-7–18 sec: show the sample audit risk/drift dashboard.
-
-"ProofTTL takes the important factual claims behind an AI product and records what the current source actually supports."
-
-18–33 sec: show the Perplexity documentation-drift example.
-
-"The useful case is not just catching something false. It is catching something that was reasonable when written but became stale after the product changed."
-
-33–45 sec: show the audit offer.
-
-"I am running this as a $500 early pilot for 10–25 claims with seven days of monitoring. If this risk exists in [feature], I can send the sample and you can judge whether it is useful."
-
-## Qualification checklist
-
-A prospect is Tier A if at least three are true:
-
-- AI feature launched in the last 90 days
-- answers depend on external or frequently changing sources
-- output is customer-facing
-- answers drive a decision or action
-- product advertises citations, trusted sources, verified data, or grounded answers
-- wrong/stale output has reputational, support, financial, contractual, or operational impact
-
-Tier B: two conditions.
-
-Tier C: one or none — do not spend personalized time yet.
-
-## First-call rule
-
-Ask before pitching:
-
-**How are you currently handling factual accuracy and source drift in the AI feature you just shipped?**
-
-Listen for the gap. Then show only the part of the sample report that addresses the gap they described.
-
-## What not to say
-
-Avoid:
-
-- hallucination detector
-- generic fact-checking API
-- trust layer for AI
-- guaranteed truth
-- cryptographically signed = true
-- replaces human review
-- perfect accuracy
-
-Preferred language:
-
-- time-bound verification
-- claim freshness
-- source drift
-- current evidence
-- verification history
-- know when a previously verified claim should be rechecked

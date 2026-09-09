@@ -1,3 +1,4 @@
+import { readTextLimited } from './bounded-body.js';
 const STRIPE_API = 'https://api.stripe.com/v1';
 const WEBHOOK_TOLERANCE_SECONDS = 300;
 const FACT_AUDIT_PRICE_USD = 1500;
@@ -126,7 +127,9 @@ export async function handleStripeWebhook(request, env) {
   if (!webhookSecret) return json({ error: 'stripe_webhook_not_configured' }, 503);
 
   const signature = request.headers.get('stripe-signature') || '';
-  const rawBody = await request.text();
+  let rawBody;
+  try { rawBody = await readTextLimited(request, 262144); }
+  catch (error) { return json({ error: error instanceof RangeError ? 'request_too_large' : 'invalid_webhook_body' }, error instanceof RangeError ? 413 : 400); }
   const verified = await verifyStripeSignature(rawBody, signature, webhookSecret);
   if (!verified.ok) return json({ error: verified.error }, 400);
 
@@ -151,7 +154,7 @@ export async function handleStripeWebhook(request, env) {
      VALUES (?, ?, ?, ?, 0)`
   ).bind(eventId, eventType, now, intakeId || null).run();
 
-  if (eventType === 'checkout.session.completed') {
+  if (eventType === 'checkout.session.completed' || eventType === 'checkout.session.async_payment_succeeded') {
     if (!/^ati_[a-f0-9]{32}$/.test(intakeId)) return json({ error: 'missing_audit_intake_metadata' }, 400);
     if (object.payment_status !== 'paid') {
       await markWebhookProcessed(env, eventId);
@@ -193,6 +196,8 @@ function validatePaidSession(session, intakeId, expectedAmountUsd) {
   const sessionIntakeId = clean(session?.metadata?.audit_intake_id || session?.client_reference_id, 80);
   if (sessionIntakeId !== intakeId) return { ok: false, error: 'stripe_audit_metadata_mismatch' };
   if (session?.payment_status !== 'paid') return { ok: false, error: 'stripe_session_not_paid' };
+  if (session?.currency !== 'usd') return { ok: false, error: 'stripe_currency_mismatch' };
+  if (!Number.isInteger(session?.amount_total) || expectedAmountUsd <= 0) return { ok: false, error: 'stripe_amount_mismatch' };
   const paidUsd = Number(session?.amount_total || 0) / 100;
   if (Number(expectedAmountUsd || 0) !== paidUsd) return { ok: false, error: 'stripe_amount_mismatch' };
   return { ok: true };

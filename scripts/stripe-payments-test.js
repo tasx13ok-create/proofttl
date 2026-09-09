@@ -145,7 +145,7 @@ try {
       if (String(url).endsWith('/checkout/sessions/cs_new/expire') && options.method === 'POST') { expired.push('cs_new'); return Response.json({ id: 'cs_new', status: 'expired' }); }
       return new Response('{}', { status: 500 });
     };
-    const event = { id: 'evt_paid_old', type: 'checkout.session.completed', data: { object: { id: 'cs_old', client_reference_id: INTAKE, payment_status: 'paid', amount_total: 150000, payment_intent: 'pi_paid', metadata: { audit_intake_id: INTAKE, amount_due_usd: '1500' } } } };
+    const event = { id: 'evt_paid_old', type: 'checkout.session.completed', data: { object: { id: 'cs_old', client_reference_id: INTAKE, payment_status: 'paid', currency: 'usd', amount_total: 150000, payment_intent: 'pi_paid', metadata: { audit_intake_id: INTAKE, amount_due_usd: '1500' } } } };
     const response = await handleStripeWebhook(await signedWebhook(event), envFor(db));
     assert.equal(response.status, 200);
     assert.equal(db.state.row.status, 'paid');
@@ -158,7 +158,7 @@ try {
   {
     const db = makeDb({ status: 'payment_ready', payment_state: 'ready', stripe_checkout_session_id: 'cs_current' });
     globalThis.fetch = async () => new Response('{}', { status: 200 });
-    const event = { id: 'evt_wrong_amount', type: 'checkout.session.completed', data: { object: { id: 'cs_wrong', client_reference_id: INTAKE, payment_status: 'paid', amount_total: 149900, payment_intent: 'pi_wrong', metadata: { audit_intake_id: INTAKE } } } };
+    const event = { id: 'evt_wrong_amount', type: 'checkout.session.completed', data: { object: { id: 'cs_wrong', client_reference_id: INTAKE, payment_status: 'paid', currency: 'usd', amount_total: 149900, payment_intent: 'pi_wrong', metadata: { audit_intake_id: INTAKE } } } };
     const response = await handleStripeWebhook(await signedWebhook(event), envFor(db));
     assert.equal(response.status, 409);
     assert.equal((await response.json()).error, 'stripe_amount_mismatch');
@@ -179,6 +179,25 @@ try {
     assert.equal(db.state.row.stripe_checkout_session_id, 'cs_replacement');
   }
 
+  {
+    const db = makeDb({ status: 'payment_ready', payment_state: 'ready' });
+    const event = { id: 'evt_async_paid', type: 'checkout.session.async_payment_succeeded', data: { object: { id: 'cs_async', client_reference_id: INTAKE, payment_status: 'paid', currency: 'usd', amount_total: 150000, metadata: { audit_intake_id: INTAKE } } } };
+    const response = await handleStripeWebhook(await signedWebhook(event), envFor(db));
+    assert.equal(response.status, 200);
+    assert.equal(db.state.row.status, 'paid', 'delayed payment success must not strand a paid customer');
+    const duplicate = await handleStripeWebhook(await signedWebhook(event), envFor(db));
+    assert.equal(duplicate.status, 200);
+    assert.equal((await duplicate.json()).duplicate, true);
+  }
+
+  for (const currency of ['eur', undefined]) {
+    const db = makeDb({ status: 'payment_ready', payment_state: 'ready' });
+    const event = { id: 'evt_currency_' + currency, type: 'checkout.session.completed', data: { object: { id: 'cs_currency', client_reference_id: INTAKE, payment_status: 'paid', currency, amount_total: 150000, metadata: { audit_intake_id: INTAKE } } } };
+    const response = await handleStripeWebhook(await signedWebhook(event), envFor(db));
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, 'stripe_currency_mismatch');
+    assert.notEqual(db.state.row.status, 'paid');
+  }
   console.log('SUCCESS: exact $1,500 Fact Audit Stripe lifecycle checks passed.');
 } finally {
   globalThis.fetch = originalFetch;

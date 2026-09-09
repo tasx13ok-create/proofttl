@@ -1,0 +1,12 @@
+{
+  "provider": "ollama",
+  "baseUrl": "http://127.0.0.1:11434",
+  "model": "qwen3:1.7b",
+  "timeoutMs": 180000,
+  "numCtx": 4096,
+  "numPredict": 650,
+  "allowRemote": false,
+  "maxIterations": 4,
+  "maxErrors": 2,
+  "maxRunMs": 600000
+}
