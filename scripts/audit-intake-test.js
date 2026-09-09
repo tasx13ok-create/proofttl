@@ -20,6 +20,7 @@ function fakeDb(initialCount = 0) {
         },
         async first() {
           if (sql.includes('COUNT(*)')) return { count: initialCount };
+          if (sql.includes('INSERT INTO audit_intakes')) { rows.push(this.args.slice(0, 11)); return { id: this.args[0] }; }
           return null;
         },
         async run() {

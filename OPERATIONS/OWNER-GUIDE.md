@@ -24,7 +24,9 @@ Buyer: website → sample → `/audit/` → sign in → submit scope → `/audit
 
 The code in `src/audit-intake.js`, `src/audit-sales.js`, and `src/stripe-payments.js` enforces the price. Stripe creates inline `price_data` for **150000 USD cents**, not a client-supplied price or a saved Stripe Price ID. No pilot discount or upgrade is active. Historical release notes and old Git commits are not price authority.
 
-Never treat `?paid=1` in a browser URL as proof of payment. Check stored payment status and Stripe. Do not use `/mark-paid` for routine sales: it is a powerful admin override and requires independent reconciliation.
+Never treat `?paid=1` in a browser URL as proof of payment. Check stored payment status and Stripe. `/mark-paid` is disabled. To recover a paid session, repeat the checkout endpoint (it retrieves and validates the stored Stripe session) or replay the verified webhook. An uncertain checkout attempt older than 23 hours fails closed and requires manual Stripe reconciliation before any replacement is issued.
+
+Before fulfillment, open the final HTTPS report URL as the intended recipient and confirm it downloads the approved report; compute its SHA-256 from those exact bytes. The API validates the URL format and digest format, not remote availability or recipient permissions. Seven-day watch timestamps record the agreed service window; the owner must actually review the agreed findings during that window and communicate material changes.
 
 ## Prerequisites and installation
 

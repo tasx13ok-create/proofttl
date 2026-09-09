@@ -113,14 +113,24 @@ export async function handleAuditIntake(request, env) {
   const recent = await env.MONITOR_DB.prepare('SELECT COUNT(*) AS count FROM audit_intakes WHERE request_fingerprint = ? AND created_at_ms >= ?').bind(fingerprint, now - WINDOW_MS).first();
   if (Number(recent?.count || 0) >= MAX_PER_WINDOW) return json({ error: 'audit_intake_rate_limited', retry_after_seconds: 600 }, 429, { 'retry-after': '600' });
 
-  const id = `ati_${crypto.randomUUID().replaceAll('-', '')}`;
-  await env.MONITOR_DB.prepare(
+  let id = `ati_${crypto.randomUUID().replaceAll('-', '')}`;
+  const inserted = await env.MONITOR_DB.prepare(
     `INSERT INTO audit_intakes (
       id, created_at_ms, status, email, company_or_project, website_url,
       claim_scope, approximate_claims, why_it_matters, deadline, request_fingerprint,
       offer_type
-    ) VALUES (?, ?, 'received', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, now, email, companyOrProject, websiteUrl || null, claimScope, approximateClaims, whyItMatters, deadline || null, fingerprint, offerType).run();
+    ) SELECT ?, ?, 'received', ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM audit_intakes WHERE lower(email) = ? AND offer_type = ? AND claim_scope = ? AND created_at_ms >= ?)
+      RETURNING id`
+  ).bind(id, now, email, companyOrProject, websiteUrl || null, claimScope, approximateClaims, whyItMatters, deadline || null, fingerprint, offerType,
+    email, offerType, claimScope, now - WINDOW_MS).first();
+  if (!inserted) {
+    const winner = await env.MONITOR_DB.prepare(
+      `SELECT id FROM audit_intakes WHERE lower(email) = ? AND offer_type = ? AND claim_scope = ? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 1`
+    ).bind(email, offerType, claimScope, now - WINDOW_MS).first();
+    if (!winner) return json({ error: 'audit_intake_retry_required' }, 503);
+    id = winner.id;
+  }
 
   const linkedToAccount = await ensureAccountLink(env, authenticatedSession, id, now);
   if (productionAuthConfigured(env) && !linkedToAccount) {

@@ -74,7 +74,7 @@ jobs:
 
       - name: Deploy Cloudflare Worker
         if: steps.freshness.outputs.current == 'true'
-        run: npx wrangler deploy
+        run: npx wrangler deploy --message "git:${{ github.sha }}"
 
       - name: Run live smoke suite
         if: steps.freshness.outputs.current == 'true'

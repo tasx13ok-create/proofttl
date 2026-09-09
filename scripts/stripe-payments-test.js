@@ -1,3 +1,4 @@
+import { auditTestDb } from './audit-test-db.js';
 import assert from 'node:assert/strict';
 import { createAuditCheckoutSession, handleStripeWebhook } from '../src/stripe-payments.js';
 
@@ -6,9 +7,7 @@ const WEBHOOK_SECRET = 'whsec_test_only';
 const STRIPE_SECRET = 'sk_test_only';
 const FACT_AUDIT_PRICE_USD = 1500;
 
-function makeDb(overrides = {}) {
-  const state = {
-    row: {
+function makeDb(overrides = {}) { return auditTestDb({
       id: INTAKE,
       status: 'scoped',
       offer_type: 'full_audit',
@@ -27,50 +26,7 @@ function makeDb(overrides = {}) {
       stripe_payment_intent_id: null,
       stripe_last_event_id: null,
       paid_at_ms: null,
-      ...overrides,
-    },
-    events: new Map(),
-  };
-
-  return {
-    state,
-    prepare(sql) {
-      return {
-        args: [],
-        bind(...args) { this.args = args; return this; },
-        async first() {
-          if (sql.includes('FROM stripe_webhook_events')) {
-            const event = state.events.get(this.args[0]);
-            return event ? { ...event } : null;
-          }
-          if (sql.includes('FROM audit_intakes')) return this.args[0] === state.row.id ? { ...state.row } : null;
-          return null;
-        },
-        async run() {
-          if (sql.includes('INSERT OR IGNORE INTO stripe_webhook_events')) {
-            const [event_id, event_type, received_at_ms, audit_intake_id] = this.args;
-            if (!state.events.has(event_id)) state.events.set(event_id, { event_id, event_type, received_at_ms, audit_intake_id, processed: 0 });
-          } else if (sql.includes('UPDATE stripe_webhook_events SET processed = 1')) {
-            const event = state.events.get(this.args[0]); if (event) event.processed = 1;
-          } else if (sql.includes("SET status = 'payment_ready'")) {
-            const [url, amount, sessionId, createdAt, id] = this.args;
-            if (id === state.row.id && state.row.payment_state !== 'paid') Object.assign(state.row, { status: 'payment_ready', payment_state: 'ready', payment_url: url, payment_provider: 'stripe', amount_due_usd: amount, stripe_checkout_session_id: sessionId, payment_created_at_ms: createdAt });
-          } else if (sql.includes("SET status = 'paid'")) {
-            const [paidAt, sessionId, paymentIntent, eventId, id] = this.args;
-            if (id === state.row.id && state.row.status !== 'fulfilled') Object.assign(state.row, { status: 'paid', payment_state: 'paid', paid_at_ms: paidAt, payment_provider: 'stripe', payment_url: null, stripe_checkout_session_id: sessionId, stripe_payment_intent_id: paymentIntent, stripe_last_event_id: eventId });
-          } else if (sql.includes('stripe_checkout_session_id = CASE')) {
-            const [id, sessionId] = this.args;
-            if (id === state.row.id && state.row.stripe_checkout_session_id === sessionId && !['paid', 'fulfilled'].includes(state.row.status)) {
-              if (state.row.status === 'payment_ready') state.row.status = 'scoped';
-              if (state.row.payment_state === 'ready') Object.assign(state.row, { payment_state: 'not_requested', payment_url: null, stripe_checkout_session_id: null, payment_created_at_ms: null });
-            }
-          }
-          return { success: true };
-        },
-      };
-    },
-  };
-}
+      ...overrides }); }
 
 function envFor(db) {
   return { MONITOR_DB: db, STRIPE_SECRET_KEY: STRIPE_SECRET, STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, PROOFTTL_WEB_URL: 'https://proofttl-web.vercel.app' };
@@ -90,7 +46,7 @@ try {
     const db = makeDb({ status: 'payment_ready', payment_state: 'ready', payment_url: 'https://checkout.stripe.test/open', stripe_checkout_session_id: 'cs_open' });
     let creates = 0;
     globalThis.fetch = async (url, options = {}) => {
-      if (String(url).endsWith('/checkout/sessions/cs_open') && options.method === 'GET') return Response.json({ id: 'cs_open', status: 'open', payment_status: 'unpaid', url: 'https://checkout.stripe.test/open' });
+      if (String(url).endsWith('/checkout/sessions/cs_open') && options.method === 'GET') return Response.json({ id: 'cs_open', client_reference_id: INTAKE, currency: 'usd', amount_total: 150000, status: 'open', payment_status: 'unpaid', url: 'https://checkout.stripe.test/open' });
       if (String(url).endsWith('/checkout/sessions') && options.method === 'POST') creates += 1;
       return new Response('{}', { status: 500 });
     };
@@ -198,7 +154,59 @@ try {
     assert.equal((await response.json()).error, 'stripe_currency_mismatch');
     assert.notEqual(db.state.row.status, 'paid');
   }
-  console.log('SUCCESS: exact $1,500 Fact Audit Stripe lifecycle checks passed.');
+  {
+    const db = makeDb();
+    const sessions = new Map();
+    const keys = [];
+    globalThis.fetch = async (_url, options) => {
+      const key = options.headers['idempotency-key'];
+      keys.push(key);
+      if (!sessions.has(key)) sessions.set(key, { id: 'cs_race', url: 'https://checkout.stripe.test/race' });
+      return Response.json(sessions.get(key));
+    };
+    const responses = await Promise.all([0, 1].map(() => createAuditCheckoutSession(new Request('https://proofttl.test/admin'), envFor(db), INTAKE)));
+    assert(responses.every(r => r.status === 201));
+    assert.equal(new Set(keys).size, 1, 'simultaneous checkout calls reserve the same durable Stripe key');
+    assert.equal(sessions.size, 1);
+  }
+  {
+    const db = makeDb();
+    const prepare = db.prepare.bind(db);
+    let failStore = true;
+    db.prepare = (sql) => {
+      const statement = prepare(sql);
+      if (sql.includes('payment_url = ?')) {
+        const first = statement.first.bind(statement);
+        statement.first = async () => { if (failStore) { failStore = false; throw new Error('simulated D1 outage'); } return first(); };
+      }
+      return statement;
+    };
+    const keys = [];
+    globalThis.fetch = async (_url, options) => { keys.push(options.headers['idempotency-key']); return Response.json({ id: 'cs_lost_write', url: 'https://checkout.stripe.test/retry' }); };
+    await assert.rejects(createAuditCheckoutSession(new Request('https://proofttl.test/admin'), envFor(db), INTAKE), /D1 outage/);
+    const realNow = Date.now;
+    try {
+      Date.now = () => realNow() + 2 * 60 * 60 * 1000;
+      const retry = await createAuditCheckoutSession(new Request('https://proofttl.test/admin'), envFor(db), INTAKE);
+      assert.equal(retry.status, 201);
+      assert.equal(keys[0], keys[1], 'retry after an hour boundary must recover the same Stripe session');
+    } finally { Date.now = realNow; }
+  }
+  {
+    const db = makeDb({ checkout_attempt_id: 'uncertain-old-attempt', payment_created_at_ms: Date.now() - 24 * 60 * 60 * 1000 });
+    globalThis.fetch = async () => { throw new Error('must reconcile an old uncertain attempt'); };
+    const response = await createAuditCheckoutSession(new Request('https://proofttl.test/admin'), envFor(db), INTAKE);
+    assert.equal((await response.json()).error, 'checkout_reconciliation_required');
+  }
+  {
+    const db = makeDb({ stripe_checkout_session_id: 'cs_missing' });
+    let calls = 0;
+    globalThis.fetch = async () => { calls++; return new Response('{}', { status: 404 }); };
+    const response = await createAuditCheckoutSession(new Request('https://proofttl.test/admin'), envFor(db), INTAKE);
+    assert.equal(response.status, 502, 'a missing session may mean the wrong Stripe account; do not create another');
+    assert.equal(calls, 1);
+  }
+  console.log('SUCCESS: exact $1,500 Fact Audit Stripe lifecycle, concurrency and recovery checks passed.');
 } finally {
   globalThis.fetch = originalFetch;
 }
