@@ -13,6 +13,7 @@ import { handleAccountAutomations } from "./account-automations.js";
 import { handleAccountFiles } from "./account-files.js";
 import { handleAccountTasks } from "./account-tasks.js";
 import { handleAccountWorkspace } from "./account-workspace.js";
+import { handleOwnerDesk, handlePrivateAuditReport } from "./owner-desk.js";
 import { handleAuditIntake } from "./audit-intake.js";
 import { handleAuditStatus, handleAuditAdmin, auditAdminAuthorized } from "./audit-sales.js";
 import { createAuditCheckoutSession, handleStripeWebhook } from "./stripe-payments.js";
@@ -69,7 +70,7 @@ function isAccountTasksPath(pathname) { return pathname === ACCOUNT_TASKS_PATH |
 function isAccountWorkspacePath(pathname) { return pathname === ACCOUNT_PREFERENCES_PATH || pathname === ACCOUNT_AUDITS_PATH || pathname === STUDIO_PROJECTS_PATH || pathname.startsWith(`${STUDIO_PROJECTS_PATH}/`); }
 function isCinematicsPath(pathname) { return pathname === CINEMATICS_PREFIX || pathname.startsWith(`${CINEMATICS_PREFIX}/`); }
 function isFoundryPath(pathname) { return pathname === FOUNDRY_RUNS_PREFIX || pathname.startsWith(`${FOUNDRY_RUNS_PREFIX}/`); }
-function isCredentialedProductPath(pathname) { return pathname === ACCOUNT_ENTITLEMENT_PATH || pathname === ACTION_PLAN_PATH || isAccountWorkspacePath(pathname) || isAccountActionsPath(pathname) || isAccountAutomationsPath(pathname) || isAccountFilesPath(pathname) || isAccountTasksPath(pathname) || isCinematicsPath(pathname) || isFoundryPath(pathname); }
+function isCredentialedProductPath(pathname) { return pathname.startsWith("/owner/") || pathname.startsWith("/audit/report/") || pathname === ACCOUNT_ENTITLEMENT_PATH || pathname === ACTION_PLAN_PATH || isAccountWorkspacePath(pathname) || isAccountActionsPath(pathname) || isAccountAutomationsPath(pathname) || isAccountFilesPath(pathname) || isAccountTasksPath(pathname) || isCinematicsPath(pathname) || isFoundryPath(pathname); }
 
 export default {
   async fetch(request, env, ctx) {
@@ -88,6 +89,9 @@ export default {
     if (request.method === "POST" && pathname === STRIPE_WEBHOOK_PATH) return handleStripeWebhook(request, env);
     if (request.method === "POST" && pathname === AUDIT_INTAKE_PATH) return applyApiCors(await handleAuditIntake(request, env));
     if (request.method === "POST" && pathname === AUDIT_STATUS_PATH) return applyApiCors(await handleAuditStatus(request, env));
+    if (pathname.startsWith("/owner/")) return applyAuthCors(await handleOwnerDesk(request, env), request, env);
+    const privateReport = pathname.match(/^\/audit\/report\/(ati_[a-f0-9]{32})$/);
+    if (privateReport) return applyAuthCors(await handlePrivateAuditReport(request, env, privateReport[1]), request, env);
     const checkoutMatch = pathname.match(/^\/admin\/audit\/intakes\/(ati_[a-f0-9]{32})\/checkout$/);
     if (checkoutMatch && request.method === "POST") {
       if (!auditAdminAuthorized(request, env)) return Response.json({ error: "admin_auth_required" }, { status: 401, headers: { "cache-control": "no-store" } });
