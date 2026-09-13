@@ -31,13 +31,13 @@ CREATE TABLE IF NOT EXISTS owner_audit_reports (
 );
 CREATE TRIGGER IF NOT EXISTS owner_report_insert_guard BEFORE INSERT ON owner_audit_reports
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM audit_intakes WHERE id=NEW.intake_id AND status='paid')
-    THEN RAISE(ABORT,'report_requires_paid_audit') END;
+  SELECT RAISE(ABORT,'report_requires_paid_audit')
+  WHERE NOT EXISTS (SELECT 1 FROM audit_intakes WHERE id=NEW.intake_id AND status='paid');
 END;
 CREATE TRIGGER IF NOT EXISTS owner_report_update_guard BEFORE UPDATE ON owner_audit_reports
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM audit_intakes WHERE id=NEW.intake_id AND status='paid')
-    THEN RAISE(ABORT,'delivered_report_is_immutable') END;
+  SELECT RAISE(ABORT,'delivered_report_is_immutable')
+  WHERE NOT EXISTS (SELECT 1 FROM audit_intakes WHERE id=NEW.intake_id AND status='paid');
 END;
 CREATE TRIGGER IF NOT EXISTS owner_report_insert_review AFTER INSERT ON owner_audit_reports
 BEGIN
