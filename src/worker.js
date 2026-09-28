@@ -1,4 +1,4 @@
-import entry from "./entry.js";
+import entry, { issuePublicMcpTestLease } from "./entry.js";
 import { handleVoiceAssistant, loveCapability } from "./assistant.js";
 import { handleTextAssistant } from "./assistant-text.js";
 import { handleAssistantSpeech } from "./assistant-speech.js";
@@ -56,10 +56,62 @@ const AUDIT_STATUS_PATH = "/audit/intake/status";
 const AUDIT_ADMIN_PREFIX = "/admin/audit/intakes";
 const STRIPE_WEBHOOK_PATH = "/payments/stripe/webhook";
 const READINESS_PATH = "/readiness";
+const MCP_TEST_LEASE_PATH = "/mcp/test-lease";
+const MCP_TEST_LEASE_ALIAS = "mcp:test:fact-lease:v1";
 const AUTH_DISCOVERY_PATH = "/.well-known/proofttl-auth.json";
 const CINEMATICS_PREFIX = "/cinematics";
 const FOUNDRY_RUNS_PREFIX = "/foundry/runs";
 const DEFAULT_ASSISTANT_MAX_AUDIO_BYTES = 512 * 1024;
+
+async function handleMcpTestLease(env, ctx) {
+  if (!env?.LEASES) {
+    return Response.json(
+      { error: "persistent_storage_not_configured" },
+      { status: 503, headers: { "cache-control": "no-store" } }
+    );
+  }
+
+  const existingLeaseId = await env.LEASES.get(MCP_TEST_LEASE_ALIAS);
+  if (existingLeaseId) {
+    const existingRequest = new Request(
+      `https://proofttl.internal/lease/${encodeURIComponent(existingLeaseId)}`,
+      { method: "GET", headers: { accept: "application/json" } }
+    );
+    const existingResponse = await entry.fetch(existingRequest, env, ctx);
+    if (existingResponse.ok) {
+      const existing = await existingResponse.clone().json().catch(() => null);
+      const expiresAt = Date.parse(existing?.expires_at || "");
+      if (
+        existing?.lease_id === existingLeaseId &&
+        existing?.lease_state === "ACTIVE" &&
+        Number.isFinite(expiresAt) &&
+        expiresAt > Date.now()
+      ) {
+        return Response.json(
+          { ...existing, test_fixture: true, reused: true },
+          { headers: { "cache-control": "no-store" } }
+        );
+      }
+    }
+  }
+
+  const createdResponse = await issuePublicMcpTestLease(env);
+  if (!createdResponse.ok) return createdResponse;
+
+  const created = await createdResponse.clone().json().catch(() => null);
+  if (!created?.lease_id) {
+    return Response.json(
+      { error: "test_lease_creation_failed" },
+      { status: 502, headers: { "cache-control": "no-store" } }
+    );
+  }
+
+  await env.LEASES.put(MCP_TEST_LEASE_ALIAS, created.lease_id, { expirationTtl: 300 });
+  return Response.json(
+    { ...created, test_fixture: true, reused: false },
+    { headers: { "cache-control": "no-store" } }
+  );
+}
 
 function isAuthPath(pathname) { return pathname === AUTH_PATH_PREFIX || pathname.startsWith(`${AUTH_PATH_PREFIX}/`); }
 function isAssistantPath(pathname) { return pathname === ASSISTANT_VOICE_PATH || pathname === ASSISTANT_TEXT_PATH || pathname === ASSISTANT_SPEECH_PATH || pathname === ASSISTANT_VISUALS_PATH || pathname === ASSISTANT_USAGE_PATH || pathname === ASSISTANT_MODELS_PATH || pathname === STUDIO_CHAT_PATH || pathname === STUDIO_RUN_PATH || pathname === STUDIO_RUNNER_STATUS_PATH; }
@@ -119,6 +171,7 @@ export default {
       if (!entitlement.authenticated) return applyAuthCors(Response.json({ error: "authentication_required", message: "Sign in to read account entitlement status." }, { status: 401, headers: { "cache-control": "no-store" } }), request, env);
       return applyAuthCors(Response.json({ account: { plan: entitlement.plan, membership_status: entitlement.membership_status, assistant_daily_limit: entitlement.limit, period_end_ms: entitlement.period_end_ms || null }, billing: { enabled: false, self_service_upgrade: false } }, { headers: { "cache-control": "no-store" } }), request, env);
     }
+    if (request.method === "POST" && pathname === MCP_TEST_LEASE_PATH) return applyApiCors(await handleMcpTestLease(env, ctx));
     if (request.method === "GET" && pathname === READINESS_PATH) return applyApiCors(Response.json(await getDeploymentReadiness(env, request), { headers: { "cache-control": "no-store" } }));
     if (request.method === "GET" && pathname === CAPABILITIES_PATH) return applyApiCors(Response.json(capabilityRegistry(env), { headers: { "cache-control": "no-store" } }));
     if (request.method === "POST" && pathname === COMMAND_PLAN_PATH) {
