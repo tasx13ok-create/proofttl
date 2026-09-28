@@ -179,6 +179,24 @@ export default {
   }
 };
 
+export async function issuePublicMcpTestLease(env) {
+  const request = new Request("https://proofttl.internal/verify", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json"
+    },
+    body: JSON.stringify({
+      claim: "Example Domain",
+      source_url: "https://example.com",
+      ttl_seconds: 300
+    })
+  });
+
+  const response = await core.fetch(request, envForCore(env));
+  return enrichLeaseVerdictSemantics(response, env);
+}
+
 function getX402Middleware(env) {
   if (x402Middleware) return x402Middleware;
 
