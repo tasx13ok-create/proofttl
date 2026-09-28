@@ -221,6 +221,18 @@ async function run() {
   assert(String(accepted?.amount) === EXPECTED_AMOUNT, "payment requirement price is 1000 atomic USDC ($0.001)");
   assert(accepted?.payTo?.toLowerCase() === EXPECTED_RECEIVER.toLowerCase(), "payment requirement pays the expected receiver");
 
+  const mcpTestLease = await json(`${BASE_URL}/mcp/test-lease`, { method: "POST" });
+  assertHttpStatus(mcpTestLease, 200, "bounded MCP test lease returns HTTP 200");
+  assert(typeof mcpTestLease.body?.lease_id === "string" && mcpTestLease.body.lease_id.startsWith("ftl_"), "bounded MCP test lease returns a real lease_id");
+  assert(mcpTestLease.body?.claim === "Example Domain", "bounded MCP test lease uses the fixed Example Domain claim");
+  assert(mcpTestLease.body?.source_url === "https://example.com/", "bounded MCP test lease uses the fixed example.com source");
+  assert(mcpTestLease.body?.ttl_seconds === 300, "bounded MCP test lease uses a five-minute TTL");
+  assert(mcpTestLease.body?.test_fixture === true, "bounded MCP test lease is explicitly marked as a test fixture");
+
+  const mcpLeaseRead = await json(`${BASE_URL}/lease/${encodeURIComponent(mcpTestLease.body.lease_id)}`);
+  assertHttpStatus(mcpLeaseRead, 200, "bounded MCP test lease can be read back publicly");
+  assert(mcpLeaseRead.body?.lease_id === mcpTestLease.body.lease_id, "bounded MCP test lease read returns the same lease_id");
+
   const manual = await json(`${BASE_URL}/lease/smoke-test/reverify`, { method: "POST" });
   assert(manual.response.status === 403, "manual reverify returns HTTP 403");
   assert(manual.body?.error === "manual_reverify_disabled", "manual reverify returns the expected error code");
