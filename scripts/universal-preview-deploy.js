@@ -45,6 +45,8 @@ await cf('/d1/database/'+database.uuid+'/query','POST',{sql:readFileSync('migrat
 const pair = await crypto.subtle.generateKey('Ed25519',true,['sign','verify']);
 const privateJwk = await crypto.subtle.exportKey('jwk',pair.privateKey);
 const publicJwk = await crypto.subtle.exportKey('jwk',pair.publicKey);
+const keyExportProfile={kty:privateJwk.kty,crv:privateJwk.crv,alg:privateJwk.alg || null,key_ops:privateJwk.key_ops || null,extractable:privateJwk.ext===true,x_length:privateJwk.x.length,d_length:privateJwk.d.length};
+console.log(JSON.stringify({preview_key_export_profile:keyExportProfile}));
 const authSecret = Array.from(crypto.getRandomValues(new Uint8Array(48)),byte=>byte.toString(16).padStart(2,'0')).join('');
 // Preview uses synthetic test tenants only. Re-deploying rotates ephemeral preview credentials.
 // Secrets are supplied with this version, avoiding an unconfigured deployment

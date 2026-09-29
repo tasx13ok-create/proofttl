@@ -134,6 +134,14 @@ try {
   const missingSigning = {tenantId:'tenant-c',env:{MONITOR_DB:db}};
   const unsignedAudit = await executeTool('audit_claim',auditArgs,missingSigning);
   await rejects(() => executeTool('create_fact_lease',{...leaseArgs,audit_id:unsignedAudit.audit_id,claim_result_id:unsignedAudit.claim_result_id,idempotency_key:'unsigned-request-01'},missingSigning),'lease_signing_not_configured');
+  const compatibleSigning={tenantId:'tenant-jwk-compat',env:{...env,PROOFTTL_SIGNING_PRIVATE_JWK:{...privateJwk,alg:'Ed25519'}}};
+  const compatibleAudit=await executeTool('audit_claim',auditArgs,compatibleSigning);
+  const compatibleLease=await executeTool('create_fact_lease',{audit_id:compatibleAudit.audit_id,claim_result_id:compatibleAudit.claim_result_id,ttl_seconds:300,idempotency_key:'cross-runtime-jwk-01'},compatibleSigning);
+  check(await verifyFactLeaseSignature(compatibleLease,{...publicJwk,alg:'EdDSA'}),'standard EdDSA and runtime Ed25519 JWK export profiles verify the same signed payload');
+  check(!await verifyFactLeaseSignature(compatibleLease,{...publicJwk,alg:'HS256'}),'a mismatched trusted key algorithm cannot verify an Ed25519 lease');
+  const wrongPurpose={tenantId:'tenant-jwk-purpose',env:{...env,PROOFTTL_SIGNING_PRIVATE_JWK:{...privateJwk,key_ops:['verify']}}};
+  const wrongPurposeAudit=await executeTool('audit_claim',auditArgs,wrongPurpose);
+  await rejects(()=>executeTool('create_fact_lease',{audit_id:wrongPurposeAudit.audit_id,claim_result_id:wrongPurposeAudit.claim_result_id,ttl_seconds:300,idempotency_key:'wrong-key-purpose-01'},wrongPurpose),'lease_signing_configuration_invalid');
   const savedFetch = globalThis.fetch;
   const requests = [];
   try {

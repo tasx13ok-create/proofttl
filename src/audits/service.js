@@ -177,10 +177,13 @@ function attestation(lease) {
 export async function verifyFactLeaseSignature(lease, publicJwk) {
   try {
     if (!lease.signature || lease.signature.algorithm !== 'Ed25519' || lease.signature.version !== 'proofttl-ed25519-v2' || canonicalizeJson(attestation(lease)) !== canonicalizeJson(lease.issued_attestation)) return false;
-    const key = await crypto.subtle.importKey('jwk', publicJwk, { name: 'Ed25519' }, false, ['verify']);
+    if (publicJwk?.kty !== 'OKP' || publicJwk.crv !== 'Ed25519' || typeof publicJwk.x !== 'string' ||
+        (publicJwk.alg !== undefined && !['EdDSA', 'Ed25519'].includes(publicJwk.alg))) return false;
+    const compatiblePublicJwk = { ...publicJwk }; delete compatiblePublicJwk.alg;
+    const key = await crypto.subtle.importKey('jwk', compatiblePublicJwk, { name: 'Ed25519' }, false, ['verify']);
     const raw = lease.signature.value.replaceAll('-', '+').replaceAll('_', '/');
     const bytes = Uint8Array.from(atob(raw + '='.repeat((4 - raw.length % 4) % 4)), ch => ch.charCodeAt(0));
-    return await crypto.subtle.verify('Ed25519', key, bytes, new TextEncoder().encode(canonicalizeJson(lease.issued_attestation)));
+    return await crypto.subtle.verify({ name: 'Ed25519' }, key, bytes, new TextEncoder().encode(canonicalizeJson(lease.issued_attestation)));
   } catch { return false; }
 }
 async function signLease(lease, env) {
@@ -188,9 +191,19 @@ async function signLease(lease, env) {
   let jwk; try { jwk = typeof env.PROOFTTL_SIGNING_PRIVATE_JWK === 'string' ? JSON.parse(env.PROOFTTL_SIGNING_PRIVATE_JWK) : env.PROOFTTL_SIGNING_PRIVATE_JWK; }
   catch { throw new AuditError('lease_signing_configuration_invalid', 503); }
   requireCondition(jwk.kty === 'OKP' && jwk.crv === 'Ed25519' && jwk.d && jwk.x, 'lease_signing_configuration_invalid', 503);
-  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, false, ['sign']);
+  requireCondition((jwk.alg === undefined || ['EdDSA', 'Ed25519'].includes(jwk.alg)) &&
+    (jwk.key_ops === undefined || (Array.isArray(jwk.key_ops) && jwk.key_ops.includes('sign'))), 'lease_signing_configuration_invalid', 503);
+  // Node 24 exports alg=Ed25519; workerd only accepts EdDSA when alg is present.
+  // The import algorithm fixes the curve. Preserve key_ops/ext restrictions and
+  // omit only the validated optional metadata alias for portability.
+  const compatiblePrivateJwk = { ...jwk }; delete compatiblePrivateJwk.alg;
+  let key;
+  try { key = await crypto.subtle.importKey('jwk', compatiblePrivateJwk, { name: 'Ed25519' }, false, ['sign']); }
+  catch { throw new AuditError('lease_signing_key_import_failed', 503); }
   lease.issued_attestation = attestation(lease);
-  const signed = new Uint8Array(await crypto.subtle.sign('Ed25519', key, new TextEncoder().encode(canonicalizeJson(lease.issued_attestation))));
+  let signed;
+  try { signed = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key, new TextEncoder().encode(canonicalizeJson(lease.issued_attestation)))); }
+  catch { throw new AuditError('lease_signature_operation_failed', 503); }
   lease.signature = {
     version: 'proofttl-ed25519-v2', algorithm: 'Ed25519',
     key_id: env.PROOFTTL_SIGNING_KEY_ID || 'proofttl-vnext',
