@@ -613,7 +613,7 @@ function sourceExtractionRisks(raw, contentType, headers) {
     }
     if (/<!--/.test(raw)) risks.add("html_hidden_content");
     for (const code of verificationContextRisks("", raw)) {
-      if (["source_instructions", "stale_or_superseded", "correction_or_conflict", "conditional_or_qualified", "scope_or_exception", "attributed_or_hypothetical"].includes(code)) risks.add(code);
+      if (["source_instructions", "stale_or_superseded", "correction_or_conflict", "conditional_or_qualified", "scope_or_exception", "attributed_or_hypothetical", "untrusted_citation"].includes(code)) risks.add(code);
     }
   }
   if (/\b11[01]\b/.test(headers.get("warning") || "") || /archived|superseded|expired|stale/i.test(headers.get("x-document-status") || "")) {

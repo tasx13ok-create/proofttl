@@ -9,7 +9,7 @@ The six tools are audit_claim, audit_output, challenge_claim, compare_evidence,
 create_fact_lease, and get_fact_lease. Tool schemas reject unknown keys at every
 source and argument boundary. No caller verdict, eligibility, tenant ID,
 fingerprint, signature, or lease state is accepted. Tool results include
-structuredContent and a JSON text fallback. Audit and lease IDs are scoped by the
+structuredContent and a JSON text fallback. The optional static MCP Apps card is linked by _meta.ui.resourceUri and served at ui://proofttl/audit-card/v1.html with MIME text/html;profile=mcp-app. Its CSP declares no network or nested frame access, and the card contains no customer payload. Run build:apps before tests or Wrangler bundling to generate its JS resource module. Audit and lease IDs are scoped by the
 authenticated tenant in D1, and unknown and cross-tenant IDs produce the same
 not-found result.
 
@@ -100,3 +100,5 @@ Official implementation references consulted during this change:
 - https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
 - https://github.com/modelcontextprotocol/inspector/blob/main/clients/cli/README.md
 - https://developers.cloudflare.com/workers/best-practices/workers-best-practices/
+- https://github.com/modelcontextprotocol/ext-apps/blob/main/docs/quickstart.md
+- https://apps.extensions.modelcontextprotocol.io/api/documents/csp-and-cors.html

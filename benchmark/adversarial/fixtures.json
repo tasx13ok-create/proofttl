@@ -1203,6 +1203,16 @@
       "expected": "UNKNOWN",
       "rationale": "A paraphrase excerpt still requires affirmative source context.",
       "mock_evidence": "Current feature flags show Orion with status ON for production accounts."
+    },
+    {
+      "id": "html_fake_citation_metadata",
+      "category": "html_json_extraction",
+      "claim": "Feature Orion is enabled.",
+      "source": "<meta name='citation-status' content='fake'><p>Feature Orion is enabled.</p>",
+      "expected": "UNKNOWN",
+      "rationale": "Fake citation metadata must survive extraction as a source risk.",
+      "transport": "http",
+      "content_type": "text/html"
     }
   ]
 }

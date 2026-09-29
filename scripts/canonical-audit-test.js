@@ -75,6 +75,13 @@ try {
   check(high.verdict === 'SUPPORTED' && !high.lease_eligible, 'high consequence cannot lease before independent challenge is proven');
   const historical = await executeTool('audit_claim', { ...auditArgs, as_of: '2020-01-01T00:00:00Z' }, context);
   check(historical.verdict === 'UNKNOWN', 'current snapshot does not prove historical as-of');
+  const historicalChallenge = await executeTool('challenge_claim', {audit_id:historical.audit_id,claim_result_id:historical.claim_result_id}, context);
+  check(historical.as_of === '2020-01-01T00:00:00Z' && historicalChallenge.verdict === 'UNKNOWN' && !historicalChallenge.lease_eligible, 'immutable as-of context is preserved during challenge');
+  const repeatedText = '"' + claim + '" Introduction. ' + claim;
+  const repeated = await executeTool('audit_claim', {...auditArgs,sources:[{kind:'text',text:repeatedText}]},context);
+  check(repeated.verdict === 'SUPPORTED' && repeated.evidence[0].start === repeatedText.lastIndexOf(claim), 'evidence binds the safe assertion rather than an earlier quoted occurrence');
+  const repeatedLease = await executeTool('create_fact_lease',{audit_id:repeated.audit_id,claim_result_id:repeated.claim_result_id,ttl_seconds:300,idempotency_key:'safe-assertion-evidence-01'},context);
+  check(repeatedLease.issued_attestation.evidence[0].start === repeatedText.lastIndexOf(claim) && await verifyFactLeaseSignature(repeatedLease,publicJwk), 'signed lease preserves the verified safe source span');
   const challenged = await executeTool('challenge_claim', { audit_id: audit.audit_id, claim_result_id: audit.claim_result_id }, context);
   check(challenged.audit_mutated === false && challenged.verdict === 'SUPPORTED', 'challenge reloads immutable corpus without audit mutation');
   const comparison = await executeTool('compare_evidence', { audit_id: audit.audit_id }, context);
@@ -100,6 +107,8 @@ try {
     [{kind:'text',text:'A'.repeat(100001)},'source_too_large'],
     [{kind:'text',text:'api_key=abcdefghijklmnopqrstuvwx'},'source_contains_secret'],
     [{kind:'url',url:'https://example.com/file?token=secret'},'source_url_must_be_public_https_without_credentials_or_query'],
+    [{kind:'url',url:'https://8.8.8.8/download/token/shortSecret123'},'source_url_transient_path_not_supported'],
+    [{kind:'url',url:'https://8.8.8.8/download/%2574oken/shortSecret123'},'source_url_transient_path_not_supported'],
     [{kind:'url',url:'https://127.0.0.1/status'},'source_ip_not_public']
   ]) await rejects(() => executeTool('audit_claim', {...auditArgs,sources:[bad]}, context), code);
   await rejects(() => executeTool('audit_claim', {...auditArgs,source_policy:'public_only'}, context), 'public_only_requires_url_sources');
@@ -107,6 +116,16 @@ try {
   await rejects(() => executeTool('audit_claim', auditArgs, {...context,signal:cancelled.signal}), 'operation_cancelled');
   const expiredAudit = await cloneAudit(audit.audit_id, payload => {payload.expires_at='2000-01-01T00:00:00Z';});
   await rejects(() => executeTool('create_fact_lease', {...leaseArgs,audit_id:expiredAudit.audit_id,idempotency_key:'expired-request-01'}, context), 'audit_expired');
+  const nearlyExpired = await cloneAudit(audit.audit_id, payload => {payload.expires_at=new Date(Date.now()+60000).toISOString();});
+  const realNow = Date.now;
+  let advanceClock = false;
+  const delayedSigningEnv = {MONITOR_DB:db,PROOFTTL_SIGNING_KEY_ID:'ci-clock-expiry'};
+  Object.defineProperty(delayedSigningEnv,'PROOFTTL_SIGNING_PRIVATE_JWK',{get(){advanceClock=true;return privateJwk;}});
+  try {
+    Date.now = () => realNow() + (advanceClock ? 120000 : 0);
+    await rejects(()=>executeTool('create_fact_lease',{audit_id:nearlyExpired.audit_id,claim_result_id:nearlyExpired.claim_results[0].claim_result_id,ttl_seconds:300,idempotency_key:'expire-before-insert-01'},{tenantId:context.tenantId,env:delayedSigningEnv}),'audit_expired');
+  } finally {Date.now=realNow;}
+  check((await db.prepare('SELECT COUNT(*) AS count FROM verification_leases WHERE audit_id = ?').bind(nearlyExpired.audit_id).first()).count === 0,'audit expiring during signing cannot persist a lease');
   const mutatedSnapshot = await cloneAudit(audit.audit_id, payload => {payload.sources[0].extracted_text='Feature Orion is disabled.';});
   await rejects(() => executeTool('create_fact_lease', {...leaseArgs,audit_id:mutatedSnapshot.audit_id,idempotency_key:'tampered-source-01'}, context), 'source_snapshot_integrity_failed');
   const mutatedEvidence = await cloneAudit(audit.audit_id, payload => {payload.claim_results[0].evidence[0].end++;});
@@ -130,6 +149,25 @@ try {
     await rejects(()=>executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/redirect'}]},context),'source_http_failure');
     globalThis.fetch = async () => new Response('Feature Orion is enabled.',{headers:{'Content-Type':'text/html'}});
     await rejects(()=>executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/mime'}]},context),'unsupported_source_mime');
+    for (const headers of [{Warning:'110 cache "Response is stale"'},{Warning:'111 cache "Revalidation failed"'},{'x-document-status':'archived'},{'document-status':'superseded'}]) {
+      globalThis.fetch = async () => new Response(source.text,{headers:{'Content-Type':'text/plain',...headers}});
+      await rejects(()=>executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/stale'}]},context),'stale_source_metadata');
+    }
+    const auditCountBeforeAbort = (await db.prepare('SELECT COUNT(*) AS count FROM verification_audits').first()).count;
+    async function boundedFailure(operation,code) {
+      let timer;
+      try {await rejects(()=>Promise.race([operation(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('unbounded_stream_cleanup')),1000);})]),code);}
+      finally {clearTimeout(timer);}
+    }
+    let cleanupStarted=0;
+    globalThis.fetch = async () => new Response(new ReadableStream({pull(){},cancel(){cleanupStarted++;return new Promise(()=>{});}}),{headers:{'Content-Type':'text/plain'}});
+    const stalledAbort=new AbortController();
+    const abortTimer=setTimeout(()=>stalledAbort.abort(),25);
+    try {await boundedFailure(()=>executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/stalled'}]},{...context,signal:stalledAbort.signal}),'operation_cancelled');}
+    finally {clearTimeout(abortTimer);}
+    globalThis.fetch=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new Uint8Array(100001));},cancel(){cleanupStarted++;return new Promise(()=>{});}}),{headers:{'Content-Type':'text/plain'}});
+    await boundedFailure(()=>executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/stream-overflow'}]},context),'source_too_large');
+    check(cleanupStarted===2 && (await db.prepare('SELECT COUNT(*) AS count FROM verification_audits').first()).count===auditCountBeforeAbort,'cancel and byte-limit failures do not wait for hostile stream cleanup or persist an audit');
     globalThis.fetch = async () => new Response('A'.repeat(100001),{headers:{'Content-Type':'text/plain'}});
     await rejects(()=>executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/oversized'}]},context),'source_too_large');
   } finally {globalThis.fetch=savedFetch;}

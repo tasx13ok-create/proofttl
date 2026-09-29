@@ -21,12 +21,39 @@ function extractPlain(bytes) {
   rejectSecrets(text);
   return normalizeText(text);
 }
+function cancelReader(reader) {
+  // Cleanup must not hold an abort/size-limit result behind untrusted I/O.
+  try { void reader.cancel().catch(() => {}); } catch {}
+}
+function rejectCredentialPath(pathname) {
+  let decoded = pathname;
+  for (let pass = 0; pass < 2; pass += 1) {
+    let next;
+    try { next = decodeURIComponent(decoded); }
+    catch { throw new AuditError('source_url_transient_path_not_supported'); }
+    if (next === decoded) break;
+    decoded = next;
+  }
+  requireCondition(!/%[a-f0-9]{2}/i.test(decoded), 'source_url_transient_path_not_supported');
+  normalizeText(decoded);
+  rejectSecrets(decoded);
+  const marker = /^(?:tokens?|access[-_]?tokens?|api[-_]?keys?|access[-_]?keys?|signatures?|sig|auth|authorization|bearer|secrets?|credentials?|passwords?|session[-_]?tokens?|client[-_]?secrets?|jwt)(?:[=:].*)?$/i;
+  requireCondition(!decoded.split(/[\/;]/).some(part => marker.test(part)), 'source_url_transient_path_not_supported');
+  // Recognized markers are refused. Arbitrary opaque bearer paths cannot be
+  // identified reliably; this is not an assertion that every allowed path is
+  // free of credentials.
+}
+function rejectStaleResponse(response) {
+  const warning = response.headers.get('warning') || '';
+  const status = [response.headers.get('x-document-status'), response.headers.get('document-status')].filter(Boolean).join(' ');
+  requireCondition(!/(?:^|,)\s*11[01](?:\s|$)/.test(warning) && !/\b(?:archived|superseded|expired|stale)\b/i.test(status), 'stale_source_metadata', 422);
+}
 function readWithSignal(reader, signal) {
   checkSignal(signal);
   if (!signal) return reader.read();
   return new Promise((resolve,reject) => {
     const abort = () => {
-      reader.cancel().catch(()=>{});
+      cancelReader(reader);
       reject(new AuditError('operation_cancelled',408));
     };
     signal.addEventListener('abort',abort,{once:true});
@@ -48,7 +75,7 @@ async function readBytes(response, signal) {
       requireCondition(size <= MAX_BYTES, 'source_too_large', 413);
       chunks.push(value);
     }
-  } finally { await reader.cancel().catch(() => {}); }
+  } finally { cancelReader(reader); }
   const bytes = new Uint8Array(size); let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
   return bytes;
@@ -84,6 +111,7 @@ export async function ingestSources(inputs, policy, { signal } = {}) {
       let url; try { url = new URL(input.url); } catch { throw new AuditError('invalid_source_url'); }
       requireCondition(url.protocol === 'https:' && !url.search && !url.hash && !url.username && !url.password, 'source_url_must_be_public_https_without_credentials_or_query');
       rejectSecrets(url.href);
+      rejectCredentialPath(url.pathname);
       requireCondition(!url.pathname.split('/').some(part => part.length > 100), 'source_url_transient_path_not_supported');
       const safety = await validatePublicSourceUrl(url);
       requireCondition(safety.ok, safety.reason || 'source_url_not_allowed');
@@ -94,6 +122,7 @@ export async function ingestSources(inputs, policy, { signal } = {}) {
       try { response = await fetch(url.href, { redirect: 'manual', signal: fetchSignal, headers: { Accept: 'text/plain', 'User-Agent': 'ProofTTL/canonical-audit-v1' } }); }
       catch { throw new AuditError('source_fetch_failed', 422); }
       requireCondition(response.ok && response.status !== 206, 'source_http_failure', 422);
+      rejectStaleResponse(response);
       requireCondition((response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase() === 'text/plain', 'unsupported_source_mime');
       requireCondition(!response.headers.get('content-encoding') || response.headers.get('content-encoding') === 'identity', 'compressed_source_not_supported');
       bytes = await readBytes(response, fetchSignal);

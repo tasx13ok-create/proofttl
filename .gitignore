@@ -7,3 +7,7 @@ node_modules/
 .proofttl-signing-public.jwk
 generated-auth-schema.sql
 .DS_Store
+
+# Generated cloud Apps bundle and isolated preview config
+apps/proofttl-card-resource.js
+.wrangler-universal-preview.json

@@ -60,12 +60,13 @@ try {
   const helpText = help.stdout + help.stderr;
   const jsonFormat = helpText.includes("--format");
   const jsonArgs = helpText.includes("--tool-args-json");
-  async function invoke(method, name, args) {
+  async function invoke(method, name, args, resourceUri) {
     const freshToken = await createMcpTestToken(instance.env, { sub: "ci_inspector" });
     secrets.push(freshToken);
     const command = ["--yes", packageSpec, "--cli", instance.url, "--transport", "http", "--method", method, "--header", "Authorization: Bearer " + freshToken];
     if (jsonFormat) command.push("--format", "json");
     if (name) command.push("--tool-name", name);
+    if (resourceUri) command.push("--uri", resourceUri);
     if (args) {
       if (jsonArgs) command.push("--tool-args-json", JSON.stringify(args));
       else for (const [key, value] of Object.entries(args)) command.push("--tool-arg", key + "=" + (typeof value === "string" ? value : JSON.stringify(value)));
@@ -81,6 +82,12 @@ try {
   const list = await invoke("tools/list");
   assert.deepEqual(list.tools.map(tool => tool.name).sort(), ["audit_claim", "audit_output", "challenge_claim", "compare_evidence", "create_fact_lease", "get_fact_lease"].sort());
   for (const tool of list.tools) assert.equal(tool.inputSchema.additionalProperties, false);
+  const resources = await invoke("resources/list");
+  assert.equal(resources.resources[0].uri, "ui://proofttl/audit-card/v1.html");
+  const resource = await invoke("resources/read", undefined, undefined, "ui://proofttl/audit-card/v1.html");
+  assert.equal(resource.contents[0].mimeType, "text/html;profile=mcp-app");
+  assert.deepEqual(resource.contents[0]._meta.ui.csp.connectDomains, []);
+  assert.equal(resource.contents[0].text.includes(claim), false);
   const audit = await invoke("tools/call", "audit_claim", { claim, sources, source_policy: "customer_only" });
   assert.equal(audit.verdict, "SUPPORTED"); assert.equal(audit.lease_eligible, true);
   const outputAudit = await invoke("tools/call", "audit_output", { output_text: claim, sources, source_policy: "customer_only" });
@@ -110,6 +117,7 @@ try {
     executed,
     idempotency: { lease_id: lease.lease_id, retry_same_id: true },
     signature_verified: true,
+    mcp_apps_resource: "discovery/read executed; native-host rendering NOT EXECUTED",
     native_provider_hosts: "NOT EXECUTED",
     cross_request_cancellation: "NOT SUPPORTED",
     oauth: "NOT SUPPORTED"

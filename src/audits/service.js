@@ -43,11 +43,13 @@ async function evaluate(claim, sources, hint, asOf) {
     if (result?.status === 'SUPPORTED' && risks.length === 0) {
       supporting++;
       // Bind offsets to the complete normalized source, never to a model excerpt.
-      const start = source.extracted_text.indexOf(normalized);
-      if (start >= 0) {
-        const excerpt = source.extracted_text.slice(start, start + normalized.length);
+      const start = result.evidence_start;
+      const end = result.evidence_end;
+      if (Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end === start + normalized.length &&
+          source.extracted_text.slice(start, end) === normalized && result.evidence === normalized) {
+        const excerpt = source.extracted_text.slice(start, end);
         evidence.push({
-          source_id: source.source_id, start, end: start + normalized.length,
+          source_id: source.source_id, start, end,
           offset_unit: 'utf16_normalized_text', text: excerpt, sha256: await sha256(excerpt),
           source_sha256: source.sha256, extracted_text_sha256: source.extracted_text_sha256
         });
@@ -150,6 +152,7 @@ async function auditInput(name, args, context) {
   const now = Date.now();
   const audit = {
     audit_id: id('aud_'), tenant_id: context.tenantId, source_policy: args.source_policy,
+    as_of: args.as_of || null, consequence_hint: args.consequence || 'medium',
     input_hash: await objectHash({ tool: name, ...args }), created_at: stamp(now),
     expires_at: stamp(now + AUDIT_VALID_MS), verifier_version: VERSION,
     sources, claim_results: results, extracted_claims: extracted, omitted_claims: omitted,
@@ -220,7 +223,7 @@ async function createLease(args, context) {
   const result = selectResult(audit, args.claim_result_id);
   requireCondition(result.verdict === 'SUPPORTED' && result.lease_eligible && result.evidence.length > 0 && result.conflicts.length === 0, 'audit_result_not_lease_eligible', 409);
   // Re-evaluate the stored complete corpus rather than accepting serialized eligibility alone.
-  const fresh = await evaluate(result.claim, audit.sources, result.consequence, undefined);
+  const fresh = await evaluate(result.claim, audit.sources, result.consequence, audit.as_of);
   requireCondition(fresh.verdict === 'SUPPORTED' && fresh.lease_eligible, 'audit_result_no_longer_eligible', 409);
   const now = Date.now();
   const lease = {
@@ -270,7 +273,7 @@ export async function executeTool(name, args, context) {
     const results = args.claim_result_id ? [selectResult(audit, args.claim_result_id)] : audit.claim_results;
     if (name === 'compare_evidence') return { audit_id: audit.audit_id, source_policy: audit.source_policy, sources: audit.sources.map(publicSource), claim_results: results, method: 'complete_supplied_corpus_comparison', semantic_scope_reconciliation: 'NOT PROVEN', outside_evidence_used: false };
     const result = results[0];
-    const challenged = await evaluate(result.claim, audit.sources, result.consequence, undefined);
+    const challenged = await evaluate(result.claim, audit.sources, result.consequence, audit.as_of);
     return { audit_id: audit.audit_id, claim_result_id: result.claim_result_id, verdict: challenged.verdict, evidence: challenged.evidence, conflicts: challenged.conflicts, reasons: challenged.reasons, lease_eligible: result.lease_eligible && challenged.lease_eligible, challenge: challenged.challenge, audit_mutated: false };
   }
   throw new AuditError('tool_not_found', 404);

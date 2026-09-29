@@ -16,7 +16,9 @@ PASS may be recorded only after execution, with commit, date, client/version, en
 | Copilot Studio MCP | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED |
 | Cursor remote MCP | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED |
 | DeepSeek function adapter, actual API | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED |
-| Generic SDK/function adapter, cloud contract | PENDING CI | PENDING CI | PENDING CI | PENDING CI | DEFERRED | PENDING CI |
+| Generic SDK/function adapter, cloud contract | PASS: 2304d36 | PASS: 2304d36 | PASS: 2304d36 | PASS: 2304d36 | PENDING CI | PASS: 2304d36 |
+
+Headless adapter and package checks passed at commit `2304d36d1bd8986c703c42cba36836782d71e09b`, [cloud run 36639914640](https://github.com/tasx13ok-create/proofttl/actions/runs/36639914640). These calls used the actual in-process MCP service with disposable SQLite D1 and no provider model API or consumer host. Subsequent Apps/145-case/temporal changes await later evidence.
 
 Machine-readable status lives in [provider-compatibility.json](../specs/provider-compatibility.json). Record cloud contract results separately from real hosts. The unchanged-base [cloud run 36638369822](https://github.com/tasx13ok-create/proofttl/actions/runs/36638369822) covers legacy tests/dry run only.
 
@@ -31,9 +33,9 @@ Machine-readable status lives in [provider-compatibility.json](../specs/provider
 | Gemini | Function-calling docs describe Interactions `mcp_server` with Streamable HTTP, headers, allowed tools, and snake_case name `proofttl`. However the Interactions overview still says Gemini 3 remote MCP is unsupported. Selected-model API execution must resolve this documentation inconsistency; no broad availability claim is justified. [Remote MCP example](https://ai.google.dev/gemini-api/docs/function-calling), [overview limitation](https://ai.google.dev/gemini-api/docs/interactions-overview) |
 | Copilot Studio | Streamable transport with None/API key/OAuth onboarding options; Power Platform policies apply. Validate the actual reachable preview and chosen header/auth method, then selected tools in the agent trace. [Connect an MCP server](https://learn.microsoft.com/en-us/microsoft-copilot-studio/mcp-add-existing-server-to-agent) |
 | Cursor | Remote Streamable HTTP and OAuth/header configuration are documented. Current docs also document MCP Apps support; actual ProofTTL rendering remains untested. Cursor-specific environment interpolation is not portable Agent Plugins interpolation. [MCP documentation](https://cursor.com/docs/mcp) |
-| DeepSeek | Official Chat Completions exposes function tools with JSON-schema parameters and model-produced JSON argument strings. The application must execute tools and return paired tool responses. Use the thin MCP/function adapter; no native consumer remote-MCP workflow is established by these API docs. Strict-mode compatibility remains untested and is not enabled. [Chat Completions API](https://api-docs.deepseek.com/api/create-chat-completion/), [tool calls](https://api-docs.deepseek.com/guides/tool_calls/) |
+| DeepSeek | Official Chat Completions exposes function tools with JSON-schema parameters and model-produced JSON argument strings. The application must execute tools and return paired tool responses. Use the thin MCP/function adapter; no native consumer remote-MCP workflow is established by these API docs. Strict-mode compatibility remains untested and is not enabled. [Chat Completions API](https://api-docs.deepseek.com/api/create-chat-completion/) |
 
-All references were retrieved from official provider documentation on the assessment date. Product/account/model availability can vary. There are no provider API credentials or connected native-host test sessions evidenced for this milestone.
+Referenced integration claims were checked from official provider documentation on the assessment date. Product/account/model availability can vary. There are no provider API credentials or connected native-host test sessions evidenced for this milestone.
 
 ## Canonical contract and adapter use
 
@@ -55,6 +57,6 @@ A real-host test must capture initialization/discovery, correct and malformed ca
 
 ## Remaining gates
 
-An isolated deployed preview is not a production migration. OAuth linking, actual host tool-result behavior, file authorization, model-specific Gemini support, skill activation, signature/key rotation, provider rate limits and native UI must be executed independently. MCP Apps UI is deferred until headless gates pass, using `_meta.ui.resourceUri` and the shared bridge rather than client-side verdicts. [UI guidance](https://developers.openai.com/plugins/build/chatgpt-ui)
+An isolated deployed preview is not a production migration. OAuth linking, actual host tool-result behavior, file authorization, model-specific Gemini support, skill activation, signature/key rotation, provider rate limits and native UI must be executed independently. Headless gates passed; the added MCP Apps card awaits cloud browser verification and native-host execution, using `_meta.ui.resourceUri` and the shared bridge rather than client-side verdicts. [UI guidance](https://developers.openai.com/plugins/build/chatgpt-ui)
 
 Gate E remains open until multiple real native MCP hosts exercise the canonical endpoint. Generic adapters and documentation alone do not justify the word universal as a compatibility certification.

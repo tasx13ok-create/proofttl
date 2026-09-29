@@ -37,7 +37,7 @@ The canonical verifier currently returns `SUPPORTED` or `UNKNOWN`. Support requi
 
 All three source policies are explicit. `customer_only` makes no AI/model/world-knowledge or public discovery call; empty sources produce uncertainty. `customer_plus_public` currently provides no automatic discovery or broader challenge. `public_only` accepts explicit URL sources only. Challenge and comparison inspect the immutable bound corpus, not a new independent research pass.
 
-Ingestion accepts at most 20 inputs, 100,000 raw bytes per source and 500,000 corpus bytes. Only UTF-8 plain text is supported; PDF, HTML, JSON, archives, compressed responses, private URLs, opaque host file tokens, and transient signed URLs are rejected. URLs require public HTTPS without credentials, query or fragment, no redirects, successful complete `text/plain` responses, and bounded reads. Native host upload-byte authorization remains untested. Metadata labels come from the caller; hashes bind observed bytes, not the credibility of the publisher.
+Ingestion accepts at most 20 inputs, 100,000 raw bytes per source and 500,000 corpus bytes. Only UTF-8 plain text is supported; PDF, HTML, JSON, archives, compressed responses, private URLs, opaque host file tokens, and recognized transient signed URLs are rejected. Arbitrary opaque credentials embedded in URL paths cannot be reliably identified; credential-free paths are an operator responsibility and universal rejection is NOT PROVEN. URLs require public HTTPS without credentials, query or fragment, no redirects, successful complete `text/plain` responses, and bounded reads. Native host upload-byte authorization remains untested. Metadata labels come from the caller; hashes bind observed bytes, not the credibility of the publisher.
 
 Audits have a 15-minute issuance window and 30-day retained payload horizon. TTL is 60–604800 seconds. Retention scheduling/migration application must be validated in the target runtime. All vNext leases bind immutable snapshots; URL sources may be monitorable but their lease monitoring is `NOT_REGISTERED`. Legacy automatic monitoring does not imply vNext live freshness or revocation.
 
@@ -47,18 +47,20 @@ Draft HS256 tenant bearers are not OAuth account linking. The current portable p
 
 An unchanged integration-base cloud run passed `npm ci`, the full legacy `test:local` suite, and Wrangler dry run: [run 36638369822](https://github.com/tasx13ok-create/proofttl/actions/runs/36638369822). This is baseline evidence only; it does not validate the new canonical code.
 
+Headless cloud [run 36639914640](https://github.com/tasx13ok-create/proofttl/actions/runs/36639914640) succeeded at commit `2304d36d1bd8986c703c42cba36836782d71e09b`: canonical audits, actual MCP/auth six-tool paths, provider adapters, strict official package schemas, full repository checks and dry run. This establishes the tested headless implementation only. The initial 141-case corpus expanded to 281 checks: baseline false supports were 203 overall (168 direct); the guarded implementation recorded zero known false supports and 39 supported checks. These are release-fixture results, not a population reliability estimate. The expanded 145-case corpus, temporal `as_of` fix and MCP Apps changes remain pending a later exact-commit run.
+
 New implementation evidence must name the exact tested commit and its cloud run before any PASS is recorded. Required cloud commands include the adversarial corpus runner, canonical audit/MCP tests, `node scripts/provider-contract-test.js`, `node scripts/provider-plugin-test.js`, the full repository suite, and the Worker dry run. The provider contract test exercises the actual handler/service in process and is not a real provider host.
 
 | Gate | Required evidence | Current release claim |
 | --- | --- | --- |
-| A: verifier | Machine-readable release corpus, zero known false support; no fixture weakening | Pending exact-commit cloud execution; semantic reliability remains unproven |
-| B: MCP | SDK initialization/list/calls, schema/auth/bounds/tenant/idempotency/retry/cancel checks | Pending exact-commit cloud execution |
-| C: provenance | Immutable source/evidence hashes, server authority, independent signature/tamper checks | Pending exact-commit cloud execution |
-| D: customer-only | No outside fetch/model fallback, insufficient evidence and injection cases | Pending exact-commit cloud execution |
+| A: verifier | Machine-readable release corpus, zero known false support; no fixture weakening | PASS for initial release corpus at `2304d36`; expanded 145-case corpus pending; semantic reliability remains unproven |
+| B: MCP | SDK initialization/list/calls, schema/auth/bounds/tenant/idempotency/retry/cancel checks | PASS at `2304d36`, run 36639914640; subsequent changes pending |
+| C: provenance | Immutable source/evidence hashes, server authority, independent signature/tamper checks | PASS at `2304d36`, run 36639914640; subsequent changes pending |
+| D: customer-only | No outside fetch/model fallback, insufficient evidence and injection cases | PASS at `2304d36`, run 36639914640; subsequent changes pending |
 | E: cross-host | Same endpoint exercised by multiple actual native hosts | NOT TESTED; adapter checks cannot close this gate |
 | F: production | Full CI, dry run, isolated preview, observability, security review and explicit approval | Production not deployed or approved |
 
-The [threat model](MCP-THREAT-MODEL.md) and [provider matrix](PROVIDER-COMPATIBILITY.md) track remaining gaps. MCP Apps UI is deferred until headless correctness is demonstrated.
+The [threat model](MCP-THREAT-MODEL.md) and [provider matrix](PROVIDER-COMPATIBILITY.md) track remaining gaps. Headless correctness gates now have executed evidence. A static bundled MCP Apps card has been added for presentation and canonical tool actions; its build/browser protocol tests remain pending. Native host UI rendering remains NOT TESTED.
 
 ## Standards decisions
 

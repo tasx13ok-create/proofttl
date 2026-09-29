@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "updated_at": "2026-09-29",
   "endpoint_environment": "UNDEPLOYED_PREVIEW",
   "production_compatibility": "NOT TESTED",
@@ -92,22 +92,44 @@
   ],
   "cloud_contract": {
     "path": "scripts/provider-contract-test.js",
-    "status": "PENDING CI",
+    "status": "PASS",
     "scope": "actual in-process MCP handler and canonical service; not a provider model/consumer host",
-    "evidence": []
+    "evidence": [
+      {
+        "commit": "2304d36d1bd8986c703c42cba36836782d71e09b",
+        "run": "https://github.com/tasx13ok-create/proofttl/actions/runs/36639914640",
+        "date": "2026-09-29",
+        "environment": "GitHub Actions; in-process canonical service/SQLite D1; no native provider host"
+      }
+    ]
   },
   "plugin_validation": {
     "path": "scripts/provider-plugin-test.js",
-    "status": "PENDING CI",
+    "status": "PASS",
     "scope": "strict official schema validation and package checks; not skill behavior or host install",
-    "evidence": []
+    "evidence": [
+      {
+        "commit": "2304d36d1bd8986c703c42cba36836782d71e09b",
+        "run": "https://github.com/tasx13ok-create/proofttl/actions/runs/36639914640",
+        "date": "2026-09-29",
+        "environment": "GitHub Actions; in-process canonical service/SQLite D1; no native provider host"
+      }
+    ]
   },
   "blockers": [
     "No real host/API executions recorded.",
     "OAuth 2.1 linking is not implemented by draft tenant bearer authentication.",
     "Gemini remote MCP model availability has conflicting official documentation.",
     "Native host attachment authorization and transfer are untested.",
-    "MCP Apps UI deferred until headless correctness passes.",
-    "vNext source monitoring is NOT_REGISTERED; all leases use immutable snapshots."
-  ]
+    "MCP Apps browser protocol test pending; native provider-host rendering NOT TESTED.",
+    "vNext source monitoring is NOT_REGISTERED; all leases use immutable snapshots.",
+    "Arbitrary opaque credentials in source URL paths are NOT PROVEN to be detectable.",
+    "Expanded 145-case corpus and temporal as_of preservation fix await exact-commit CI evidence."
+  ],
+  "apps_browser": {
+    "path": "scripts/apps-browser-test.js",
+    "status": "PENDING CI",
+    "scope": "official SDK App/AppBridge in Chromium with canonical service; not native provider host",
+    "evidence": []
+  }
 }

@@ -70,7 +70,10 @@
     "test:adversarial-verifier": "node scripts/adversarial-verifier-test.js",
     "test:canonical-audit": "node scripts/canonical-audit-test.js",
     "test:mcp": "node scripts/mcp-test.js",
-    "test:providers": "node scripts/provider-contract-test.js && node scripts/provider-plugin-test.js"
+    "test:providers": "node scripts/provider-contract-test.js && node scripts/provider-plugin-test.js",
+    "build:apps": "node scripts/build-apps.js",
+    "test:apps": "node scripts/apps-browser-test.js",
+    "pretest:local": "npm run build:apps"
   },
   "dependencies": {
     "@better-auth/core": "1.6.25",
@@ -83,11 +86,14 @@
     "hono": "4.12.33",
     "viem": "^2.48.11",
     "@modelcontextprotocol/sdk": "1.31.0",
-    "zod": "4.3.6"
+    "zod": "4.3.6",
+    "@modelcontextprotocol/ext-apps": "1.7.5"
   },
   "devDependencies": {
     "auth": "1.6.25",
     "wrangler": "^4.0.0",
-    "ajv": "8.17.1"
+    "ajv": "8.17.1",
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0"
   }
 }

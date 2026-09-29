@@ -37,6 +37,8 @@ jobs:
           fi
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
+      - name: Build optional MCP Apps resource
+        run: npm run build:apps
       - name: Record unchanged-corpus baseline failures
         run: node scripts/adversarial-verifier-test.js --baseline-ref c8cf0e4c141b5635675c0ed5eccec2036a725b95 --report benchmark/adversarial/results/before.json --allow-failures
       - name: Run release adversarial corpus
@@ -57,6 +59,10 @@ jobs:
         env:
           PROOFTTL_MCP_CI_EVIDENCE_DIR: benchmark/mcp-results
         run: node scripts/mcp-inspector-test.js
+      - name: Install cloud browser for Apps validation
+        run: npx playwright install --with-deps chromium
+      - name: Test MCP Apps in official simulated host
+        run: npm run test:apps
       - name: Deploy and test isolated Cloudflare preview
         if: github.event_name == 'push' && github.ref == 'refs/heads/codex/universal-proof-engine'
         env:
@@ -72,5 +78,6 @@ jobs:
             benchmark/adversarial/results/*.json
             benchmark/provider-results/*.json
             benchmark/mcp-results/*.json
+            benchmark/apps-results/*.json
           if-no-files-found: warn
           retention-days: 30
