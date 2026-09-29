@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "proofttl": {
+      "type": "streamable-http",
+      "url": "https://proofttl-preview.example.invalid/mcp"
+    }
+  }
+}

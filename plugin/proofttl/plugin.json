@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "proofttl",
+  "version": "0.1.0",
+  "description": "Audit explicit evidence and create expiring Fact Leases from server-authoritative results.",
+  "repository": "https://github.com/tasx13ok-create/proofttl",
+  "keywords": [
+    "verification",
+    "evidence",
+    "fact-lease",
+    "mcp"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "ProofTTL",
+        "shortDescription": "Check supplied evidence and inspect Fact Leases",
+        "longDescription": "Audit claims or outputs against explicit sources, preserve uncertainty and attributable evidence, and create a Fact Lease only from a completed eligible audit.",
+        "defaultPrompt": [
+          "Audit this claim using only the source I supplied.",
+          "Challenge the evidence behind this conclusion.",
+          "Inspect this Fact Lease and its provenance."
+        ]
+      }
+    }
+  }
+}

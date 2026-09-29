@@ -22,7 +22,8 @@ function consequence(claim, hint = 'medium') {
 }
 function atomic(claim) {
   return !/\b(?:and|but|whereas|although)\b|;/i.test(claim) &&
-    !/^(?:it|they|this|that|these|those|he|she)\b/i.test(claim) &&
+    !/^(?:it|they|this|that|these|those|he|she|please|delete|create|ignore|disregard|return|mark|set|use|run|audit)\b/i.test(claim) &&
+    !/\?$/.test(claim) &&
     /[\p{L}]/u.test(claim);
 }
 async function evaluate(claim, sources, hint, asOf) {
@@ -42,8 +43,7 @@ async function evaluate(claim, sources, hint, asOf) {
     if (result?.status === 'SUPPORTED' && risks.length === 0) {
       supporting++;
       // Bind offsets to the complete normalized source, never to a model excerpt.
-      const lowerSource = source.extracted_text.toLowerCase();
-      const start = lowerSource.indexOf(normalized.toLowerCase());
+      const start = source.extracted_text.indexOf(normalized);
       if (start >= 0) {
         const excerpt = source.extracted_text.slice(start, start + normalized.length);
         evidence.push({
@@ -157,9 +157,12 @@ async function auditInput(name, args, context) {
     public_discovery: 'NOT SUPPORTED', outside_evidence_used: false,
     summary: { supported: results.filter(x => x.verdict === 'SUPPORTED').length, unknown: results.filter(x => x.verdict === 'UNKNOWN').length, omitted: omitted.length }
   };
+  const payload = canonicalizeJson(audit);
+  requireCondition(new TextEncoder().encode(payload).byteLength <= 1500000, 'audit_record_too_large', 413);
+  const payloadHash = await objectHash(audit);
   checkSignal(context.signal);
   await database(context).prepare('INSERT INTO verification_audits (tenant_id, audit_id, created_at, expires_at, retain_until, payload_json, payload_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(context.tenantId, audit.audit_id, audit.created_at, audit.expires_at, stamp(now + RETENTION_MS), canonicalizeJson(audit), await objectHash(audit)).run();
+    .bind(context.tenantId, audit.audit_id, audit.created_at, audit.expires_at, stamp(now + RETENTION_MS), payload, payloadHash).run();
   const out = publicAudit(audit);
   if (name === 'audit_claim') return { ...out, ...results[0], source_ids: sources.map(x => x.source_id), observed_at: audit.created_at };
   return out;

@@ -1,0 +1,113 @@
+{
+  "version": "0.1.0",
+  "updated_at": "2026-09-29",
+  "endpoint_environment": "UNDEPLOYED_PREVIEW",
+  "production_compatibility": "NOT TESTED",
+  "status_definition": {
+    "PASS": "Executed against named client, endpoint environment and tested commit, with safe evidence link.",
+    "NOT TESTED": "No actual execution evidence.",
+    "PENDING CI": "Cloud harness exists; exact-commit execution has not yet been recorded."
+  },
+  "hosts": [
+    {
+      "host": "ChatGPT",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Codex",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Claude",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Grok",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Gemini",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Copilot Studio",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Cursor",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "DeepSeek adapter (actual API)",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    }
+  ],
+  "cloud_contract": {
+    "path": "scripts/provider-contract-test.js",
+    "status": "PENDING CI",
+    "scope": "actual in-process MCP handler and canonical service; not a provider model/consumer host",
+    "evidence": []
+  },
+  "plugin_validation": {
+    "path": "scripts/provider-plugin-test.js",
+    "status": "PENDING CI",
+    "scope": "strict official schema validation and package checks; not skill behavior or host install",
+    "evidence": []
+  },
+  "blockers": [
+    "No real host/API executions recorded.",
+    "OAuth 2.1 linking is not implemented by draft tenant bearer authentication.",
+    "Gemini remote MCP model availability has conflicting official documentation.",
+    "Native host attachment authorization and transfer are untested.",
+    "MCP Apps UI deferred until headless correctness passes.",
+    "vNext source monitoring is NOT_REGISTERED; all leases use immutable snapshots."
+  ]
+}

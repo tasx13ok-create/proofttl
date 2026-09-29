@@ -115,6 +115,28 @@ try {
   const missingSigning = {tenantId:'tenant-c',env:{MONITOR_DB:db}};
   const unsignedAudit = await executeTool('audit_claim',auditArgs,missingSigning);
   await rejects(() => executeTool('create_fact_lease',{...leaseArgs,audit_id:unsignedAudit.audit_id,claim_result_id:unsignedAudit.claim_result_id,idempotency_key:'unsigned-request-01'},missingSigning),'lease_signing_not_configured');
+  const savedFetch = globalThis.fetch;
+  const requests = [];
+  try {
+    globalThis.fetch = async (url, options) => {
+      requests.push({url,options});
+      return new Response(source.text,{headers:{'Content-Type':'text/plain'}});
+    };
+    const urlAudit = await executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/status'}]},context);
+    check(urlAudit.verdict === 'SUPPORTED' && urlAudit.sources[0].origin === 'customer', 'explicit supplied URL retains customer provenance');
+    check(requests.length === 1 && requests[0].url === 'https://8.8.8.8/status' && requests[0].options.redirect === 'manual', 'customer-only URL fetch uses exactly the supplied URL without fallback or redirects');
+    check(Object.keys(requests[0].options.headers).sort().join(',') === 'Accept,User-Agent', 'fetch sends no caller auth headers or cookies');
+    globalThis.fetch = async () => new Response(null,{status:302,headers:{location:'https://127.0.0.1/private'}});
+    await rejects(()=>executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/redirect'}]},context),'source_http_failure');
+    globalThis.fetch = async () => new Response('Feature Orion is enabled.',{headers:{'Content-Type':'text/html'}});
+    await rejects(()=>executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/mime'}]},context),'unsupported_source_mime');
+    globalThis.fetch = async () => new Response('A'.repeat(100001),{headers:{'Content-Type':'text/plain'}});
+    await rejects(()=>executeTool('audit_claim',{...auditArgs,sources:[{kind:'url',url:'https://8.8.8.8/oversized'}]},context),'source_too_large');
+  } finally {globalThis.fetch=savedFetch;}
+  for (const nonFact of ['Feature Orion is enabled?','Please enable Feature Orion.']) {
+    const question=await executeTool('audit_claim',{...auditArgs,claim:nonFact,sources:[{kind:'text',text:nonFact}]},context);
+    check(question.verdict==='UNKNOWN' && !question.lease_eligible,'questions and instructions cannot certify themselves: '+nonFact);
+  }
   const retention = await pruneCanonicalAudits(env, Date.now()+31*86400000);
   check(retention.deleted > 0, 'retention pruning deletes leases before referenced audits');
   check((await db.prepare('SELECT COUNT(*) AS count FROM verification_audits').first()).count === 0, 'source snapshot retention is actually enforced');

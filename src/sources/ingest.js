@@ -21,6 +21,18 @@ function extractPlain(bytes) {
   rejectSecrets(text);
   return normalizeText(text);
 }
+function readWithSignal(reader, signal) {
+  checkSignal(signal);
+  if (!signal) return reader.read();
+  return new Promise((resolve,reject) => {
+    const abort = () => {
+      reader.cancel().catch(()=>{});
+      reject(new AuditError('operation_cancelled',408));
+    };
+    signal.addEventListener('abort',abort,{once:true});
+    reader.read().then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));
+  });
+}
 async function readBytes(response, signal) {
   const declared = Number(response.headers.get('content-length'));
   requireCondition(!Number.isFinite(declared) || declared <= MAX_BYTES, 'source_too_large', 413);
@@ -30,7 +42,7 @@ async function readBytes(response, signal) {
   try {
     while (true) {
       checkSignal(signal);
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithSignal(reader, signal);
       if (done) break;
       size += value.byteLength;
       requireCondition(size <= MAX_BYTES, 'source_too_large', 413);
