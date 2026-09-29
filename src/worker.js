@@ -28,6 +28,8 @@ import { renderLandingPage } from "./site.js";
 import { handleCinematics } from "./cinematics.js";
 import { handleDiscordInteractions, DISCORD_INTERACTIONS_PATH } from "./discord.js";
 import { handleFoundry, runFoundryScheduled } from "./foundry.js";
+import { handleMcpRequest } from "./mcp/handler.js";
+import { pruneCanonicalAudits } from "./audits/service.js";
 
 const PRODUCT_VERSION = "1.0.1";
 const COMPATIBLE_PROTOCOL = "ProofTTL/0.3.1";
@@ -127,6 +129,7 @@ function isCredentialedProductPath(pathname) { return pathname.startsWith("/owne
 export default {
   async fetch(request, env, ctx) {
     const pathname = new URL(request.url).pathname;
+    if (pathname === "/mcp") return handleMcpRequest(request, env);
     if (pathname === DISCORD_INTERACTIONS_PATH) return handleDiscordInteractions(request, env, ctx);
     if (request.method === "GET" && pathname === "/") return renderLandingPage();
     if (request.method === "GET" && pathname === "/health") {
@@ -208,7 +211,10 @@ export default {
     return applyApiCors(await entry.fetch(request, env, ctx));
   },
   async scheduled(controller, env, ctx) {
-    const jobs = [runFoundryScheduled(env)];
+    const cleanup = pruneCanonicalAudits(env, controller?.scheduledTime || Date.now()).catch(error => {
+      console.warn(JSON.stringify({ event: "canonical_audit_retention", status: /no such table/i.test(error?.message || "") ? "NOT_MIGRATED" : "FAILED" }));
+    });
+    const jobs = [runFoundryScheduled(env), cleanup];
     if (typeof entry.scheduled === "function") jobs.push(entry.scheduled(controller, env, ctx));
     await Promise.allSettled(jobs);
   }

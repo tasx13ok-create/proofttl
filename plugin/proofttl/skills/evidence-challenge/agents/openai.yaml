@@ -1,0 +1,7 @@
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "proofttl"
+      description: "Server-authoritative evidence audits and Fact Leases"
+      transport: "streamable_http"
+      url: "https://proofttl-universal-preview.tasx13ok.workers.dev/mcp"

@@ -1,0 +1,24 @@
+name: Universal engine unchanged-base evidence
+on:
+  push:
+    branches: [codex/universal-proof-engine]
+    paths: [.github/workflows/universal-baseline.yml]
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c8cf0e4c141b5635675c0ed5eccec2036a725b95
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install unchanged base lock
+        run: npm ci --no-audit --no-fund
+      - name: Execute unchanged base complete local suite in cloud
+        run: npm run test:local
+      - name: Bundle unchanged base without deployment
+        run: npx wrangler deploy --dry-run --outdir=.wrangler-baseline

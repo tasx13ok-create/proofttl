@@ -1,0 +1,193 @@
+{
+  "version": "0.3.0",
+  "updated_at": "2026-09-29",
+  "endpoint_environment": "ISOLATED_SYNTHETIC_PREVIEW",
+  "production_compatibility": "NOT TESTED",
+  "status_definition": {
+    "PASS": "Executed against named client, endpoint environment and tested commit, with safe evidence link.",
+    "NOT TESTED": "No actual execution evidence.",
+    "PENDING CI": "Cloud harness exists; exact-commit execution has not yet been recorded."
+  },
+  "hosts": [
+    {
+      "host": "ChatGPT",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Codex",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Claude",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Grok",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Gemini",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Copilot Studio",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "Cursor",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    },
+    {
+      "host": "DeepSeek adapter (actual API)",
+      "discovery": "NOT TESTED",
+      "tool_call": "NOT TESTED",
+      "auth": "NOT TESTED",
+      "structured_result": "NOT TESTED",
+      "ui": "NOT TESTED",
+      "file_source_path": "NOT TESTED",
+      "evidence": []
+    }
+  ],
+  "cloud_contract": {
+    "path": "scripts/provider-contract-test.js",
+    "status": "PASS",
+    "scope": "actual in-process MCP handler and canonical service; not a provider model/consumer host",
+    "evidence": [
+      {
+        "commit": "6f848ac188df81301e2592957527a2c315eb3107",
+        "run": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522",
+        "artifact": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522/artifacts/11068305252",
+        "date": "2026-09-29",
+        "environment": "GitHub Actions plus isolated Cloudflare synthetic preview"
+      }
+    ]
+  },
+  "plugin_validation": {
+    "path": "scripts/provider-plugin-test.js",
+    "status": "PASS",
+    "scope": "strict official schema validation and package checks; not skill behavior or host install",
+    "evidence": [
+      {
+        "commit": "6f848ac188df81301e2592957527a2c315eb3107",
+        "run": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522",
+        "artifact": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522/artifacts/11068305252",
+        "date": "2026-09-29",
+        "environment": "GitHub Actions plus isolated Cloudflare synthetic preview"
+      }
+    ]
+  },
+  "blockers": [
+    "No real host/API executions recorded.",
+    "OAuth 2.1 linking is not implemented by draft tenant bearer authentication.",
+    "Gemini remote MCP model availability has conflicting official documentation.",
+    "Native host attachment authorization and transfer are untested.",
+    "vNext source monitoring is NOT_REGISTERED; all leases use immutable snapshots.",
+    "Native provider-host rendering and skill activation NOT TESTED.",
+    "Arbitrary opaque credentials in URL paths NOT PROVEN to be detectable.",
+    "Synthetic preview keys rotate; stable customer token and trusted-key lifecycle not supplied.",
+    "Production deployment, operational readiness and approval are not established."
+  ],
+  "endpoint": "https://proofttl-universal-preview.tasx13ok.workers.dev/mcp",
+  "tested_commit": "6f848ac188df81301e2592957527a2c315eb3107",
+  "preview_credentials": "Draft signed tenant bearer and signing keys rotate on cloud deployment; no stable user token, OAuth linking or portable secret.",
+  "apps_browser": {
+    "path": "scripts/apps-browser-test.js",
+    "status": "PASS",
+    "scope": "official App/AppBridge simulated host in Chromium; no native provider-host execution or independent browser signature verifier",
+    "sdk": "@modelcontextprotocol/ext-apps@1.7.5",
+    "playwright": "1.63.0",
+    "chromium": "153.0.8010.12",
+    "evidence": [
+      {
+        "commit": "6f848ac188df81301e2592957527a2c315eb3107",
+        "run": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522",
+        "artifact": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522/artifacts/11068305252",
+        "date": "2026-09-29",
+        "environment": "GitHub Actions plus isolated Cloudflare synthetic preview"
+      }
+    ]
+  },
+  "deployed_preview": {
+    "status": "PASS",
+    "scope": "isolated synthetic fixtures; all six tools, file snapshot, independent signature verification, five concurrent initial retries, UNKNOWN lease refused, cross-tenant/unauthenticated denial",
+    "evidence": [
+      {
+        "commit": "6f848ac188df81301e2592957527a2c315eb3107",
+        "run": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522",
+        "artifact": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522/artifacts/11068305252",
+        "date": "2026-09-29",
+        "environment": "GitHub Actions plus isolated Cloudflare synthetic preview"
+      }
+    ]
+  },
+  "release_corpus": {
+    "cases": 145,
+    "checks": 289,
+    "baseline_false_supports": 209,
+    "baseline_direct_false_supports": 170,
+    "false_supports": 0,
+    "direct_false_supports": 0,
+    "supported": 39,
+    "supported_expected": 39,
+    "unknown_rate": 0.8650519031141869,
+    "status": "PASS",
+    "scope": "release fixtures; semantic generalization and extraction recall NOT PROVEN",
+    "evidence": [
+      {
+        "commit": "6f848ac188df81301e2592957527a2c315eb3107",
+        "run": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522",
+        "artifact": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522/artifacts/11068305252",
+        "date": "2026-09-29",
+        "environment": "GitHub Actions plus isolated Cloudflare synthetic preview"
+      }
+    ]
+  },
+  "executed_check_counts": {
+    "canonical": 80,
+    "headless_mcp": 31,
+    "provider_contract": 44,
+    "plugin_package": 43
+  }
+}
