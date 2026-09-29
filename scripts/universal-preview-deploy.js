@@ -84,7 +84,18 @@ try {
   const args = {audit_id:audit.audit_id,claim_result_id:audit.claim_result_id,ttl_seconds:300,idempotency_key:'preview-retry-key-'+process.env.GITHUB_RUN_ID};
   const first = await client.callTool({name:'create_fact_lease',arguments:args});
   const second = await client.callTool({name:'create_fact_lease',arguments:args});
-  if (first.isError || second.isError || first.structuredContent.lease_id !== second.structuredContent.lease_id || !await verifyFactLeaseSignature(first.structuredContent,publicJwk)) throw new Error('preview_signed_lease_retry_failed');
+  const firstLease=first.structuredContent, secondLease=second.structuredContent;
+  const signatureValid=firstLease?.lease_id ? await verifyFactLeaseSignature(firstLease,publicJwk) : false;
+  const sameLease=Boolean(firstLease?.lease_id && firstLease.lease_id===secondLease?.lease_id);
+  if(first.isError || second.isError || !sameLease || !signatureValid){
+    const safeError=result=>{const error=result?.structuredContent?.error;return error && /^[a-z][a-z0-9_]{1,80}$/.test(error.code)?{code:error.code,status:error.status}:null;};
+    let leaseRows=null;
+    try{const counts=await cf('/d1/database/'+database.uuid+'/query','POST',{sql:'SELECT COUNT(*) AS count FROM verification_leases WHERE tenant_id = ?',params:['preview-ci-'+process.env.GITHUB_RUN_ID]});leaseRows=counts[0]?.results?.[0]?.count ?? null;}catch{}
+    const issued=firstLease?.issued_attestation;
+    const diagnostics={environment:'isolated-preview',commit:process.env.GITHUB_SHA,stage:'signed_lease',status:'FAIL',first_is_error:first.isError===true,second_is_error:second.isError===true,first_error:safeError(first),second_error:safeError(second),same_lease:sameLease,signature_present:Boolean(firstLease?.signature),signature_algorithm:firstLease?.signature?.algorithm==='Ed25519',signature_version:firstLease?.signature?.version==='proofttl-ed25519-v2',public_key_matches_generated:firstLease?.signature?.public_key_jwk?.x===publicJwk.x,attestation_fields_match:Boolean(issued && Object.entries(issued).filter(([key])=>key!=='attestation_version').every(([key,value])=>JSON.stringify(value)===JSON.stringify(firstLease[key]))),signature_verified:signatureValid,tenant_lease_rows:leaseRows};
+    mkdirSync('benchmark/mcp-results',{recursive:true});writeFileSync('benchmark/mcp-results/preview-failure.json',JSON.stringify(diagnostics,null,2));console.log(JSON.stringify(diagnostics));
+    throw new Error('preview_signed_lease_retry_failed');
+  }
   const unauthorized = await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'})});
   if (unauthorized.status !== 401) throw new Error('preview_unauthorized_request_not_refused');
   const report = {environment:'isolated-preview',endpoint,tested_at:new Date().toISOString(),commit:process.env.GITHUB_SHA,initialize:'PASS',tools_list:'PASS',audit_claim:'PASS',signed_lease:'PASS',idempotency:'PASS',unauthorized:'PASS',native_hosts:'NOT TESTED',production:'NOT TESTED',credential_rotation:'EPHEMERAL_SYNTHETIC_PREVIEW_ONLY'};
