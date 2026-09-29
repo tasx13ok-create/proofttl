@@ -733,22 +733,59 @@ async function verifyClaim({ claim, sourceUrl, sourceText, env }) {
 }
 
 function deterministicCheck(claim, sourceText) {
+  if (claim.length < 12) return null;
+
   const lowerClaim = claim.toLowerCase();
   const lowerSource = sourceText.toLowerCase();
-  const at = lowerSource.indexOf(lowerClaim);
+  let from = 0;
 
-  if (claim.length >= 12 && at !== -1) {
-    return {
-      status: "SUPPORTED",
-      evidence: sourceText.slice(at, at + claim.length),
-      reason: "exact_claim_text_found_in_source",
-      confidence: 0.99,
-      verifier: "deterministic-exact-match",
-      ai_usage: null
-    };
+  while (from < lowerSource.length) {
+    const at = lowerSource.indexOf(lowerClaim, from);
+    if (at === -1) return null;
+
+    if (isAssertiveExactMatchContext(sourceText, at, claim.length)) {
+      return {
+        status: "SUPPORTED",
+        evidence: sourceText.slice(at, at + claim.length),
+        reason: "exact_claim_text_found_in_assertive_context",
+        confidence: 0.99,
+        verifier: "deterministic-exact-match",
+        ai_usage: null
+      };
+    }
+
+    from = at + Math.max(1, lowerClaim.length);
   }
 
   return null;
+}
+
+function isAssertiveExactMatchContext(sourceText, at, claimLength) {
+  const beforeRaw = sourceText.slice(Math.max(0, at - 180), at);
+  const afterRaw = sourceText.slice(at + claimLength, at + claimLength + 240);
+  const before = beforeRaw.toLowerCase();
+  const after = afterRaw.toLowerCase();
+
+  const immediateLeft = beforeRaw.trimEnd().slice(-1);
+  const immediateRight = afterRaw.trimStart().slice(0, 1);
+  const quoteChars = new Set(['"', "'", "“", "”", "‘", "’", "`"]);
+
+  // An exact string inside quotation marks is evidence that somebody wrote or
+  // repeated the words, not that the surrounding source endorses the claim.
+  if (quoteChars.has(immediateLeft) || quoteChars.has(immediateRight)) return false;
+
+  // Exact matching is only a cost-saving fast path. Any nearby language that
+  // makes the sentence attributed, hypothetical, historical, corrected, or
+  // disputed forces the semantic verifier (or UNKNOWN when no verifier exists).
+  const attributionOrStaleness =
+    /\b(?:rumou?r|claims?|claimed|claiming|alleges?|alleged|quote|quoted|example|hypothetical|archived|historical|outdated|deprecated|superseded|retracted|old policy|previous policy|earlier policy|draft)\b/;
+  const correctionOrConflict =
+    /\b(?:however|but|false|incorrect|wrong|correction|corrected|retracted|outdated|deprecated|superseded|no longer|instead|actually|current(?:ly)?)\b/;
+
+  if (attributionOrStaleness.test(before)) return false;
+  if (correctionOrConflict.test(after)) return false;
+
+  return true;
 }
 
 function logVerificationCostSample({
