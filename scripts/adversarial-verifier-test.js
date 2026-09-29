@@ -175,7 +175,7 @@ async function run() {
     verifier_sha256: sha256(code),
     corpus_sha256: sha256(corpusText),
     generated_at: new Date().toISOString(),
-    execution: { model: "local_malicious_mock", real_model_evaluation: false, external_network: false },
+    execution: { model: "always_SUPPORTED_mock", real_model_evaluation: false, external_network: false },
     gate_policy: "Non-SUPPORTED cases may conservatively abstain; every support control and evidence/fetch invariant must pass.",
     summary,
     categories,

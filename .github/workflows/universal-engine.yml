@@ -41,6 +41,8 @@ jobs:
         run: node scripts/adversarial-verifier-test.js --baseline-ref c8cf0e4c141b5635675c0ed5eccec2036a725b95 --report benchmark/adversarial/results/before.json --allow-failures
       - name: Run release adversarial corpus
         run: node scripts/adversarial-verifier-test.js --report benchmark/adversarial/results/after.json
+      - name: Enforce before/after corpus identity and safety evidence
+        run: node scripts/adversarial-compare.js benchmark/adversarial/results/before.json benchmark/adversarial/results/after.json
       - name: Test durable audits and source trust boundary
         run: npm run test:canonical-audit
       - name: Test real MCP transport and authorization
@@ -52,6 +54,8 @@ jobs:
       - name: Validate Cloudflare Worker bundle without deployment
         run: npx wrangler deploy --dry-run --outdir=.wrangler-dry-run
       - name: Run current official MCP Inspector
+        env:
+          PROOFTTL_MCP_CI_EVIDENCE_DIR: benchmark/mcp-results
         run: node scripts/mcp-inspector-test.js
       - name: Preserve executed evidence
         if: always()
