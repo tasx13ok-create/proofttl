@@ -732,6 +732,13 @@ export async function verifyClaim({ claim, sourceUrl = "", sourceText, env = {},
       parsed.confidence = Math.min(Number(parsed.confidence) || 0, 0.25);
     }
 
+    if (parsed.status === "SUPPORTED" && evidence &&
+        (/^\s*["“‘'\u0060]/.test(evidence) || exactClaimOffsets(evidence, sourceText).every((at) => isInsideQuotation(sourceText.slice(0, at))))) {
+      parsed.status = "UNKNOWN";
+      parsed.reason = "model_evidence_is_quoted_or_non_assertive";
+      parsed.confidence = Math.min(Number(parsed.confidence) || 0, 0.25);
+    }
+
     if (parsed.status === "SUPPORTED" && evidence && evidence.length < 12) {
       parsed.status = "UNKNOWN";
       parsed.reason = "supported_evidence_is_not_a_substantive_assertion";
@@ -800,7 +807,7 @@ export function verificationContextRisks(claim, sourceText) {
     risks.add("non_declarative_claim");
   }
   if (/\b(?:and|or|while|whereas)\b|[;\r\n]/i.test(claim)) risks.add("compound_claim");
-  if (/\b(?:ignore|disregard|override)\b.{0,80}\b(?:instructions?|policy|system|rules?)\b|\b(?:return|mark|output|respond|set)\b.{0,60}\bSUPPORTED\b|<\|(?:system|assistant|im_start)\|>|\b(?:system|assistant|developer)\s*:/i.test(sourceText + "\n" + claim)) {
+  if (/\b(?:ignore|disregard|override)\b[\s\S]{0,80}\b(?:instructions?|policy|system|rules?)\b|\b(?:return|mark|output|respond|set)\b[\s\S]{0,60}\bSUPPORTED\b|<\|(?:system|assistant|im_start)\|>|\b(?:system|assistant|developer)\s*:/i.test(sourceText + "\n" + claim)) {
     risks.add("source_instructions");
   }
 
@@ -854,6 +861,7 @@ function exactClaimOffsets(claim, sourceText) {
 function isAssertiveExactMatchContext(sourceText, at, claimLength) {
   const before = sourceText.slice(0, at);
   const after = sourceText.slice(at + claimLength);
+  if (isInsideQuotation(before)) return false;
   const left = before.slice(-1);
   const right = after.slice(0, 1);
   if (/[\p{L}\p{N}_]/u.test(left) || /[\p{L}\p{N}_]/u.test(right)) return false;
@@ -868,6 +876,23 @@ function isAssertiveExactMatchContext(sourceText, at, claimLength) {
   if (!/[.!?]$/.test(candidate) && !/^(?:\s*[.!?](?:\s|$)|[ \t]*[\r\n]|[ \t]*$)/.test(after)) return false;
   if (/[.!?]$/.test(candidate) && right && !/\s/.test(right)) return false;
   return true;
+}
+
+function isInsideQuotation(prefix) {
+  let closing = null;
+  for (let i = 0; i < prefix.length; i += 1) {
+    const char = prefix[i];
+    if (char === "\\" && i + 1 < prefix.length) { i += 1; continue; }
+    if (closing) {
+      if (char === closing && !((char === "'" || char === "’") && /[\p{L}\p{N}]/u.test(prefix[i - 1] || "") && /[\p{L}\p{N}]/u.test(prefix[i + 1] || ""))) closing = null;
+      continue;
+    }
+    if (char === '"' || char === "\u0060") closing = char;
+    if (char === "“") closing = "”";
+    if (char === "‘") closing = "’";
+    if (char === "'" && !/[\p{L}\p{N}]/u.test(prefix[i - 1] || "")) closing = "'";
+  }
+  return closing !== null;
 }
 
 function claimPolarityConflict(claim, evidence) {

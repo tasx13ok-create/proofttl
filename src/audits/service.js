@@ -235,6 +235,7 @@ async function createLease(args, context) {
   checkSignal(context.signal);
   await signLease(lease, context.env);
   checkSignal(context.signal);
+  requireCondition(Date.parse(audit.expires_at) > Date.now(), 'audit_expired', 409);
   // Single atomic D1 insert + unique tenant/key constraint resolves concurrent retries.
   await db.prepare('INSERT INTO verification_leases (tenant_id, lease_id, audit_id, claim_result_id, idempotency_sha256, request_sha256, payload_json, retain_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (tenant_id, idempotency_sha256) DO NOTHING')
     .bind(context.tenantId, lease.lease_id, audit.audit_id, result.claim_result_id, keyHash, requestHash, canonicalizeJson(lease), stamp(now + RETENTION_MS)).run();

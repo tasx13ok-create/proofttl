@@ -1,8 +1,8 @@
 # Adversarial verifier release corpus
 
-The corpus contains 141 reviewed fixtures: all 18 attack categories in the integration handoff, source bounds, preserved legacy regressions, question/imperative attacks, and 20 positive controls. It tests the shared verifier without network access and without live model calls.
+The corpus contains 144 reviewed fixtures: all 18 attack categories in the integration handoff, source bounds, preserved legacy regressions, question/imperative attacks, and 20 positive controls. It tests the shared verifier without network access and without live model calls.
 
-Each fixture records an expected evidential verdict and a rationale. Cases run with no AI and with an adversarial model mock that returns SUPPORTED with a verbatim excerpt whenever asked. The safe semantic paraphrase control runs only with the mock. The resulting 281 checks verify exact-match behavior, risk handling, evidence attribution, extraction boundaries, and bounded/blocked URL fetches.
+Each fixture records an expected evidential verdict and a rationale. Cases run with no AI and with an adversarial model mock that returns SUPPORTED with a verbatim excerpt whenever asked. The safe semantic paraphrase control runs only with the mock. The resulting 287 checks verify exact-match behavior, risk handling, evidence attribution, extraction boundaries, and bounded/blocked URL fetches.
 
 A CONTRADICTED fixture may conservatively return UNKNOWN. UNKNOWN is not counted as a correct semantic classification of contradiction. Exact verdict accuracy and UNKNOWN rate are reported separately from the release safety gate. Any false SUPPORTED, false CONTRADICTED, failed positive control, unattached evidence, or exceeded fetch bound fails the gate.
 
