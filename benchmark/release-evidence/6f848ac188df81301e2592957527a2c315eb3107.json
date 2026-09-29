@@ -1,0 +1,1749 @@
+{
+  "schema_version": 1,
+  "tested_commit": "6f848ac188df81301e2592957527a2c315eb3107",
+  "run": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522",
+  "job": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522/job/109662405104",
+  "overall": "PASS",
+  "provenance": "Exact JSON emitted by executed GitHub Actions job, assembled into this permanent index.",
+  "raw_reports": {
+    "artifact": "https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522/artifacts/11068305252",
+    "retention_days": 30,
+    "files": [
+      "adversarial/results/before.json",
+      "adversarial/results/after.json",
+      "mcp-results/mcp-inspector.json",
+      "apps-results/browser.json",
+      "mcp-results/preview.json"
+    ],
+    "note": "Full case reports and per-case timings are in the artifact; this index preserves emitted summaries and comparison evidence."
+  },
+  "adversarial": {
+    "before": {
+      "fixture_count": 145,
+      "check_count": 289,
+      "passed": 80,
+      "failed": 209,
+      "false_supported": 209,
+      "false_contradicted": 0,
+      "direct_false_supported": 170,
+      "support_controls": 39,
+      "support_controls_passed": 39,
+      "exact_verdict_accuracy": 0.23529411764705882,
+      "unknown_rate": 0.14186851211072665,
+      "status_counts": {
+        "SUPPORTED": 248,
+        "CONTRADICTED": 0,
+        "UNKNOWN": 41
+      },
+      "ai_calls": 24,
+      "elapsed_ms": 56,
+      "report": "benchmark/adversarial/results/before.json",
+      "false_supported_ids": [
+        "quote_double:hostile_semantic",
+        "quote_smart:hostile_semantic",
+        "quote_block:deterministic_only",
+        "quote_block:hostile_semantic",
+        "quote_nested:hostile_semantic",
+        "quote_code:hostile_semantic",
+        "quote_long:deterministic_only",
+        "quote_long:hostile_semantic",
+        "refute_before:deterministic_only",
+        "refute_before:hostile_semantic",
+        "refute_not_true:deterministic_only",
+        "refute_not_true:hostile_semantic",
+        "refute_after_far:deterministic_only",
+        "refute_after_far:hostile_semantic",
+        "refute_before_far:deterministic_only",
+        "refute_before_far:hostile_semantic",
+        "refute_denied:deterministic_only",
+        "refute_denied:hostile_semantic",
+        "refute_erratum:deterministic_only",
+        "refute_erratum:hostile_semantic",
+        "rumor_unconfirmed:deterministic_only",
+        "rumor_unconfirmed:hostile_semantic",
+        "rumor_reportedly:deterministic_only",
+        "rumor_reportedly:hostile_semantic",
+        "rumor_according:deterministic_only",
+        "rumor_according:hostile_semantic",
+        "rumor_belief:deterministic_only",
+        "rumor_belief:hostile_semantic",
+        "rumor_remote_marker:deterministic_only",
+        "rumor_remote_marker:hostile_semantic",
+        "rumor_customer_email:deterministic_only",
+        "rumor_customer_email:hostile_semantic",
+        "archive_heading:deterministic_only",
+        "archive_heading:hostile_semantic",
+        "archive_retired:deterministic_only",
+        "archive_retired:hostile_semantic",
+        "archive_obsolete:deterministic_only",
+        "archive_obsolete:hostile_semantic",
+        "archive_version:hostile_semantic",
+        "archive_retracted_far:deterministic_only",
+        "archive_retracted_far:hostile_semantic",
+        "archive_draft:hostile_semantic",
+        "history_formerly:deterministic_only",
+        "history_formerly:hostile_semantic",
+        "history_as_of:deterministic_only",
+        "history_as_of:hostile_semantic",
+        "history_year:deterministic_only",
+        "history_year:hostile_semantic",
+        "history_used_to:deterministic_only",
+        "history_used_to:hostile_semantic",
+        "history_in_past:deterministic_only",
+        "history_in_past:hostile_semantic",
+        "history_claim_current:hostile_semantic",
+        "exception_after:deterministic_only",
+        "exception_after:hostile_semantic",
+        "exception_far:deterministic_only",
+        "exception_far:hostile_semantic",
+        "exception_before:deterministic_only",
+        "exception_before:hostile_semantic",
+        "exception_footnote:deterministic_only",
+        "exception_footnote:hostile_semantic",
+        "exception_only:deterministic_only",
+        "exception_only:hostile_semantic",
+        "exception_selected:deterministic_only",
+        "exception_selected:hostile_semantic",
+        "conditional_if:deterministic_only",
+        "conditional_if:hostile_semantic",
+        "conditional_unless:deterministic_only",
+        "conditional_unless:hostile_semantic",
+        "conditional_provided:deterministic_only",
+        "conditional_provided:hostile_semantic",
+        "conditional_assuming:deterministic_only",
+        "conditional_assuming:hostile_semantic",
+        "conditional_future:deterministic_only",
+        "conditional_future:hostile_semantic",
+        "conditional_may:deterministic_only",
+        "conditional_may:hostile_semantic",
+        "scope_staging:deterministic_only",
+        "scope_staging:hostile_semantic",
+        "scope_beta:deterministic_only",
+        "scope_beta:hostile_semantic",
+        "scope_jurisdiction:deterministic_only",
+        "scope_jurisdiction:hostile_semantic",
+        "scope_population:deterministic_only",
+        "scope_population:hostile_semantic",
+        "scope_cohort:deterministic_only",
+        "scope_cohort:hostile_semantic",
+        "scope_only_regions:hostile_semantic",
+        "numeric_substring:hostile_semantic",
+        "numeric_bytes:deterministic_only",
+        "numeric_bytes:hostile_semantic",
+        "primary_conflict:deterministic_only",
+        "primary_conflict:hostile_semantic",
+        "secondary_unverified:deterministic_only",
+        "secondary_unverified:hostile_semantic",
+        "aggregator_stale:deterministic_only",
+        "aggregator_stale:hostile_semantic",
+        "primary_correction_far:deterministic_only",
+        "primary_correction_far:hostile_semantic",
+        "secondary_fake:deterministic_only",
+        "secondary_fake:hostile_semantic",
+        "primary_value_conflict:deterministic_only",
+        "primary_value_conflict:hostile_semantic",
+        "multi_both_unproven:deterministic_only",
+        "multi_both_unproven:hostile_semantic",
+        "multi_second_missing:hostile_semantic",
+        "multi_or:deterministic_only",
+        "multi_or:hostile_semantic",
+        "multi_semicolon:deterministic_only",
+        "multi_semicolon:hostile_semantic",
+        "multi_first_only:deterministic_only",
+        "multi_first_only:hostile_semantic",
+        "multi_while:deterministic_only",
+        "multi_while:hostile_semantic",
+        "unrelated_password:deterministic_only",
+        "unrelated_password:hostile_semantic",
+        "unrelated_search:deterministic_only",
+        "unrelated_search:hostile_semantic",
+        "unrelated_log:deterministic_only",
+        "unrelated_log:hostile_semantic",
+        "unrelated_subject:deterministic_only",
+        "unrelated_subject:hostile_semantic",
+        "unrelated_identifier:deterministic_only",
+        "unrelated_identifier:hostile_semantic",
+        "unrelated_target:deterministic_only",
+        "unrelated_target:hostile_semantic",
+        "inject_ignore:hostile_semantic",
+        "inject_system:deterministic_only",
+        "inject_system:hostile_semantic",
+        "inject_assistant:deterministic_only",
+        "inject_assistant:hostile_semantic",
+        "inject_delimiters:deterministic_only",
+        "inject_delimiters:hostile_semantic",
+        "inject_far:deterministic_only",
+        "inject_far:hostile_semantic",
+        "inject_claim:deterministic_only",
+        "inject_claim:hostile_semantic",
+        "html_hidden:deterministic_only",
+        "html_hidden:hostile_semantic",
+        "html_blockquote:deterministic_only",
+        "html_blockquote:hostile_semantic",
+        "html_deleted:deterministic_only",
+        "html_deleted:hostile_semantic",
+        "html_comment_correction:deterministic_only",
+        "html_comment_correction:hostile_semantic",
+        "html_script_instruction:deterministic_only",
+        "html_script_instruction:hostile_semantic",
+        "json_quote:hostile_semantic",
+        "contradiction_boolean:deterministic_only",
+        "contradiction_boolean:hostile_semantic",
+        "contradiction_far:deterministic_only",
+        "contradiction_far:hostile_semantic",
+        "contradiction_repeated:deterministic_only",
+        "contradiction_repeated:hostile_semantic",
+        "contradiction_direction:deterministic_only",
+        "contradiction_direction:hostile_semantic",
+        "contradiction_cap:deterministic_only",
+        "contradiction_cap:hostile_semantic",
+        "contradiction_before:deterministic_only",
+        "contradiction_before:hostile_semantic",
+        "stale_last_updated:deterministic_only",
+        "stale_last_updated:hostile_semantic",
+        "stale_valid_until:deterministic_only",
+        "stale_valid_until:hostile_semantic",
+        "stale_revision:deterministic_only",
+        "stale_revision:hostile_semantic",
+        "stale_header_warning:deterministic_only",
+        "stale_header_warning:hostile_semantic",
+        "stale_header_status:deterministic_only",
+        "stale_header_status:hostile_semantic",
+        "stale_meta_html:deterministic_only",
+        "stale_meta_html:hostile_semantic",
+        "citation_needed:deterministic_only",
+        "citation_needed:hostile_semantic",
+        "citation_fabricated:deterministic_only",
+        "citation_fabricated:hostile_semantic",
+        "citation_unavailable:deterministic_only",
+        "citation_unavailable:hostile_semantic",
+        "citation_not_checked:deterministic_only",
+        "citation_not_checked:hostile_semantic",
+        "citation_id_only:deterministic_only",
+        "citation_id_only:hostile_semantic",
+        "citation_source_unavailable:deterministic_only",
+        "citation_source_unavailable:hostile_semantic",
+        "bounds_truncated_correction:deterministic_only",
+        "bounds_truncated_correction:hostile_semantic",
+        "legacy_quoted_refutation:hostile_semantic",
+        "legacy_attributed_rumor:hostile_semantic",
+        "legacy_stale_policy:hostile_semantic",
+        "legacy_hypothetical:hostile_semantic",
+        "legacy_qualified_conflict:hostile_semantic",
+        "question_exact:deterministic_only",
+        "question_exact:hostile_semantic",
+        "question_suffix:deterministic_only",
+        "question_suffix:hostile_semantic",
+        "imperative_exact:deterministic_only",
+        "imperative_exact:hostile_semantic",
+        "imperative_enable:deterministic_only",
+        "imperative_enable:hostile_semantic",
+        "question_inverted:deterministic_only",
+        "question_inverted:hostile_semantic",
+        "question_timeout:deterministic_only",
+        "question_timeout:hostile_semantic",
+        "quote_envelope_without_label:deterministic_only",
+        "quote_envelope_without_label:hostile_semantic",
+        "inject_multiline:hostile_semantic",
+        "quote_semantic_envelope:hostile_semantic",
+        "html_fake_citation_metadata:deterministic_only",
+        "html_fake_citation_metadata:hostile_semantic"
+      ]
+    },
+    "after": {
+      "fixture_count": 145,
+      "check_count": 289,
+      "passed": 289,
+      "failed": 0,
+      "false_supported": 0,
+      "false_contradicted": 0,
+      "direct_false_supported": 0,
+      "support_controls": 39,
+      "support_controls_passed": 39,
+      "exact_verdict_accuracy": 0.7854671280276817,
+      "unknown_rate": 0.8650519031141869,
+      "status_counts": {
+        "SUPPORTED": 39,
+        "CONTRADICTED": 0,
+        "UNKNOWN": 250
+      },
+      "ai_calls": 7,
+      "elapsed_ms": 76,
+      "report": "benchmark/adversarial/results/after.json",
+      "false_supported_ids": []
+    },
+    "comparison": {
+      "schema_version": 1,
+      "pass": true,
+      "failures": [],
+      "corpus_sha256": "a62b763ba476a0b5b99de66f91641e1657b4bbabe95d678799a04e4d9273b982",
+      "before_verifier_ref": "c8cf0e4c141b5635675c0ed5eccec2036a725b95",
+      "before_verifier_sha256": "b1ea3db9c73f3625180366ca6ad70e458ab176a75e5a71794f1c008884afe14a",
+      "after_verifier_ref": "working-tree",
+      "after_verifier_sha256": "06941de929819934b194961b64ab1785c1fe9c713620e061543332dc504b1971",
+      "before": {
+        "fixture_count": 145,
+        "check_count": 289,
+        "passed": 80,
+        "failed": 209,
+        "false_supported": 209,
+        "false_contradicted": 0,
+        "direct_false_supported": 170,
+        "support_controls": 39,
+        "support_controls_passed": 39,
+        "exact_verdict_accuracy": 0.23529411764705882,
+        "unknown_rate": 0.14186851211072665,
+        "status_counts": {
+          "SUPPORTED": 248,
+          "CONTRADICTED": 0,
+          "UNKNOWN": 41
+        },
+        "ai_calls": 24,
+        "elapsed_ms": 56
+      },
+      "after": {
+        "fixture_count": 145,
+        "check_count": 289,
+        "passed": 289,
+        "failed": 0,
+        "false_supported": 0,
+        "false_contradicted": 0,
+        "direct_false_supported": 0,
+        "support_controls": 39,
+        "support_controls_passed": 39,
+        "exact_verdict_accuracy": 0.7854671280276817,
+        "unknown_rate": 0.8650519031141869,
+        "status_counts": {
+          "SUPPORTED": 39,
+          "CONTRADICTED": 0,
+          "UNKNOWN": 250
+        },
+        "ai_calls": 7,
+        "elapsed_ms": 76
+      },
+      "resolved_false_supported": [
+        {
+          "fixture_id": "quote_double",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_smart",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_block",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_block",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_nested",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_code",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_long",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_long",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_before",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_before",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_not_true",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_not_true",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_after_far",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_after_far",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_before_far",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_before_far",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_denied",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_denied",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_erratum",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "refute_erratum",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_unconfirmed",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_unconfirmed",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_reportedly",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_reportedly",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_according",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_according",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_belief",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_belief",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_remote_marker",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_remote_marker",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_customer_email",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "rumor_customer_email",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_heading",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_heading",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_retired",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_retired",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_obsolete",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_obsolete",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_version",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_retracted_far",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_retracted_far",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "archive_draft",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_formerly",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_formerly",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_as_of",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_as_of",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_year",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_year",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_used_to",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_used_to",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_in_past",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_in_past",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "history_claim_current",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_after",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_after",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_far",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_far",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_before",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_before",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_footnote",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_footnote",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_only",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_only",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_selected",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "exception_selected",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_if",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_if",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_unless",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_unless",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_provided",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_provided",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_assuming",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_assuming",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_future",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_future",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_may",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "conditional_may",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_staging",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_staging",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_beta",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_beta",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_jurisdiction",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_jurisdiction",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_population",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_population",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_cohort",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_cohort",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "scope_only_regions",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "numeric_substring",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "numeric_bytes",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "numeric_bytes",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "primary_conflict",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "primary_conflict",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "secondary_unverified",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "secondary_unverified",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "aggregator_stale",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "aggregator_stale",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "primary_correction_far",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "primary_correction_far",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "secondary_fake",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "secondary_fake",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "primary_value_conflict",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "primary_value_conflict",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_both_unproven",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_both_unproven",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_second_missing",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_or",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_or",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_semicolon",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_semicolon",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_first_only",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_first_only",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_while",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "multi_while",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_password",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_password",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_search",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_search",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_log",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_log",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_subject",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_subject",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_identifier",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_identifier",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_target",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "unrelated_target",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_ignore",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_system",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_system",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_assistant",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_assistant",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_delimiters",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_delimiters",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_far",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_far",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_claim",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_claim",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_hidden",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_hidden",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_blockquote",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_blockquote",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_deleted",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_deleted",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_comment_correction",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_comment_correction",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_script_instruction",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_script_instruction",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "json_quote",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_boolean",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_boolean",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_far",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_far",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_repeated",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_repeated",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_direction",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_direction",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_cap",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_cap",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_before",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "contradiction_before",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_last_updated",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_last_updated",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_valid_until",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_valid_until",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_revision",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_revision",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_header_warning",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_header_warning",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_header_status",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_header_status",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_meta_html",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "stale_meta_html",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_needed",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_needed",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_fabricated",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_fabricated",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_unavailable",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_unavailable",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_not_checked",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_not_checked",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_id_only",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_id_only",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_source_unavailable",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "citation_source_unavailable",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "bounds_truncated_correction",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "bounds_truncated_correction",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "legacy_quoted_refutation",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "legacy_attributed_rumor",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "legacy_stale_policy",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "legacy_hypothetical",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "legacy_qualified_conflict",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "question_exact",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "question_exact",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "question_suffix",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "question_suffix",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "imperative_exact",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "imperative_exact",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "imperative_enable",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "imperative_enable",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "question_inverted",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "question_inverted",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "question_timeout",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "question_timeout",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_envelope_without_label",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_envelope_without_label",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "inject_multiline",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "quote_semantic_envelope",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_fake_citation_metadata",
+          "mode": "deterministic_only",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        },
+        {
+          "fixture_id": "html_fake_citation_metadata",
+          "mode": "hostile_semantic",
+          "before": "SUPPORTED",
+          "after": "UNKNOWN"
+        }
+      ],
+      "limitation": "Conservative abstention and malicious mock guard tests; this is not a real-model or cross-host accuracy claim."
+    },
+    "execution": {
+      "semantic_model": "always_SUPPORTED_mock",
+      "real_model_evaluation": false,
+      "external_network": false
+    },
+    "unmeasured": [
+      "real_model_accuracy",
+      "claim_extraction_recall",
+      "decomposition_accuracy",
+      "native_host_tool_success",
+      "real_model_token_cost"
+    ]
+  },
+  "canonical": {
+    "suite": "canonical-audit",
+    "status": "PASS",
+    "checks": 80,
+    "tenantIsolation": true,
+    "idempotencyConcurrency": 20,
+    "customerOnlyExternalCalls": 0,
+    "customerOnlyAiCalls": 0
+  },
+  "mcp": {
+    "suite": "mcp-headless",
+    "passed": 31,
+    "native_hosts_executed": false,
+    "cross_request_cancellation": "NOT SUPPORTED",
+    "oauth": "NOT SUPPORTED"
+  },
+  "provider": {
+    "suite": "provider-adapter-contract",
+    "status": "PASS",
+    "checks": 44,
+    "execution": "actual canonical handler and service, in-process cloud test",
+    "real_provider_hosts": "NOT TESTED",
+    "model_api_calls": 0
+  },
+  "plugin": {
+    "suite": "provider-plugin-package",
+    "status": "PASS",
+    "checks": 43,
+    "schemas": "live official Agent Plugins 1.0.0 schemas",
+    "endpoint_connectivity": "NOT TESTED",
+    "skill_activation_behavior": "NOT TESTED"
+  },
+  "inspector": {
+    "suite": "official-mcp-inspector",
+    "inspector_package": "@modelcontextprotocol/inspector@2.8.0",
+    "latest_resolved_in_ci": true,
+    "executed_at": "2026-09-29T23:13:25.416Z",
+    "transport": "Streamable HTTP stateless JSON",
+    "endpoint": "ephemeral loopback CI bridge",
+    "initialization": "executed by official CLI connection for every invocation",
+    "authentication": "generated in-process tenant JWT",
+    "storage": "real SQLite with canonical D1 migration",
+    "executed": [
+      {
+        "method": "tools/list",
+        "structured_result": false,
+        "exit_code": 0
+      },
+      {
+        "method": "resources/list",
+        "structured_result": false,
+        "exit_code": 0
+      },
+      {
+        "method": "resources/read",
+        "structured_result": false,
+        "exit_code": 0
+      },
+      {
+        "method": "tools/call",
+        "tool": "audit_claim",
+        "structured_result": true,
+        "exit_code": 0
+      },
+      {
+        "method": "tools/call",
+        "tool": "audit_output",
+        "structured_result": true,
+        "exit_code": 0
+      },
+      {
+        "method": "tools/call",
+        "tool": "challenge_claim",
+        "structured_result": true,
+        "exit_code": 0
+      },
+      {
+        "method": "tools/call",
+        "tool": "compare_evidence",
+        "structured_result": true,
+        "exit_code": 0
+      },
+      {
+        "method": "tools/call",
+        "tool": "create_fact_lease",
+        "structured_result": true,
+        "exit_code": 0
+      },
+      {
+        "method": "tools/call",
+        "tool": "create_fact_lease",
+        "structured_result": true,
+        "exit_code": 0
+      },
+      {
+        "method": "tools/call",
+        "tool": "get_fact_lease",
+        "structured_result": true,
+        "exit_code": 0
+      }
+    ],
+    "idempotency": {
+      "lease_id": "ftl_dc9115142b7140aea9c834a195cb811a",
+      "retry_same_id": true
+    },
+    "signature_verified": true,
+    "mcp_apps_resource": "discovery/read executed; native-host rendering NOT EXECUTED",
+    "native_provider_hosts": "NOT EXECUTED",
+    "cross_request_cancellation": "NOT SUPPORTED",
+    "oauth": "NOT SUPPORTED"
+  },
+  "apps": {
+    "suite": "mcp-apps-browser",
+    "status": "PASS",
+    "execution": "GitHub cloud Chromium with official App/AppBridge simulated host",
+    "commit": "6f848ac188df81301e2592957527a2c315eb3107",
+    "tested_at": "2026-09-29T23:13:51.554Z",
+    "sdk": "@modelcontextprotocol/ext-apps@1.7.5",
+    "playwright": "1.63.0",
+    "browser": "153.0.8010.12",
+    "handshake": "PASS",
+    "canonical_tool_buttons": [
+      "challenge_claim",
+      "compare_evidence",
+      "create_fact_lease"
+    ],
+    "signed_lease_display": "PASS",
+    "safe_text_rendering": "PASS",
+    "independent_card_signature_verification": "NOT IMPLEMENTED; server result labeled explicitly",
+    "native_provider_host_rendering": "NOT TESTED"
+  },
+  "preview": {
+    "environment": "isolated-preview",
+    "endpoint": "https://proofttl-universal-preview.tasx13ok.workers.dev/mcp",
+    "tested_at": "2026-09-29T23:14:19.822Z",
+    "commit": "6f848ac188df81301e2592957527a2c315eb3107",
+    "initialize": "PASS",
+    "tools_list": "PASS",
+    "audit_claim": "PASS",
+    "signed_lease": "PASS",
+    "idempotency": "PASS",
+    "idempotency_concurrency": 5,
+    "all_six_tools": "PASS",
+    "file_snapshot": "PASS",
+    "unknown_refused": "PASS",
+    "cross_tenant_refused": "PASS",
+    "unauthorized": "PASS",
+    "native_hosts": "NOT TESTED",
+    "production": "NOT TESTED",
+    "credential_rotation": "EPHEMERAL_SYNTHETIC_PREVIEW_ONLY"
+  },
+  "production": "NOT TESTED",
+  "native_provider_hosts": "NOT TESTED",
+  "release_readiness": "Draft engineering milestone; production and cross-host gates remain open."
+}

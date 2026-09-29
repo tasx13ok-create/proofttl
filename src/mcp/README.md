@@ -102,3 +102,14 @@ Official implementation references consulted during this change:
 - https://developers.cloudflare.com/workers/best-practices/workers-best-practices/
 - https://github.com/modelcontextprotocol/ext-apps/blob/main/docs/quickstart.md
 - https://apps.extensions.modelcontextprotocol.io/api/documents/csp-and-cors.html
+
+## Executed isolated preview
+
+The HTTPS endpoint is https://proofttl-universal-preview.tasx13ok.workers.dev/mcp.
+All six tools, file snapshots, independent signature verification, five concurrent
+initial issuance calls with retries, uncertainty refusal, tenant isolation, and
+unauthorized denial passed at commit `6f848ac188df81301e2592957527a2c315eb3107`
+in [GitHub cloud run 36643933522](https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522).
+The Worker and D1 database are separate preview resources. Credentials are
+synthetic and rotate per deployment; this preview provides no public token issuer
+or OAuth linking. Native provider-host compatibility remains NOT TESTED.

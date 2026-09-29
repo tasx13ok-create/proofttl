@@ -1,12 +1,12 @@
 # ProofTTL plugin package
 
-Development package. A deployed endpoint and real host installations remain NOT TESTED.
+Development package. The isolated synthetic preview passed cloud tests at `6f848ac188df81301e2592957527a2c315eb3107`, [run 36643933522](https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522). Real host installations, native rendering and skill activation remain NOT TESTED.
 
 Root `plugin.json` and `mcp.json` target Agent Plugins 1.0.0. Four focused skills live under `skills/<name>/SKILL.md`, with MCP dependencies in `agents/openai.yaml`. No credentials, hooks, registered-app mapping, or verifier fork are bundled.
 
 ## Configure a cloud preview
 
-Replace the literal `https://proofttl-preview.example.invalid/mcp` in `mcp.json` and each skill dependency with an authorized isolated preview endpoint before installing or packaging. The reserved `.invalid` hostname intentionally cannot serve an accidental production connection.
+The literal [`https://proofttl-universal-preview.tasx13ok.workers.dev/mcp`](https://proofttl-universal-preview.tasx13ok.workers.dev/mcp) in `mcp.json` and each skill dependency targets the tested isolated synthetic preview. Draft tenant bearers and signing keys rotate with cloud deployment. No stable customer token, OAuth account link or portable credential is provided. Configure supported credentials through the host only for a separately authorized native-host test; this endpoint is not production.
 
 Portable MCP URLs and headers are literal. Agent Plugins 1.0.0 supplies no environment interpolation, credential-reference field, or OAuth configuration there. Keep credentials in host-managed configuration. Hosts requiring OAuth account linking remain blocked until protected-resource discovery and an authorization-server flow exist. Signed tenant bearer authentication is a draft service mechanism, not an OAuth authorization server.
 
@@ -24,4 +24,4 @@ Current ingestion accepts bounded UTF-8 `text/plain` snapshots and explicit safe
 - [Manifest schema](https://agent-plugins.org/schemas/1.0.0/plugin.schema.json)
 - [MCP configuration schema](https://agent-plugins.org/schemas/1.0.0/mcp.schema.json)
 
-MCP Apps UI remains deferred until headless checks pass. Every tool must remain useful without UI.
+MCP Apps cloud checks passed with the official App/AppBridge simulated host (SDK1.7.5, Playwright1.63.0, Chromium153.0.8010.12). Native provider rendering remains NOT TESTED. Every tool remains useful without UI.

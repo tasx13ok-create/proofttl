@@ -3,7 +3,7 @@
   "mcpServers": {
     "proofttl": {
       "type": "streamable-http",
-      "url": "https://proofttl-preview.example.invalid/mcp"
+      "url": "https://proofttl-universal-preview.tasx13ok.workers.dev/mcp"
     }
   }
 }

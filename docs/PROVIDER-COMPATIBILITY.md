@@ -16,9 +16,11 @@ PASS may be recorded only after execution, with commit, date, client/version, en
 | Copilot Studio MCP | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED |
 | Cursor remote MCP | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED |
 | DeepSeek function adapter, actual API | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED | NOT TESTED |
-| Generic SDK/function adapter, cloud contract | PASS: 2304d36 | PASS: 2304d36 | PASS: 2304d36 | PASS: 2304d36 | PENDING CI | PASS: 2304d36 |
+| Generic SDK/function adapter, cloud contract | PASS | PASS | PASS | PASS | PASS: simulated host only | PASS |
 
-Headless adapter and package checks passed at commit `2304d36d1bd8986c703c42cba36836782d71e09b`, [cloud run 36639914640](https://github.com/tasx13ok-create/proofttl/actions/runs/36639914640). These calls used the actual in-process MCP service with disposable SQLite D1 and no provider model API or consumer host. Subsequent Apps/145-case/temporal changes await later evidence.
+Final scoped evidence: commit `6f848ac188df81301e2592957527a2c315eb3107`, [successful run 36643933522](https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522), [artifact 11068305252](https://github.com/tasx13ok-create/proofttl/actions/runs/36643933522/artifacts/11068305252). The [permanent evidence index](../benchmark/release-evidence/6f848ac188df81301e2592957527a2c315eb3107.json) preserves summary records; raw case outputs are in the Actions artifact. Generic contract44, package43, canonical80, headlessMCP31 and Inspector2.8.0 passed. Apps passed with SDK1.7.5/Playwright1.63.0/Chromium153.0.8010.12 using the official simulated AppBridge, not a native provider host. Actual isolated preview tests passed all six tools, file snapshot, independent signing verification, five concurrent initial retries, UNKNOWN refusal and authorization boundaries.
+
+Preview endpoint: [`https://proofttl-universal-preview.tasx13ok.workers.dev/mcp`](https://proofttl-universal-preview.tasx13ok.workers.dev/mcp). It uses synthetic fixtures and rotating draft bearer/signing keys. No stable customer token, OAuth link or portable credentials are supplied. The operator must provide supported host-managed credentials for any separately authorized native-host test. Production compatibility remains NOT TESTED.
 
 Machine-readable status lives in [provider-compatibility.json](../specs/provider-compatibility.json). Record cloud contract results separately from real hosts. The unchanged-base [cloud run 36638369822](https://github.com/tasx13ok-create/proofttl/actions/runs/36638369822) covers legacy tests/dry run only.
 
@@ -26,7 +28,7 @@ Machine-readable status lives in [provider-compatibility.json](../specs/provider
 
 | Host | Official surface and practical gate |
 | --- | --- |
-| ChatGPT | Portable plugin with Skills plus remote MCP; optional MCP Apps. Package endpoint is a reserved cloud-preview placeholder. Private account linking requires the documented OAuth resource/authorization flow, which draft tenant bearer authentication does not supply. [Packaging](https://developers.openai.com/plugins/build/plugins), [authentication](https://developers.openai.com/plugins/build/auth) |
+| ChatGPT | Portable plugin with Skills plus remote MCP; optional MCP Apps. Package endpoint is the tested isolated synthetic preview. Private account linking requires the documented OAuth resource/authorization flow, which draft tenant bearer authentication does not supply. [Packaging](https://developers.openai.com/plugins/build/plugins), [authentication](https://developers.openai.com/plugins/build/auth) |
 | Codex | Remote Streamable HTTP MCP with host-managed authentication. Never place bearer material in the portable package; configure credentials through the host's supported mechanism. No machine configuration was installed for this task. [Official MCP documentation](https://developers.openai.com/codex/mcp) |
 | Claude | Messages API remote MCP connector supports publicly reachable HTTPS Streamable HTTP and bearer authorization; toolset configuration controls enabled tools. The current documented connector beta is `mcp-client-2025-11-20`. It currently describes tool calls, not equivalent UI or attachment transfer. [MCP connector](https://platform.claude.com/docs/en/agents-and-tools/mcp-connector) |
 | Grok | Custom MCP connector takes a public server URL and performs applicable authentication/discovery. Reachability and supported auth must be tested in the actual connector. A ChatGPT card does not imply Grok UI rendering. [Connectors](https://docs.x.ai/grok/connectors), [public reachability/transport](https://docs.x.ai/grok/connectors/custom-mcp-tunneling) |
@@ -45,7 +47,7 @@ Tools discover the server's current closed schemas. Sources are explicit text, a
 
 For DeepSeek, retain the assistant tool-call message and append the adapter's paired `role: tool` response for each authorized function call. Do not interpret narrative content as policy or suppress `isError`. Application authorization must reflect the user's intended action; an eligible result alone does not request issuance.
 
-Portable `mcp.json` headers and URLs are literal and must contain no secret. [Agent Plugins specification](https://agent-plugins.org/specification) The configured `.invalid` preview URL is intentionally non-operational until replaced after deployment validation.
+Portable `mcp.json` headers and URLs are literal and must contain no secret. [Agent Plugins specification](https://agent-plugins.org/specification) The configured preview URL has executed cloud SDK evidence; host installation, skill activation and native account linking remain NOT TESTED.
 
 ## Cloud harness and evidence capture
 
@@ -57,6 +59,6 @@ A real-host test must capture initialization/discovery, correct and malformed ca
 
 ## Remaining gates
 
-An isolated deployed preview is not a production migration. OAuth linking, actual host tool-result behavior, file authorization, model-specific Gemini support, skill activation, signature/key rotation, provider rate limits and native UI must be executed independently. Headless gates passed; the added MCP Apps card awaits cloud browser verification and native-host execution, using `_meta.ui.resourceUri` and the shared bridge rather than client-side verdicts. [UI guidance](https://developers.openai.com/plugins/build/chatgpt-ui)
+An isolated deployed preview is not a production migration. OAuth linking, actual host tool-result behavior, file authorization, model-specific Gemini support, skill activation, signature/key rotation, provider rate limits and native UI must be executed independently. MCP Apps browser protocol/rendering checks passed with an official simulated host; actual native-host rendering remains NOT TESTED, using `_meta.ui.resourceUri` and the shared bridge rather than client-side verdicts. [UI guidance](https://developers.openai.com/plugins/build/chatgpt-ui)
 
 Gate E remains open until multiple real native MCP hosts exercise the canonical endpoint. Generic adapters and documentation alone do not justify the word universal as a compatibility certification.
