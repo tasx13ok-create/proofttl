@@ -2,6 +2,8 @@
 
 **Audience:** Astra / Codex operating in ChatGPT Work or Codex with repository and Cloudflare access.
 
+**Execution profile:** GPT-6.1 Sol in Codex, maximum available reasoning effort. Preserve this model selection for the implementation run unless the user explicitly changes it. Do not silently downgrade model or reasoning level.
+
 **Repository:** `tasx13ok-create/proofttl`
 
 **Do not work from the website repository.** The active product direction is the verification engine, MCP, skills, provider integrations, and host-native UI.
