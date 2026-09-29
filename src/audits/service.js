@@ -212,17 +212,23 @@ async function createLease(args, context) {
   requireCondition(Number.isInteger(args.ttl_seconds) && args.ttl_seconds >= 60 && args.ttl_seconds <= 604800, 'invalid_ttl');
   requireCondition(typeof args.idempotency_key === 'string' && /^[A-Za-z0-9_.:-]{8,200}$/.test(args.idempotency_key), 'invalid_idempotency_key');
   const db = database(context);
+  let phase = 'request_hash';
+  try {
   const keyHash = await sha256(args.idempotency_key);
   const requestHash = await objectHash({ audit_id: args.audit_id, claim_result_id: args.claim_result_id, ttl_seconds: args.ttl_seconds });
+  phase = 'idempotency_lookup';
   const existing = await db.prepare('SELECT payload_json, request_sha256 FROM verification_leases WHERE tenant_id = ? AND idempotency_sha256 = ?').bind(context.tenantId, keyHash).first();
   if (existing) {
     requireCondition(existing.request_sha256 === requestHash, 'idempotency_key_conflict', 409);
-    return leaseResponse(existing, context);
+    phase = 'signature_check';
+    return await leaseResponse(existing, context);
   }
+  phase = 'audit_load';
   const audit = await loadAudit(args.audit_id, context);
   const result = selectResult(audit, args.claim_result_id);
   requireCondition(result.verdict === 'SUPPORTED' && result.lease_eligible && result.evidence.length > 0 && result.conflicts.length === 0, 'audit_result_not_lease_eligible', 409);
   // Re-evaluate the stored complete corpus rather than accepting serialized eligibility alone.
+  phase = 'eligibility_check';
   const fresh = await evaluate(result.claim, audit.sources, result.consequence, audit.as_of);
   requireCondition(fresh.verdict === 'SUPPORTED' && fresh.lease_eligible, 'audit_result_no_longer_eligible', 409);
   const now = Date.now();
@@ -236,15 +242,24 @@ async function createLease(args, context) {
     monitoring: { status: 'NOT_REGISTERED', monitorable: audit.sources.every(source => source.monitorable), verification_basis: 'IMMUTABLE_SNAPSHOT', snapshot_bound: true }
   };
   checkSignal(context.signal);
+  phase = 'signing';
   await signLease(lease, context.env);
   checkSignal(context.signal);
   requireCondition(Date.parse(audit.expires_at) > Date.now(), 'audit_expired', 409);
   // Single atomic D1 insert + unique tenant/key constraint resolves concurrent retries.
+  phase = 'commit';
   await db.prepare('INSERT INTO verification_leases (tenant_id, lease_id, audit_id, claim_result_id, idempotency_sha256, request_sha256, payload_json, retain_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (tenant_id, idempotency_sha256) DO NOTHING')
     .bind(context.tenantId, lease.lease_id, audit.audit_id, result.claim_result_id, keyHash, requestHash, canonicalizeJson(lease), stamp(now + RETENTION_MS)).run();
+  phase = 'winner_lookup';
   const winner = await db.prepare('SELECT payload_json, request_sha256 FROM verification_leases WHERE tenant_id = ? AND idempotency_sha256 = ?').bind(context.tenantId, keyHash).first();
   requireCondition(winner && winner.request_sha256 === requestHash, 'idempotency_key_conflict', 409);
-  return leaseResponse(winner, context);
+  phase = 'signature_check';
+  return await leaseResponse(winner, context);
+  } catch (error) {
+    if (error instanceof AuditError) throw error;
+    // Keep raw crypto/storage exceptions and private payloads out of host results.
+    throw new AuditError('lease_' + phase + '_failed', 503);
+  }
 }
 export async function pruneCanonicalAudits(env, now = Date.now()) {
   if (!env.MONITOR_DB?.prepare) return { deleted: 0 };

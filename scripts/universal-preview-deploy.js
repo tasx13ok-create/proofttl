@@ -55,7 +55,8 @@ try {wrangler(['deploy','--config',configPath,'--secrets-file',secretsPath,'--me
 finally {rmSync(secretsPath,{force:true});}
 const subdomain = await cf('/workers/subdomain');
 const endpoint = 'https://'+workerName+'.'+subdomain.subdomain+'.workers.dev/mcp';
-const jwt = await createMcpTestToken({PROOFTTL_MCP_AUTH_SECRET:authSecret},{sub:'preview-ci-'+process.env.GITHUB_RUN_ID});
+const testTenant='preview-ci-'+process.env.GITHUB_RUN_ID+'-'+(process.env.GITHUB_RUN_ATTEMPT || '1')+'-'+crypto.randomUUID();
+const jwt = await createMcpTestToken({PROOFTTL_MCP_AUTH_SECRET:authSecret},{sub:testTenant});
 // Require the newly generated auth/signing configuration to be active before
 // exercising the canonical SDK handshake; no request/result contains secret material.
 let ready=false;
@@ -81,24 +82,46 @@ try {
   const result = await client.callTool({name:'audit_claim',arguments:{claim:'Feature Orion is enabled.',sources:[{kind:'text',text:'Production status: Feature Orion is enabled. Availability is monitored continuously.'}],source_policy:'customer_only'}});
   if (result.isError || result.structuredContent?.verdict !== 'SUPPORTED') throw new Error('preview_audit_failed');
   const audit = result.structuredContent;
-  const args = {audit_id:audit.audit_id,claim_result_id:audit.claim_result_id,ttl_seconds:300,idempotency_key:'preview-retry-key-'+process.env.GITHUB_RUN_ID};
-  const first = await client.callTool({name:'create_fact_lease',arguments:args});
+  const args = {audit_id:audit.audit_id,claim_result_id:audit.claim_result_id,ttl_seconds:300,idempotency_key:'preview-retry-'+crypto.randomUUID()};
+  const concurrent = await Promise.all(Array.from({length:5},()=>client.callTool({name:'create_fact_lease',arguments:args})));
+  const first = concurrent[0];
   const second = await client.callTool({name:'create_fact_lease',arguments:args});
   const firstLease=first.structuredContent, secondLease=second.structuredContent;
   const signatureValid=firstLease?.lease_id ? await verifyFactLeaseSignature(firstLease,publicJwk) : false;
-  const sameLease=Boolean(firstLease?.lease_id && firstLease.lease_id===secondLease?.lease_id);
+  const sameLease=Boolean(firstLease?.lease_id && firstLease.lease_id===secondLease?.lease_id && concurrent.every(item=>!item.isError && item.structuredContent?.lease_id===firstLease.lease_id));
   if(first.isError || second.isError || !sameLease || !signatureValid){
     const safeError=result=>{const error=result?.structuredContent?.error;return error && /^[a-z][a-z0-9_]{1,80}$/.test(error.code)?{code:error.code,status:error.status}:null;};
     let leaseRows=null;
-    try{const counts=await cf('/d1/database/'+database.uuid+'/query','POST',{sql:'SELECT COUNT(*) AS count FROM verification_leases WHERE tenant_id = ?',params:['preview-ci-'+process.env.GITHUB_RUN_ID]});leaseRows=counts[0]?.results?.[0]?.count ?? null;}catch{}
+    try{const counts=await cf('/d1/database/'+database.uuid+'/query','POST',{sql:'SELECT COUNT(*) AS count FROM verification_leases WHERE tenant_id = ?',params:[testTenant]});leaseRows=counts[0]?.results?.[0]?.count ?? null;}catch{}
     const issued=firstLease?.issued_attestation;
     const diagnostics={environment:'isolated-preview',commit:process.env.GITHUB_SHA,stage:'signed_lease',status:'FAIL',first_is_error:first.isError===true,second_is_error:second.isError===true,first_error:safeError(first),second_error:safeError(second),same_lease:sameLease,signature_present:Boolean(firstLease?.signature),signature_algorithm:firstLease?.signature?.algorithm==='Ed25519',signature_version:firstLease?.signature?.version==='proofttl-ed25519-v2',public_key_matches_generated:firstLease?.signature?.public_key_jwk?.x===publicJwk.x,attestation_fields_match:Boolean(issued && Object.entries(issued).filter(([key])=>key!=='attestation_version').every(([key,value])=>JSON.stringify(value)===JSON.stringify(firstLease[key]))),signature_verified:signatureValid,tenant_lease_rows:leaseRows};
     mkdirSync('benchmark/mcp-results',{recursive:true});writeFileSync('benchmark/mcp-results/preview-failure.json',JSON.stringify(diagnostics,null,2));console.log(JSON.stringify(diagnostics));
     throw new Error('preview_signed_lease_retry_failed');
   }
+  async function call(name,arguments_){
+    const result=await client.callTool({name,arguments:arguments_});
+    if(result.isError || !result.structuredContent)throw new Error('preview_'+name+'_failed');
+    return result.structuredContent;
+  }
+  const challenge=await call('challenge_claim',{audit_id:audit.audit_id,claim_result_id:audit.claim_result_id});
+  const comparison=await call('compare_evidence',{audit_id:audit.audit_id});
+  const output=await call('audit_output',{output_text:'Feature Orion is enabled.',sources:[{kind:'text',text:'Feature Orion is enabled.'}],source_policy:'customer_only'});
+  const fetchedLease=await call('get_fact_lease',{lease_id:firstLease.lease_id});
+  const fileAudit=await call('audit_claim',{claim:'Feature Orion is enabled.',sources:[{kind:'file',mime_type:'text/plain',filename:'status.txt',content_base64:btoa('Feature Orion is enabled.')}],source_policy:'customer_only'});
+  if(challenge.verdict!=='SUPPORTED' || comparison.sources.length!==1 || output.claim_results[0]?.verdict!=='SUPPORTED' || !fetchedLease.signature_verified || fileAudit.sources[0]?.kind!=='file')throw new Error('preview_canonical_tool_contract_failed');
+  const unknown=await call('audit_claim',{claim:'Feature Atlas is enabled.',sources:[],source_policy:'customer_only'});
+  const refused=await client.callTool({name:'create_fact_lease',arguments:{audit_id:unknown.audit_id,claim_result_id:unknown.claim_result_id,ttl_seconds:300,idempotency_key:'unknown-'+crypto.randomUUID()}});
+  if(unknown.verdict!=='UNKNOWN' || !refused.isError || refused.structuredContent?.error?.code!=='audit_result_not_lease_eligible')throw new Error('preview_uncertainty_gate_failed');
+  const otherJwt=await createMcpTestToken({PROOFTTL_MCP_AUTH_SECRET:authSecret},{sub:testTenant+'-other'});
+  const otherClient=new Client({name:'ProofTTL-other-tenant-gate',version:'1.0.0'});
+  try{
+    await otherClient.connect(new StreamableHTTPClientTransport(new URL(endpoint),{requestInit:{headers:{Authorization:'Bearer '+otherJwt}}}));
+    const denied=await otherClient.callTool({name:'get_fact_lease',arguments:{lease_id:firstLease.lease_id}});
+    if(!denied.isError || denied.structuredContent?.error?.code!=='lease_not_found')throw new Error('preview_cross_tenant_read_not_refused');
+  }finally{await otherClient.close();}
   const unauthorized = await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'})});
   if (unauthorized.status !== 401) throw new Error('preview_unauthorized_request_not_refused');
-  const report = {environment:'isolated-preview',endpoint,tested_at:new Date().toISOString(),commit:process.env.GITHUB_SHA,initialize:'PASS',tools_list:'PASS',audit_claim:'PASS',signed_lease:'PASS',idempotency:'PASS',unauthorized:'PASS',native_hosts:'NOT TESTED',production:'NOT TESTED',credential_rotation:'EPHEMERAL_SYNTHETIC_PREVIEW_ONLY'};
+  const report = {environment:'isolated-preview',endpoint,tested_at:new Date().toISOString(),commit:process.env.GITHUB_SHA,initialize:'PASS',tools_list:'PASS',audit_claim:'PASS',signed_lease:'PASS',idempotency:'PASS',idempotency_concurrency:5,all_six_tools:'PASS',file_snapshot:'PASS',unknown_refused:'PASS',cross_tenant_refused:'PASS',unauthorized:'PASS',native_hosts:'NOT TESTED',production:'NOT TESTED',credential_rotation:'EPHEMERAL_SYNTHETIC_PREVIEW_ONLY'};
   mkdirSync('benchmark/mcp-results',{recursive:true});writeFileSync('benchmark/mcp-results/preview.json',JSON.stringify(report,null,2));
   console.log(JSON.stringify(report));
 } finally {await client.close();}
