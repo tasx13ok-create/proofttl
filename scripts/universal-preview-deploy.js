@@ -1,5 +1,7 @@
 // Cloud CI only. This script refuses the production Worker/database names.
-import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -34,6 +36,7 @@ const config = {name:workerName,main:'src/universal-preview.js',account_id:accou
   observability:{enabled:true},triggers:{crons:['0 2 * * *']},
   d1_databases:[{binding:'MONITOR_DB',database_name:databaseName,database_id:database.uuid}],
   ratelimits:[{name:'VERIFY_RATE_LIMITER',namespace_id:'24092903',simple:{limit:30,period:60}}],
+  secrets:{required:['PROOFTTL_MCP_AUTH_SECRET','PROOFTTL_SIGNING_PRIVATE_JWK']},
   vars:{PROOFTTL_SIGNING_KEY_ID:'proofttl-isolated-preview-'+(process.env.GITHUB_SHA||'unknown').slice(0,12)}
 };
 if (config.name === 'proofttl' || config.d1_databases.some(item=>item.database_name==='proofttl-monitor')) throw new Error('production_target_refused');
@@ -44,11 +47,31 @@ const privateJwk = await crypto.subtle.exportKey('jwk',pair.privateKey);
 const publicJwk = await crypto.subtle.exportKey('jwk',pair.publicKey);
 const authSecret = Array.from(crypto.getRandomValues(new Uint8Array(48)),byte=>byte.toString(16).padStart(2,'0')).join('');
 // Preview uses synthetic test tenants only. Re-deploying rotates ephemeral preview credentials.
-wrangler(['deploy','--config',configPath,'--message','isolated-preview:'+process.env.GITHUB_SHA]);
-wrangler(['secret','bulk','--config',configPath],JSON.stringify({PROOFTTL_MCP_AUTH_SECRET:authSecret,PROOFTTL_SIGNING_PRIVATE_JWK:JSON.stringify(privateJwk)}));
+// Secrets are supplied with this version, avoiding an unconfigured deployment
+// followed by a separate secret activation. This file exists only on the cloud runner.
+const secretsPath=join(process.env.RUNNER_TEMP || tmpdir(),'proofttl-preview-secrets-'+crypto.randomUUID()+'.json');
+writeFileSync(secretsPath,JSON.stringify({PROOFTTL_MCP_AUTH_SECRET:authSecret,PROOFTTL_SIGNING_PRIVATE_JWK:JSON.stringify(privateJwk)}),{mode:0o600,flag:'wx'});
+try {wrangler(['deploy','--config',configPath,'--secrets-file',secretsPath,'--message','isolated-preview:'+process.env.GITHUB_SHA]);}
+finally {rmSync(secretsPath,{force:true});}
 const subdomain = await cf('/workers/subdomain');
 const endpoint = 'https://'+workerName+'.'+subdomain.subdomain+'.workers.dev/mcp';
 const jwt = await createMcpTestToken({PROOFTTL_MCP_AUTH_SECRET:authSecret},{sub:'preview-ci-'+process.env.GITHUB_RUN_ID});
+// Require the newly generated auth/signing configuration to be active before
+// exercising the canonical SDK handshake; no request/result contains secret material.
+let ready=false;
+const readinessDeadline=Date.now()+45000;
+const readinessSignal=()=>AbortSignal.timeout(Math.max(1,Math.min(2000,readinessDeadline-Date.now())));
+for(let attempt=0;Date.now()<readinessDeadline;attempt++){
+  try{
+    const response=await fetch(endpoint,{method:'POST',signal:readinessSignal(),headers:{Authorization:'Bearer '+jwt,'Content-Type':'application/json',Accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:100,method:'tools/list'})});
+    const keysResponse=await fetch(new URL('/.well-known/proofttl-keys.json',endpoint),{signal:readinessSignal()});
+    const keys=await keysResponse.json();
+    const listed=response.ok?await response.json():null;
+    if(listed?.result?.tools?.length===6 && keys.keys?.some(key=>key.x===publicJwk.x)){ready=true;break;}
+  }catch{}
+  await new Promise(resolve=>setTimeout(resolve,Math.max(1,Math.min(1000*(attempt+1),3000,readinessDeadline-Date.now()))));
+}
+if(!ready)throw new Error('preview_authenticated_configuration_not_ready');
 const client = new Client({name:'ProofTTL-preview-gate',version:'1.0.0'});
 const transport = new StreamableHTTPClientTransport(new URL(endpoint),{requestInit:{headers:{Authorization:'Bearer '+jwt}}});
 await client.connect(transport);

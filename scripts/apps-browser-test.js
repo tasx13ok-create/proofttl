@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {mkdirSync,writeFileSync} from "node:fs";
 import {createServer} from "node:http";
 import {build} from "esbuild";
 import {chromium} from "playwright";
@@ -25,7 +26,8 @@ let browser;
 try{
  browser=await chromium.launch({headless:true});const page=await browser.newPage();const errors=[];page.on("pageerror",e=>errors.push(e.message));
  await page.goto("http://127.0.0.1:"+server.address().port);
- await page.waitForFunction(()=>window.ready===true || window.hostError);
+ try { await page.waitForFunction(()=>window.ready===true || window.hostError); }
+ catch(error) { console.error("Apps startup diagnostics",JSON.stringify({pageErrors:errors,hostError:await page.evaluate(()=>window.hostError),frames:await Promise.all(page.frames().map(async frame=>({url:frame.url(),text:await frame.locator("body").innerText().catch(()=>"" )})))}));throw error; }
  assert.equal(await page.evaluate(()=>window.hostError),undefined);
  const claim="The project codename is Orion.";
  const audit=await executeTool("audit_claim",{claim,sources:[{kind:"text",text:claim}],source_policy:"customer_only"},{tenantId:fixture.tenantId,env:fixture.env});
@@ -45,5 +47,7 @@ try{
  assert.equal(await page.frames()[1].evaluate(()=>window.PWNED),undefined);
  assert.equal(await card.locator("img").count(),0);
  assert.deepEqual(errors,[]);
- console.log("PASS: official App/AppBridge handshake, canonical tool buttons, lease display and safe text rendering. Native provider-host UI NOT TESTED.");
+ const report={suite:"mcp-apps-browser",status:"PASS",execution:"GitHub cloud Chromium with official App/AppBridge simulated host",commit:process.env.GITHUB_SHA || null,tested_at:new Date().toISOString(),sdk:"@modelcontextprotocol/ext-apps@1.7.5",playwright:"1.63.0",browser:browser.version(),handshake:"PASS",canonical_tool_buttons:calls.map(x=>x.name),signed_lease_display:"PASS",safe_text_rendering:"PASS",independent_card_signature_verification:"NOT IMPLEMENTED; server result labeled explicitly",native_provider_host_rendering:"NOT TESTED"};
+ mkdirSync("benchmark/apps-results",{recursive:true});writeFileSync("benchmark/apps-results/browser.json",JSON.stringify(report,null,2));
+ console.log(JSON.stringify(report));
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));fixture.close();}
