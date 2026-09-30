@@ -40,6 +40,8 @@ function render() {
  const c=current();
  field("Claim",c?.claim || lease?.claim);
  field("Verdict",c?.verdict || lease?.current_status);
+ field("Lease eligibility",c?.lease_eligible===true ? "Eligible (server)" : c?.lease_eligible===false ? "Ineligible (server)" : "Not supplied");
+ field("Lease ID",lease?.lease_id || "No lease returned");
  field("Observed",c?.observed_at || audit?.observed_at || audit?.created_at || lease?.observed_at);
  field("Evidence",JSON.stringify(c?.evidence || lease?.evidence || [],null,2));
  field("Conflicts",JSON.stringify(c?.conflicts || [],null,2));

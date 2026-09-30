@@ -34,6 +34,7 @@ try{
  await page.evaluate(data=>window.deliver({content:[],structuredContent:data}),audit);
  const card=page.frameLocator("iframe");
  await card.getByText("SUPPORTED",{exact:true}).waitFor();
+ await card.getByText("Eligible (server)",{exact:true}).waitFor();
  await card.getByRole("button",{name:"Challenge",exact:true}).click();
  await card.getByRole("button",{name:"Compare evidence",exact:true}).waitFor({state:"visible"});
  await card.getByRole("button",{name:"Compare evidence",exact:true}).click();
@@ -41,13 +42,19 @@ try{
  await card.getByText(/Server reports verified/).waitFor();
  assert.deepEqual(calls.map(x=>x.name),["challenge_claim","compare_evidence","create_fact_lease"]);
  assert.equal(calls[2].arguments.audit_id,audit.audit_id);
+ const returnedLease=await executeTool("create_fact_lease",calls[2].arguments,{tenantId:fixture.tenantId,env:fixture.env});
+ await card.getByText(returnedLease.lease_id,{exact:true}).waitFor();
+ const insufficient=await executeTool("audit_claim",{claim,sources:[{kind:"text",text:"There is no documented project codename."}],source_policy:"customer_only"},{tenantId:fixture.tenantId,env:fixture.env});
+ await page.evaluate(data=>window.deliver({content:[],structuredContent:data}),insufficient);
+ await card.getByText("Ineligible (server)",{exact:true}).waitFor();
+ assert.equal(await card.getByRole("button",{name:"Create lease",exact:true}).isDisabled(),true);
  const attack={...audit,claim:"<img src=x onerror=window.PWNED=true>",claim_results:[{...audit.claim_results[0],claim:"<img src=x onerror=window.PWNED=true>"}]};
  await page.evaluate(data=>window.deliver({content:[],structuredContent:data}),attack);
  await card.getByText("<img src=x onerror=window.PWNED=true>",{exact:true}).waitFor();
  assert.equal(await page.frames()[1].evaluate(()=>window.PWNED),undefined);
  assert.equal(await card.locator("img").count(),0);
  assert.deepEqual(errors,[]);
- const report={suite:"mcp-apps-browser",status:"PASS",execution:"GitHub cloud Chromium with official App/AppBridge simulated host",commit:process.env.GITHUB_SHA || null,tested_at:new Date().toISOString(),sdk:"@modelcontextprotocol/ext-apps@1.7.5",playwright:"1.63.0",browser:browser.version(),handshake:"PASS",canonical_tool_buttons:calls.map(x=>x.name),signed_lease_display:"PASS",safe_text_rendering:"PASS",independent_card_signature_verification:"NOT IMPLEMENTED; server result labeled explicitly",native_provider_host_rendering:"NOT TESTED"};
+ const report={suite:"mcp-apps-browser",status:"PASS",execution:"GitHub cloud Chromium with official App/AppBridge simulated host",commit:process.env.GITHUB_SHA || null,tested_at:new Date().toISOString(),sdk:"@modelcontextprotocol/ext-apps@1.7.5",playwright:"1.63.0",browser:browser.version(),handshake:"PASS",canonical_tool_buttons:calls.map(x=>x.name),signed_lease_display:"PASS",server_eligibility_and_lease_id:"PASS",ineligible_issuance_button:"PASS",safe_text_rendering:"PASS",independent_card_signature_verification:"NOT IMPLEMENTED; server result labeled explicitly",native_provider_host_rendering:"NOT TESTED"};
  mkdirSync("benchmark/apps-results",{recursive:true});writeFileSync("benchmark/apps-results/browser.json",JSON.stringify(report,null,2));
  console.log(JSON.stringify(report));
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));fixture.close();}
