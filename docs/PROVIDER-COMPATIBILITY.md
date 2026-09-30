@@ -62,3 +62,7 @@ A real-host test must capture initialization/discovery, correct and malformed ca
 An isolated deployed preview is not a production migration. OAuth linking, actual host tool-result behavior, file authorization, model-specific Gemini support, skill activation, signature/key rotation, provider rate limits and native UI must be executed independently. MCP Apps browser protocol/rendering checks passed with an official simulated host; actual native-host rendering remains NOT TESTED, using `_meta.ui.resourceUri` and the shared bridge rather than client-side verdicts. [UI guidance](https://developers.openai.com/plugins/build/chatgpt-ui)
 
 Gate E remains open until multiple real native MCP hosts exercise the canonical endpoint. Generic adapters and documentation alone do not justify the word universal as a compatibility certification.
+
+## Phase 2: real-user account linking
+
+Base5f8c2028cab8b81acc139dc074b7ec9e41392e2d; stacked branch codex/live-host-auth. Planned https://proofttl-auth-preview.tasx13ok.workers.dev/mcp is NOT TESTED until deployed evidence exists. Phase1 PASS rows above retain synthetic/cloud scope and do not certify OAuth or a real host. Native ChatGPT/Codex round trip remains NOT TESTED; native inline UI is HUMAN VERIFICATION REQUIRED. Follow [real-host steps](REAL-HOST-INTEGRATION.md). Do not test other hosts before the first real OpenAI flow; do not retrieve Dropbox files during design. [Dropbox boundary](DROPBOX-SOURCE-INTEGRATION.md).

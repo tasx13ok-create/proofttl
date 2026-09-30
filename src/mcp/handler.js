@@ -3,6 +3,7 @@ import { authenticateMcpRequest, requireMcpAuthConfiguration } from "./auth.js";
 import { boundedSetting, McpBoundaryError, readBoundedJson } from "./boundary.js";
 import { TOOL_INPUT_SCHEMAS } from "./schemas.js";
 import { createMcpServer } from "./server.js";
+import { createObserver, errorCategory } from "./observability.js";
 
 const ACCEPTED_HEADERS = ["authorization", "content-type", "mcp-protocol-version", "mcp-session-id", "last-event-id"];
 
@@ -57,11 +58,16 @@ export async function handleMcpRequest(request, env, options = {}) {
   let origin = null;
   let server;
   let requestId = null;
+  let observer = await createObserver(env);
+  const started = performance.now();
   try {
     origin = allowedOrigin(request, env);
-    requireMcpAuthConfiguration(env);
+    (options.requireAuthConfiguration || requireMcpAuthConfiguration)(env);
     if (request.method === "OPTIONS") return protect(preflight(request), origin);
-    const { tenantId } = await authenticateMcpRequest(request, env);
+    const { tenantId } = await (options.authenticate || authenticateMcpRequest)(request, env);
+    if (typeof tenantId !== "string" || !/^[A-Za-z0-9:_-]{1,200}$/.test(tenantId)) throw new McpBoundaryError("invalid_bearer_token", 401, "Invalid authenticated tenant.");
+    observer = await createObserver(env, tenantId);
+    observer.emit("auth", {category:"success"});
     if (env?.VERIFY_RATE_LIMITER) {
       let rate;
       try { rate = await env.VERIFY_RATE_LIMITER.limit({ key: "mcp:" + tenantId }); }
@@ -93,14 +99,18 @@ export async function handleMcpRequest(request, env, options = {}) {
         return protect(rpcError(400, -32602, "Invalid tool arguments.", requestId, { code: "invalid_arguments", issues }), origin);
       }
     }
-    server = createMcpServer({ tenantId, env, requestSignal: request.signal, ...(options.executeTool ? { execute: options.executeTool } : {}) });
+    if (body.method === "initialize") observer.emit("mcp_initialize");
+    server = createMcpServer({ tenantId, env, observer, requestSignal: request.signal, ...(options.executeTool ? { execute: options.executeTool } : {}) });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
-    return protect(await transport.handleRequest(request, { parsedBody: body }), origin);
+    const response = await transport.handleRequest(request, { parsedBody: body });
+    observer.emit("request_complete", {status:response.status,latency_ms:performance.now()-started});
+    return protect(response, origin);
   } catch (error) {
     const expected = error instanceof McpBoundaryError;
     const status = expected ? error.status : 500;
     const code = expected ? error.code : "mcp_internal_error";
+    observer.emit(status === 401 ? "auth" : status >= 500 ? "server_error" : "refusal", {category:errorCategory(error),status,latency_ms:performance.now()-started});
     const headers = status === 401 ? { "www-authenticate": 'Bearer realm="proofttl-mcp"' } : {};
     return protect(rpcError(status, code === "invalid_json" ? -32700 : -32000, expected ? error.message : "MCP request failed.", requestId, { code }, headers), origin);
   } finally {

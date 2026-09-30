@@ -1,0 +1,79 @@
+name: Live host auth cloud gates
+on:
+  push:
+    branches: [codex/live-host-auth]
+  pull_request:
+    branches: [codex/universal-proof-engine]
+permissions:
+  contents: read
+concurrency:
+  group: live-host-auth-cloud-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    if: github.repository == 'tasx13ok-create/proofttl'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'push' && github.ref_name || github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Resolve official MCP dependency lock on the implementation branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/live-host-auth'
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          if ! git diff --quiet -- package-lock.json; then
+            git config user.name "ProofTTL cloud validation"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "build: lock official MCP SDK and schema dependencies"
+            git push origin HEAD:refs/heads/codex/live-host-auth
+          fi
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build optional MCP Apps resource
+        run: npm run build:apps
+      - name: Record unchanged-corpus baseline failures
+        run: node scripts/adversarial-verifier-test.js --baseline-ref c8cf0e4c141b5635675c0ed5eccec2036a725b95 --report benchmark/adversarial/results/before.json --allow-failures
+      - name: Run release adversarial corpus
+        run: node scripts/adversarial-verifier-test.js --report benchmark/adversarial/results/after.json
+      - name: Enforce before/after corpus identity and safety evidence
+        run: node scripts/adversarial-compare.js benchmark/adversarial/results/before.json benchmark/adversarial/results/after.json
+      - name: Test durable audits and source trust boundary
+        run: npm run test:canonical-audit
+      - name: Test real MCP transport and authorization
+        run: npm run test:mcp
+      - name: Test canonical provider adapter and plugin package
+        run: npm run test:providers
+      - name: Test safe structured telemetry
+        run: node scripts/observability-test.js
+      - name: Run full repository regression suite
+        run: npm run test:local
+      - name: Validate Cloudflare Worker bundle without deployment
+        run: npx wrangler deploy --dry-run --outdir=.wrangler-dry-run
+      - name: Run current official MCP Inspector
+        env:
+          PROOFTTL_MCP_CI_EVIDENCE_DIR: benchmark/mcp-results
+        run: node scripts/mcp-inspector-test.js
+      - name: Install cloud browser for Apps validation
+        run: npx playwright install --with-deps chromium
+      - name: Test MCP Apps in official simulated host
+        run: npm run test:apps
+      - name: Preserve executed evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-host-auth-evidence
+          path: |
+            benchmark/adversarial/results/*.json
+            benchmark/provider-results/*.json
+            benchmark/mcp-results/*.json
+            benchmark/apps-results/*.json
+          if-no-files-found: warn
+          retention-days: 30

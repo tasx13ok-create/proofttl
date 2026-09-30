@@ -6,7 +6,10 @@
   "status_definition": {
     "PASS": "Executed against named client, endpoint environment and tested commit, with safe evidence link.",
     "NOT TESTED": "No actual execution evidence.",
-    "PENDING CI": "Cloud harness exists; exact-commit execution has not yet been recorded."
+    "PENDING CI": "Cloud harness exists; exact-commit execution has not yet been recorded.",
+    "HUMAN VERIFICATION REQUIRED": "Host UI/account boundary must be exercised by account owner; not an executed PASS.",
+    "FAIL": "Observed execution failed; retain exact evidence.",
+    "NOT SUPPORTED": "Documented or implemented capability unavailable, with supporting evidence."
   },
   "hosts": [
     {
@@ -189,5 +192,15 @@
     "headless_mcp": 31,
     "provider_contract": 44,
     "plugin_package": 43
+  },
+  "phase2": {
+    "branch": "codex/live-host-auth",
+    "base": "5f8c2028cab8b81acc139dc074b7ec9e41392e2d",
+    "planned_endpoint": "https://proofttl-auth-preview.tasx13ok.workers.dev/mcp",
+    "endpoint_status": "NOT TESTED",
+    "real_openai_host_flow": "NOT TESTED",
+    "native_inline_ui": "HUMAN VERIFICATION REQUIRED",
+    "dropbox": "DESIGN ONLY; implementation after first real OpenAI host PASS",
+    "evidence": []
   }
 }
