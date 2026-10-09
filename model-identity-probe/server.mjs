@@ -71,6 +71,31 @@ async function runTool(name, args = {}) {
     });
   }
 
+  { name: "inspect_provider_metadata", description: "Evaluate provider model metadata extracted locally from a user-supplied API response. Does not authenticate the response or make a network request.", inputSchema: { type: "object", properties: { provider: { type: "string", enum: ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "perplexity", "bedrock", "vertex-ai", "cohere"] }, requested_model_id: { type: "string", minLength: 1, maxLength: 200 }, returned_model_id: { type: "string", minLength: 1, maxLength: 200 }, response_id: { type: "string", maxLength: 200 }, system_fingerprint: { type: "string", maxLength: 200 } }, required: ["provider", "requested_model_id", "returned_model_id"], additionalProperties: false } },
+  if (name === "inspect_provider_metadata") {
+    const supported = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "perplexity", "bedrock", "vertex-ai", "cohere"];
+    const provider = typeof args.provider === "string" ? args.provider.toLowerCase() : "";
+    const requested = typeof args.requested_model_id === "string" ? args.requested_model_id.trim() : "";
+    const returned = typeof args.returned_model_id === "string" ? args.returned_model_id.trim() : "";
+    const responseId = typeof args.response_id === "string" ? args.response_id.trim() : "";
+    const fingerprint = typeof args.system_fingerprint === "string" ? args.system_fingerprint.trim() : "";
+    if (!supported.includes(provider) || !requested || !returned || requested.length > 200 || returned.length > 200 || responseId.length > 200 || fingerprint.length > 200) {
+      return result({ status: "invalid_input", supported_providers: supported, maximum_field_length: 200, network_request_made: false });
+    }
+    return result({
+      status: "provider_metadata_recorded",
+      provider,
+      requested_model_id: requested,
+      returned_model_id: returned,
+      response_id: responseId || null,
+      system_fingerprint: fingerprint || null,
+      comparison: requested === returned ? "exact_string_match" : "mismatch_or_alias",
+      evidence_grade: "user_supplied_metadata_unverified",
+      provenance: "Only the extracted metadata was submitted. The original response, transport, and source are not authenticated by this service.",
+      network_request_made: false
+    });
+  }
+
   if (name === "compare_identity_claims") {
     const claimed = typeof args.claimed_name === "string" ? args.claimed_name.trim() : "";
     const returned = typeof args.provider_returned_model_id === "string" ? args.provider_returned_model_id.trim() : "";
