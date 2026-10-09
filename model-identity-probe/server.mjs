@@ -193,7 +193,19 @@ http.createServer(async (req, res) => {
     }
   }
   if (path !== "/api/mcp") return sendJson(res, 404, { error: "Not found" });
-  if (req.method === "GET") return sendJson(res, 200, { name: "model-identity-probe", version: "1.0.0", status: "online", mcp_endpoint: "/api/mcp", transport: "stateless JSON-RPC over HTTP" });
+  if (req.method === "GET") {
+    res.writeHead(405, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "allow": "POST, OPTIONS",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+      "x-frame-options": "DENY",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      "access-control-allow-origin": "*"
+    });
+    return res.end(JSON.stringify({ error: "GET-based SSE is not supported; use POST for Streamable HTTP JSON-RPC." }));
+  }
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
 
   let raw = "";
