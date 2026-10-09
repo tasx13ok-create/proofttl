@@ -16,6 +16,21 @@ jobs:
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           const base = 'https://model-identity-probe.onrender.com';
+          let latestUiReady = false;
+          for (let attempt = 0; attempt < 24; attempt++) {
+            try {
+              const candidate = await fetch(base + '/', { cache: 'no-store' });
+              if (candidate.ok) {
+                const markup = await candidate.text();
+                if (markup.includes('href="/styles.css"') && markup.includes('src="/app.js"')) {
+                  latestUiReady = true;
+                  break;
+                }
+              }
+            } catch {}
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+          assert.ok(latestUiReady, 'latest static-asset UI revision should deploy within 120 seconds');
           const health = await fetch(base + '/health');
           assert.equal(health.status, 200, 'health status');
           assert.equal((await health.json()).status, 'online', 'health payload');
