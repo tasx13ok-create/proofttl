@@ -138,6 +138,24 @@ http.createServer(async (req, res) => {
     res.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "Content-Type, Accept, MCP-Protocol-Version" });
     return res.end();
   }
+  if ((path === "/app.js" || path === "/styles.css") && req.method === "GET") {
+    const assetName = path.slice(1);
+    const contentType = assetName.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8";
+    try {
+      const asset = await readFile(join(dir, "public", assetName));
+      res.writeHead(200, {
+        "content-type": contentType,
+        "cache-control": "public, max-age=300",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+        "x-frame-options": "DENY",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+      });
+      return res.end(asset);
+    } catch {
+      return sendJson(res, 404, { error: "Asset not found" });
+    }
+  }
   if (path === "/health" && req.method === "GET") return sendJson(res, 200, { name: "model-identity-probe", status: "online", calling_client_identity: "not_observable" });
   if (path === "/" && req.method === "GET") {
     try {
@@ -148,7 +166,7 @@ http.createServer(async (req, res) => {
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
         "x-frame-options": "DENY",
-        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
       });
       return res.end(html);
     } catch {
