@@ -3,6 +3,21 @@ async function tool(name,args={}){const r=await fetch("/api/mcp",{method:"POST",
 function show(id,x){const e=document.getElementById(id),p=document.createElement("pre");p.textContent=JSON.stringify(x,null,2);e.replaceChildren(p)}
 document.getElementById("rb").onclick=async()=>{try{show("ro",await tool("probe_current_runtime"))}catch(e){show("ro",{status:"failed",message:e.message})}};
 async function config(){try{const x=await tool("probe_provider_status"),e=document.getElementById("ps");e.textContent=x.status==="configured"?"Configured adapter: "+(x.provider||"openai-compatible"):x.status==="invalid_configuration"?"Provider configuration needs attention":"Provider not configured";e.className="status "+(x.status==="configured"?"good":"warn");document.getElementById("pb").disabled=x.status!=="configured";if(x.status!=="configured")show("po",x)}catch(e){show("po",{status:"unavailable",message:e.message})}}
-document.getElementById("pb").onclick=async()=>{const token=document.getElementById("pt").value;if(!token)return show("po",{status:"missing_access_token"});try{show("po",await tool("probe_provider",{access_token:token}))}catch(e){show("po",{status:"failed",message:e.message})}finally{config()}};
+document.getElementById("pb").onclick=async()=>{const token=document.getElementById("pt").value;if(!token)return show("po",{status:"missing_access_token"});try{show("po",await tool("probe_provider",{access_token:token}))}catch(e){show("po",{status:"failed",message:e.message})}finally{document.getElementById("pt").value="";config()}};
 document.getElementById("cb").onclick=async()=>{const a=document.getElementById("c").value.trim(),b=document.getElementById("m").value.trim();if(!a||!b)return show("co",{status:"missing_input"});try{show("co",await tool("compare_identity_claims",{claimed_name:a,provider_returned_model_id:b}))}catch(e){show("co",{status:"failed",message:e.message})}};
+document.getElementById("rbtn").onclick=async()=>{
+  const provider=document.getElementById("rp").value;
+  const requested=document.getElementById("rq").value.trim();
+  const raw=document.getElementById("rj").value;
+  if(!requested||!raw)return show("rout",{status:"missing_input",required:["requested model ID","provider response JSON"]});
+  let data;
+  try{data=JSON.parse(raw)}catch{return show("rout",{status:"invalid_json",message:"The response must be valid JSON. The raw text has not been uploaded."})}
+  if(!data||typeof data!=="object"||Array.isArray(data))return show("rout",{status:"invalid_response_shape",message:"Expected a JSON object. The raw JSON has not been uploaded."});
+  const returned=(provider==="gemini"||provider==="vertex-ai")?data.modelVersion:data.model;
+  const responseId=typeof data.id==="string"?data.id:(typeof data.responseId==="string"?data.responseId:"");
+  const fingerprint=typeof data.system_fingerprint==="string"?data.system_fingerprint:"";
+  if(typeof returned!=="string"||!returned.trim())return show("rout",{status:"response_missing_model_id",expected_field:(provider==="gemini"||provider==="vertex-ai")?"modelVersion":"model",message:"No model identifier was found. The raw JSON has not been uploaded."});
+  try{show("rout",await tool("inspect_provider_metadata",{provider,requested_model_id:requested,returned_model_id:returned,response_id:responseId,system_fingerprint:fingerprint}))}
+  catch(e){show("rout",{status:"failed",message:e.message})}
+};
 document.getElementById("copy").onclick=async()=>{try{await navigator.clipboard.writeText(ep);document.getElementById("cs").textContent="Copied."}catch{document.getElementById("cs").textContent="Select the endpoint text above to copy."}};config();
