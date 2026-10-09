@@ -103,7 +103,7 @@ jobs:
           assert.equal(init.serverInfo.name, 'model-identity-probe', 'initialize server name');
           const list = await rpc('tools/list');
           const names = list.tools.map(t => t.name);
-          for (const name of ['probe_current_runtime','probe_provider_status','probe_provider','compare_identity_claims']) assert.ok(names.includes(name), 'tool exposed: ' + name);
+          for (const name of ['probe_current_runtime','probe_provider_status','probe_provider','compare_identity_claims','inspect_provider_metadata']) assert.ok(names.includes(name), 'tool exposed: ' + name);
           const providerTool = list.tools.find(t => t.name === 'probe_provider');
           assert.deepEqual(providerTool.inputSchema.required, ['access_token'], 'provider probe requires access token');
           const runtime = await rpc('tools/call', { name: 'probe_current_runtime', arguments: {} });
