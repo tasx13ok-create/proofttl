@@ -138,18 +138,22 @@ http.createServer(async (req, res) => {
     res.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "Content-Type, Accept, MCP-Protocol-Version" });
     return res.end();
   }
-  if ((path === "/app.js" || path === "/styles.css") && req.method === "GET") {
-    const assetName = path.slice(1);
-    const contentType = assetName.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8";
+  const assets = {
+    "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
+    "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
+    "/manifest.webmanifest": { file: "manifest.webmanifest", type: "application/manifest+json; charset=utf-8" },
+    "/icon.svg": { file: "icon.svg", type: "image/svg+xml; charset=utf-8" }
+  };
+  if (assets[path] && req.method === "GET") {
     try {
-      const asset = await readFile(join(dir, "public", assetName));
+      const asset = await readFile(join(dir, "public", assets[path].file));
       res.writeHead(200, {
-        "content-type": contentType,
-        "cache-control": "public, max-age=300",
+        "content-type": assets[path].type,
+        "cache-control": path === "/manifest.webmanifest" ? "no-cache" : "public, max-age=300",
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
         "x-frame-options": "DENY",
-        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'"
       });
       return res.end(asset);
     } catch {
