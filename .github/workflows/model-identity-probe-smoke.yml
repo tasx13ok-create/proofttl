@@ -37,7 +37,7 @@ jobs:
                     const manifest = await manifestResponse.json();
                     const providerRpc = await providerStatusResponse.json();
                     const providerStatus = JSON.parse(providerRpc.result.content[0].text);
-                    if (manifest.name === 'Model Identity Probe' && manifest.icons?.some(icon => icon.src === '/icon.svg') && providerStatus.supported_providers?.includes('anthropic') && providerStatus.supported_providers?.includes('gemini')) {
+                    if (manifest.name === 'Model Identity Probe' && manifest.icons?.some(icon => icon.src === '/icon.svg') && providerStatus.supported_providers?.includes('anthropic') && providerStatus.supported_providers?.includes('gemini') && providerStatus.supported_providers?.includes('bedrock') && providerStatus.supported_providers?.includes('vertex-ai') && providerStatus.supported_providers?.includes('cohere')) {
                       latestUiReady = true;
                       break;
                     }
