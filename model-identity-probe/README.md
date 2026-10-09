@@ -16,7 +16,7 @@ Open the interface in Safari, tap Share, then **Add to Home Screen**. The manife
 Node.js 20+. Start with `node model-identity-probe/server.mjs`.
 
 ## Optional provider probe
-Configure `PROBE_API_KEY`, `PROBE_MODEL_ID`, and a separate strong `PROBE_ACCESS_TOKEN`. Optionally set `PROBE_BASE_URL`; default is `https://api.openai.com/v1`. Do not reuse the provider API key as the probe access token. The provider probe remains disabled unless all three required variables exist. The endpoint requires the access token and allows at most two provider attempts per minute per running instance. Provider requests may incur charges.
+Configure `PROBE_API_KEY`, `PROBE_MODEL_ID`, and a separate random `PROBE_ACCESS_TOKEN` of at least 32 UTF-8 bytes. Optionally set `PROBE_BASE_URL`; default is `https://api.openai.com/v1`. Do not reuse the provider API key as the probe access token. The provider probe remains disabled unless all three required variables exist. The endpoint requires the access token and allows at most two provider attempts per minute per running instance. Provider requests may incur charges.
 
 ## Security and evidence limits
 - Never returns provider credentials or arbitrary environment variables.
