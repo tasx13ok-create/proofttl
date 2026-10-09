@@ -16,10 +16,11 @@ Open the interface in Safari, tap Share, then **Add to Home Screen**. The manife
 Node.js 20+. Start with `node model-identity-probe/server.mjs`.
 
 ## Optional provider probe
-Configure `PROBE_API_KEY`, `PROBE_MODEL_ID`, and a separate random `PROBE_ACCESS_TOKEN` of at least 32 UTF-8 bytes. `PROBE_PROVIDER` selects the adapter and defaults to `openai-compatible`. Supported adapters are `openai`, `openai-compatible`, `openrouter`, `anthropic`, `gemini`, and `azure-openai`. `PROBE_BASE_URL` overrides the adapter's default endpoint. Do not reuse the provider API key as the probe access token. The endpoint requires the access token and allows at most two provider attempts per minute per running instance. Provider requests may incur charges.
+Configure `PROBE_API_KEY`, `PROBE_MODEL_ID`, and a separate random `PROBE_ACCESS_TOKEN` of at least 32 UTF-8 bytes. `PROBE_PROVIDER` selects the adapter and defaults to `openai-compatible`. Supported adapters are `openai`, `openai-compatible`, `openrouter`, `anthropic`, `gemini`, `azure-openai`, `xai`, `deepseek`, `mistral`, `groq`, `together`, `fireworks`, and `perplexity`. `PROBE_BASE_URL` overrides the adapter's default endpoint. Do not reuse the provider API key as the probe access token. The endpoint requires the access token and allows at most two provider attempts per minute per running instance. Provider requests may incur charges.
 
 ### Provider configuration examples
 - **OpenAI:** `PROBE_PROVIDER=openai`; default base URL `https://api.openai.com/v1`; `PROBE_MODEL_ID` is the API model ID.
+- **xAI, DeepSeek, Mistral, Groq, Together, Fireworks, and Perplexity:** set the matching `PROBE_PROVIDER`; defaults use each provider's OpenAI-compatible endpoint. Verify current model ID and endpoint against that provider's docs before use; custom `PROBE_BASE_URL` overrides the default.
 - **OpenRouter:** `PROBE_PROVIDER=openrouter`; default base URL `https://openrouter.ai/api/v1`; `PROBE_MODEL_ID` is the exact OpenRouter model slug.
 - **Anthropic:** `PROBE_PROVIDER=anthropic`; default base URL `https://api.anthropic.com`; `PROBE_MODEL_ID` is the Claude API model ID. The adapter uses the Messages API and the `anthropic-version` header.
 - **Google Gemini:** `PROBE_PROVIDER=gemini`; default base URL `https://generativelanguage.googleapis.com/v1beta`; `PROBE_MODEL_ID` is a Gemini model name. The returned `modelVersion` is reported as the provider's version metadata.
