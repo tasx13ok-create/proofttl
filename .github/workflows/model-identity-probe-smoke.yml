@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
+      - uses: actions/checkout@v4
+      - name: Exercise provider adapters against local mock server
+        working-directory: model-identity-probe
+        run: node test-adapters.mjs
       - name: Verify public service and MCP JSON-RPC
         run: |
           node --input-type=module <<'NODE'
