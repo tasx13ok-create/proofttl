@@ -38,6 +38,8 @@ Each adapter makes one minimal test request. The provider-returned identifier is
 - Enforces a 64 KiB request-body limit and sets baseline browser security headers.
 - Applies an in-memory cap of two provider requests per minute per running instance.
 - Exposed environment labels are operator-controlled, not independently verified.
+- The mobile UI can parse a pasted provider response locally and sends only the requested/returned model IDs, response ID, and system fingerprint to the server; the raw response body is not uploaded by that feature.
+- User-supplied metadata is explicitly marked unverified because the service cannot authenticate the pasted response's origin.
 - Cannot inspect the hidden model used by ChatGPT, Claude, or the MCP client.
 - Provider-returned IDs apply only to that specific API request and are not cryptographic proof.
 - This service does not claim universal visibility into consumer apps, hidden routing, model aliases, or undisclosed fallback behavior.
