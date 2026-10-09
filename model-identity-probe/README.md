@@ -6,6 +6,11 @@ Mobile Safari interface plus a stateless JSON-RPC HTTP endpoint.
 - `/` mobile interface
 - `/health` health metadata
 - `/api/mcp` MCP JSON-RPC endpoint
+- `/manifest.webmanifest` web-app manifest
+- `/icon.svg` application icon
+
+## Add to iPhone Home Screen
+Open the interface in Safari, tap Share, then **Add to Home Screen**. The manifest and icon provide app metadata for supporting browsers. iOS may render home-screen icons differently from browsers that support SVG manifest icons.
 
 ## Run
 Node.js 20+. Start with `node model-identity-probe/server.mjs`.
