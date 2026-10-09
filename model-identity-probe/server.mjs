@@ -100,7 +100,7 @@ async function runTool(name, args = {}) {
       gemini: "https://generativelanguage.googleapis.com/v1beta",
       "azure-openai": ""
     };
-    const base = (process.env.PROBE_BASE_URL || defaults[provider] || "").replace(/\\/+$/, "");
+    const base = (process.env.PROBE_BASE_URL || defaults[provider] || "").replace(/\/+$/, "");
     if (!base) return result({ status: "configuration_error", message: "PROBE_BASE_URL is required for Azure OpenAI and must identify the resource/deployment base URL.", network_request_made: false });
     let endpoint;
     try { endpoint = new URL(base); } catch { return result({ status: "configuration_error", message: "PROBE_BASE_URL is invalid; no request made.", network_request_made: false }); }
