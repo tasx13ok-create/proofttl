@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "Model Identity Probe",
+  "short_name": "Model Probe",
+  "description": "Evidence-focused runtime and provider model identity checks.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#10131b",
+  "theme_color": "#10131b",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
