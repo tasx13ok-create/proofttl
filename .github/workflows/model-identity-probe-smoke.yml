@@ -9,7 +9,7 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
       - name: Verify public service and MCP JSON-RPC
         run: |
@@ -17,12 +17,12 @@ jobs:
           import assert from 'node:assert/strict';
           const base = 'https://model-identity-probe.onrender.com';
           let latestUiReady = false;
-          for (let attempt = 0; attempt < 24; attempt++) {
+          for (let attempt = 0; attempt < 30; attempt++) {
             try {
               const candidate = await fetch(base + '/', { cache: 'no-store' });
               if (candidate.ok) {
                 const markup = await candidate.text();
-                if (markup.includes('href="/styles.css"') && markup.includes('src="/app.js"')) {
+                if (markup.includes('href="/styles.css"') && markup.includes('src="/app.js"') && markup.includes('href="/manifest.webmanifest"')) {
                   latestUiReady = true;
                   break;
                 }
@@ -30,7 +30,7 @@ jobs:
             } catch {}
             await new Promise(resolve => setTimeout(resolve, 5000));
           }
-          assert.ok(latestUiReady, 'latest static-asset UI revision should deploy within 120 seconds');
+          assert.ok(latestUiReady, 'latest UI and PWA metadata should deploy within 150 seconds');
           const health = await fetch(base + '/health');
           assert.equal(health.status, 200, 'health status');
           assert.equal((await health.json()).status, 'online', 'health payload');
@@ -41,10 +41,24 @@ jobs:
           assert.match(pageText, /Probe access token/, 'provider probe access-token control');
           assert.match(pageText, /href="\/styles.css"/, 'external stylesheet link');
           assert.match(pageText, /src="\/app.js"/, 'external script link');
+          assert.match(pageText, /rel="manifest" href="\/manifest\.webmanifest"/, 'PWA manifest');
+          assert.match(pageText, /apple-mobile-web-app-capable/, 'iOS home-screen metadata');
+          assert.match(pageText, /href="\/icon\.svg"/, 'app icon');
           assert.equal(page.headers.get('x-content-type-options'), 'nosniff', 'content-type hardening header');
           const pageCsp = page.headers.get('content-security-policy') || '';
           assert.match(pageCsp, /frame-ancestors 'none'/, 'frame restriction CSP');
           assert.ok(!pageCsp.includes('unsafe-inline'), 'CSP must not allow inline scripts or styles');
+          const manifestResponse = await fetch(base + '/manifest.webmanifest');
+          assert.equal(manifestResponse.status, 200, 'manifest asset status');
+          assert.match(manifestResponse.headers.get('content-type') || '', /application\/manifest\+json/, 'manifest content type');
+          const manifest = await manifestResponse.json();
+          assert.equal(manifest.name, 'Model Identity Probe', 'manifest name');
+          assert.equal(manifest.display, 'standalone', 'standalone display mode');
+          assert.equal(manifest.icons[0].src, '/icon.svg', 'manifest icon');
+          const icon = await fetch(base + '/icon.svg');
+          assert.equal(icon.status, 200, 'icon asset status');
+          assert.match(icon.headers.get('content-type') || '', /image\/svg\+xml/, 'icon content type');
+          assert.match(await icon.text(), /<svg/, 'SVG icon markup');
           const css = await fetch(base + '/styles.css');
           assert.equal(css.status, 200, 'stylesheet asset status');
           assert.match(css.headers.get('content-type') || '', /text\/css/, 'stylesheet content type');
@@ -98,5 +112,5 @@ jobs:
           assert.equal((await invalidJson.json()).error.code, -32700, 'malformed JSON error code');
           const oversized = await fetch(base + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: ' '.repeat(70 * 1024) });
           assert.equal(oversized.status, 413, 'oversized request should be rejected');
-          console.log('PASS: health, mobile UI, MCP initialization, tool discovery/calls, provider safety gate, exact match, mismatch, malformed JSON, body-size limit, unknown-tool rejection');
+          console.log('PASS: health, mobile UI, PWA metadata, icon, MCP initialization, tool discovery/calls, provider safety gate, exact match, mismatch, malformed JSON, body-size limit, unknown-tool rejection');
           NODE
