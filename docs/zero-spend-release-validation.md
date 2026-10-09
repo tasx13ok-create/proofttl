@@ -45,6 +45,18 @@ A test webhook signing secret is not needed for this read-only check. Stripe CLI
 
 The current audit intake and Stripe webhook path persists state and verifies signed events, but it does not call an outbound email provider from `src/stripe-payments.js`. Therefore, no CI/mock setup can honestly claim to prove customer email delivery. The next integration step requires an email provider connection, a sender identity/domain, and a runtime secret stored in the Worker secret store. Until then, production email delivery is **NOT VERIFIED / not wired in the payment handler**. The paid Fact Audit flow can still be inspected locally with simulated events without sending messages.
 
+## Optional Resend test-sink smoke
+
+The zero-spend CI command tests the email smoke guard with mocked requests only. To test an actual Resend API credential without contacting a customer, set `RESEND_API_KEY` and `RESEND_TESTMODE_ONLY=true` in your ignored local `.dev.vars`, then run:
+
+```bash
+npm run resend:email:testmode
+```
+
+This command is opt-in and is not run in CI. It hard-codes `onboarding@resend.dev` as the sender and `delivered@resend.dev` as the recipient. Resend documents that recipient as a simulated delivery event, not a real inbox. It will not accept an arbitrary customer email address. A successful result proves the Resend API accepted the test request and generated an event; it does not prove delivery to a real buyer. See the [Resend test email guide](https://resend.com/changelog/sending-test-emails).
+
+Resend currently advertises a free plan, but do not enable paid overages for this test. The provider test-sink smoke may count as provider API usage. Check the current plan/billing state before any real external call. See [Resend pricing](https://resend.com/pricing?product=transactional).
+
 ## Customer journey: what is and is not proven
 
 | Stage | Zero-cost proof available | Limitation |
