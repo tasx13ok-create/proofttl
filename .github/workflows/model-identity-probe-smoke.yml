@@ -27,13 +27,14 @@ jobs:
               if (candidate.ok) {
                 const markup = await candidate.text();
                 if (markup.includes('href="/styles.css"') && markup.includes('src="/app.js"') && markup.includes('href="/manifest.webmanifest"')) {
-                  const [manifestResponse, iconResponse, mcpGetResponse, providerStatusResponse] = await Promise.all([
+                  const [manifestResponse, iconResponse, mcpGetResponse, providerStatusResponse, nullJsonResponse] = await Promise.all([
                     fetch(base + '/manifest.webmanifest', { cache: 'no-store' }),
                     fetch(base + '/icon.svg', { cache: 'no-store' }),
                     fetch(base + '/api/mcp', { cache: 'no-store' }),
-                    fetch(base + '/api/mcp', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'probe_provider_status', arguments: {} } }) })
+                    fetch(base + '/api/mcp', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'probe_provider_status', arguments: {} } }) }),
+                    fetch(base + '/api/mcp', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: 'null' })
                   ]);
-                  if (manifestResponse.ok && iconResponse.ok && mcpGetResponse.status === 405 && providerStatusResponse.ok) {
+                  if (manifestResponse.ok && iconResponse.ok && mcpGetResponse.status === 405 && providerStatusResponse.ok && nullJsonResponse.status === 400) {
                     const manifest = await manifestResponse.json();
                     const providerRpc = await providerStatusResponse.json();
                     const providerStatus = JSON.parse(providerRpc.result.content[0].text);
