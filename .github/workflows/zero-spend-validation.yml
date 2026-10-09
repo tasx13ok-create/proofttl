@@ -1,0 +1,38 @@
+name: ProofTTL Zero-Spend Validation
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proofttl-zero-spend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic-no-spend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run zero-spend audit/payment regression gate
+        env:
+          STRIPE_SECRET_KEY: ""
+          STRIPE_WEBHOOK_SECRET: ""
+          CDP_API_KEY_ID: ""
+          CDP_API_KEY_SECRET: ""
+        run: npm run test:zero-spend

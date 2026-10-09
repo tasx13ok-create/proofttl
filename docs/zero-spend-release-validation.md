@@ -27,7 +27,35 @@ The command runs the existing deterministic tests for:
 4. x402 payment-gate behavior, including HTTP 402 on failed verification/settlement and ensuring protected handlers do not run before successful settlement.
 5. The monitor attempt-cap regression.
 
-These tests should not require Stripe credentials or a funded wallet. If any selected test unexpectedly attempts a network payment, stop and fix the test harness rather than funding it.
+These tests should not require Stripe credentials or a funded wallet. The dedicated GitHub Actions workflow `ProofTTL Zero-Spend Validation` runs this gate on pull requests and through manual workflow dispatch. It does not have deployment credentials and cannot deploy the Worker. If any selected test unexpectedly attempts a network payment, stop and fix the test harness rather than funding it.
+
+## Optional Stripe test-mode credential check
+
+The normal zero-spend gate uses mocks and does not need Stripe credentials. If a real Stripe test-mode account key has already been issued, copy `.dev.vars.example` to the ignored local `.dev.vars` file, set **only** `STRIPE_SECRET_KEY=sk_test_...`, then run:
+
+```bash
+npm run stripe:testmode:preflight
+```
+
+This command refuses `sk_live_` keys before making a request. With an accepted test key, it performs only a read-only `GET /v1/account` and requires Stripe's returned account object to report `livemode: false`. It does not create a checkout, charge a card, or alter account configuration. Never put a Stripe secret in GitHub source, issue text, logs, or a public environment variable.
+
+A test webhook signing secret is not needed for this read-only check. Stripe CLI webhook forwarding and a provider test inbox are separate optional steps; they are not silently assumed to exist.
+
+## Email delivery status
+
+The current audit intake and Stripe webhook path persists state and verifies signed events, but it does not call an outbound email provider from `src/stripe-payments.js`. Therefore, no CI/mock setup can honestly claim to prove customer email delivery. The next integration step requires an email provider connection, a sender identity/domain, and a runtime secret stored in the Worker secret store. Until then, production email delivery is **NOT VERIFIED / not wired in the payment handler**. The paid Fact Audit flow can still be inspected locally with simulated events without sending messages.
+
+## Optional Resend test-sink smoke
+
+The zero-spend CI command tests the email smoke guard with mocked requests only. To test an actual Resend API credential without contacting a customer, set `RESEND_API_KEY` and `RESEND_TESTMODE_ONLY=true` in your ignored local `.dev.vars`, then run:
+
+```bash
+npm run resend:email:testmode
+```
+
+This command is opt-in and is not run in CI. It hard-codes `onboarding@resend.dev` as the sender and `delivered@resend.dev` as the recipient. Resend documents that recipient as a simulated delivery event, not a real inbox. It will not accept an arbitrary customer email address. A successful result proves the Resend API accepted the test request and generated an event; it does not prove delivery to a real buyer. See the [Resend test email guide](https://resend.com/changelog/sending-test-emails).
+
+Resend currently advertises a free plan, but do not enable paid overages for this test. The provider test-sink smoke may count as provider API usage. Check the current plan/billing state before any real external call. See [Resend pricing](https://resend.com/pricing?product=transactional).
 
 ## Customer journey: what is and is not proven
 
