@@ -132,6 +132,12 @@ jobs:
           const invalidJson = await fetch(base + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' });
           assert.equal(invalidJson.status, 400, 'malformed JSON should be rejected');
           assert.equal((await invalidJson.json()).error.code, -32700, 'malformed JSON error code');
+          const nullJson = await fetch(base + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'null' });
+          assert.equal(nullJson.status, 400, 'JSON null should be rejected safely');
+          assert.equal((await nullJson.json()).error.code, -32600, 'JSON null invalid-request error code');
+          const arrayJson = await fetch(base + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '[]' });
+          assert.equal(arrayJson.status, 400, 'JSON array should be rejected safely');
+          assert.equal((await arrayJson.json()).error.code, -32600, 'JSON array invalid-request error code');
           const oversized = await fetch(base + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: ' '.repeat(70 * 1024) });
           assert.equal(oversized.status, 413, 'oversized request should be rejected');
           console.log('PASS: health, mobile UI, PWA metadata, icon, MCP initialization, tool discovery/calls, provider safety gate, exact match, mismatch, malformed JSON, body-size limit, unknown-tool rejection');
