@@ -1,5 +1,6 @@
 import { getOptionalProofTTLSession } from './auth.js';
 import { readTextLimited } from './bounded-body.js';
+import { sendProofTTLEmail, escapeEmailHtml } from './transactional-email.js';
 
 const OFFERS = {
   full_audit: {
@@ -97,6 +98,14 @@ export async function handleAuditIntake(request, env) {
     if (productionAuthConfigured(env) && !linked) {
       return json({ error: 'audit_account_link_failed', message: 'ProofTTL stored this request but could not attach it to your account. Retry shortly.' }, 503);
     }
+    await sendProofTTLEmail(env, {
+      to: email,
+      subject: 'ProofTTL received your Fact Audit scope request',
+      text: `We received request ${duplicate.id}. ProofTTL reviews the proposed scope before payment. The standard Fact Audit covers up to 25 consequential claims or outputs, evidence supporting and challenging the claims, human review, and a seven-day evidence watch. No payment is due until scope and price are confirmed.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#20242a"><h1>ProofTTL</h1><h2>Your Fact Audit request is in scope review.</h2><p>We received request <strong>${escapeEmailHtml(duplicate.id)}</strong>.</p><p>ProofTTL reviews the proposed scope before payment. The standard Fact Audit covers up to 25 consequential claims or outputs, evidence supporting and challenging the claims, human review, and a seven-day evidence watch.</p><p>No payment is due until scope and price are confirmed. This message confirms receipt only; it does not mean the audit has been accepted, started, or completed.</p></div>`,
+      idempotencyKey: `proofttl-fact-audit-scope-received-${duplicate.id}`,
+      event: 'fact_audit_scope_received'
+    });
     return json({
       ok: true,
       duplicate: true,
@@ -141,6 +150,14 @@ export async function handleAuditIntake(request, env) {
     }, 503);
   }
 
+  await sendProofTTLEmail(env, {
+      to: email,
+      subject: 'ProofTTL received your Fact Audit scope request',
+      text: `We received request ${id}. ProofTTL reviews the proposed scope before payment. The standard Fact Audit covers up to 25 consequential claims or outputs, evidence supporting and challenging the claims, human review, and a seven-day evidence watch. No payment is due until scope and price are confirmed.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#20242a"><h1>ProofTTL</h1><h2>Your Fact Audit request is in scope review.</h2><p>We received request <strong>${escapeEmailHtml(id)}</strong>.</p><p>ProofTTL reviews the proposed scope before payment. The standard Fact Audit covers up to 25 consequential claims or outputs, evidence supporting and challenging the claims, human review, and a seven-day evidence watch.</p><p>No payment is due until scope and price are confirmed. This message confirms receipt only; it does not mean the audit has been accepted, started, or completed.</p></div>`,
+      idempotencyKey: `proofttl-fact-audit-scope-received-${id}`,
+      event: 'fact_audit_scope_received'
+    });
   return json({
     ok: true,
     audit_intake_id: id,
