@@ -29,6 +29,8 @@ The command runs the existing deterministic tests for:
 
 These tests should not require Stripe credentials or a funded wallet. If any selected test unexpectedly attempts a network payment, stop and fix the test harness rather than funding it.
 
+The pull-request workflow `.github/workflows/zero-spend-provider-validation.yml` runs this deterministic gate automatically. Its separate manual provider checks are opt-in and are never run on pull requests.
+
 ## Customer journey: what is and is not proven
 
 | Stage | Zero-cost proof available | Limitation |
@@ -60,3 +62,16 @@ These tests should not require Stripe credentials or a funded wallet. If any sel
 ## Evidence standard
 
 Mark each item as **PASS**, **FAIL**, or **NOT VERIFIED**. Keep fixture-based and production evidence separate. A successful local test suite is evidence of application logic, not proof that third-party production configuration, webhook delivery, email delivery, or real settlement works.
+
+
+## Optional provider checks (manual dispatch only)
+
+Open GitHub Actions → **ProofTTL Zero-Spend Provider Validation** → **Run workflow**.
+
+- Leave both provider toggles off for the default fixture-only validation.
+- For the Stripe check, add a GitHub Actions repository secret named `STRIPE_TEST_SECRET_KEY` containing a key beginning `sk_test_`, then enable **Run a read-only Stripe test-key check**. It calls only `GET /v1/account`; it creates no Checkout Session, PaymentIntent, or charge. A live-key prefix is rejected before any request.
+- For the Resend check, add a GitHub Actions repository secret named `RESEND_TEST_API_KEY` with a sending-only Resend key, then enable **Send one synthetic email to Resend's delivery-simulation sink only**. The script hard-codes `onboarding@resend.dev` as sender and `delivered@resend.dev` as recipient, includes no customer data, and uses a daily idempotency key. It cannot target a buyer address.
+- Resend currently has no verified sending domain or API key configured for this project. The sink-only check will remain skipped in normal CI and will fail clearly if manually requested without its test key. Resend documents `delivered@resend.dev` as a simulated-delivery recipient; this does not verify a real sender domain or inbox delivery.
+- No provider secret belongs in source control. Never put a secret in a workflow file, commit, test fixture, command-line argument, or CI log.
+
+Provider checks are intentionally outside `test:zero-spend` because they require optional external credentials and the Resend sink check sends one simulated test message. The default pull-request job remains deterministic and does not call either provider.
