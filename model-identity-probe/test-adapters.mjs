@@ -18,6 +18,7 @@ const mock = createServer(async (req, res) => {
     res.end(JSON.stringify(value));
   };
   if (req.url.startsWith("/v1/messages")) return send({ id: "msg_mock", type: "message", role: "assistant", model: anthropicModel, content: [{ type: "text", text: "OK" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
+  if (req.url.startsWith("/v2/chat")) return send({ id: "cohere_mock", model: "cohere-mock-model", message: { role: "assistant", content: [{ type: "text", text: "OK" }] } });
   if (req.url.includes(":generateContent")) return send({ responseId: "gemini-response-mock", modelVersion: geminiModel, candidates: [{ content: { parts: [{ text: "OK" }] } }] });
   if (req.url.includes("/chat/completions")) return send({ id: "chatcmpl_mock", model: genericModel, system_fingerprint: "fp_mock", choices: [{ message: { role: "assistant", content: "OK" } }] });
   res.writeHead(404, { "content-type": "application/json" });
@@ -95,10 +96,13 @@ try {
   await testAdapter("together", "/v1", "configured-model", genericModel);
   await testAdapter("fireworks", "/v1", "configured-model", genericModel);
   await testAdapter("perplexity", "/v1", "configured-model", genericModel);
+  await testAdapter("bedrock", "/openai/v1", "amazon-bedrock-model-id", genericModel);
+  await testAdapter("cohere", "/v2", "command-r-mock", "cohere-mock-model");
+  await testAdapter("vertex-ai", "/v1/projects/test-project/locations/us-central1/publishers/google/models", "gemini-test-model", geminiModel);
   await testAdapter("anthropic", "", "claude-configured-model", anthropicModel);
   await testAdapter("gemini", "/v1beta", "gemini-configured-model", geminiModel);
   await testAdapter("azure-openai", "/openai/deployments/mock-deployment", "mock-deployment", genericModel);
-  console.log("PASS: local mock integration tests for OpenAI, OpenAI-compatible, OpenRouter, xAI, DeepSeek, Mistral, Groq, Together, Fireworks, Perplexity, Anthropic, Gemini, Azure OpenAI; model IDs returned, credentials redacted, no live provider keys or paid API requests used.");
+  console.log("PASS: local mock integration tests for OpenAI, OpenAI-compatible, OpenRouter, xAI, DeepSeek, Mistral, Groq, Together, Fireworks, Perplexity, Amazon Bedrock, Cohere, Vertex AI, Anthropic, Gemini, Azure OpenAI; model IDs returned, credentials redacted, no live provider keys or paid API requests used.");
 } finally {
   mock.close();
 }
