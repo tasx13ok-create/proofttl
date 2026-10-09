@@ -15,7 +15,7 @@ const envKeys = ["MODEL_ID","MODEL_NAME","OPENAI_MODEL","ANTHROPIC_MODEL","AZURE
 const tools = [
   { name: "probe_current_runtime", description: "Read exposed non-secret process metadata; cannot inspect the hidden model serving the MCP client.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "probe_provider_status", description: "Check provider probe configuration without making a network request.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
-  { name: "probe_provider", description: "Make one minimal request using the configured OpenAI, OpenRouter, Anthropic, Google Gemini, Azure OpenAI, or compatible provider adapter. Requires operator-configured credentials, model ID, and probe access token.", inputSchema: { type: "object", properties: { access_token: { type: "string", minLength: 1, maxLength: 512 } }, required: ["access_token"], additionalProperties: false } },
+  { name: "probe_provider", description: "Make one minimal request using the configured OpenAI, OpenRouter, Anthropic, Gemini, Vertex AI, Azure OpenAI, Amazon Bedrock, Cohere, or OpenAI-compatible provider adapter. Requires operator-configured credentials, model ID, and probe access token.", inputSchema: { type: "object", properties: { access_token: { type: "string", minLength: 1, maxLength: 512 } }, required: ["access_token"], additionalProperties: false } },
   { name: "compare_identity_claims", description: "Compare claimed model name and provider-returned ID by exact string equality only.", inputSchema: { type: "object", properties: { claimed_name: { type: "string", minLength: 1, maxLength: 200 }, provider_returned_model_id: { type: "string", minLength: 1, maxLength: 200 } }, required: ["claimed_name", "provider_returned_model_id"], additionalProperties: false } }
 ];
 
@@ -49,15 +49,23 @@ async function runTool(name, args = {}) {
     const provider = (process.env.PROBE_PROVIDER || "openai-compatible").toLowerCase();
     const supportedProviders = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "perplexity", "bedrock", "vertex-ai", "cohere"];
     const providerSupported = supportedProviders.includes(provider);
-    const providerConfigured = hasCoreConfig && tokenStrongEnough && providerSupported;
-    const invalidReason = !providerSupported ? "PROBE_PROVIDER is unsupported." : !tokenStrongEnough && hasCoreConfig ? "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes." : null;
+    const requiresBaseUrl = provider === "azure-openai" || provider === "vertex-ai";
+    const hasRequiredBaseUrl = !requiresBaseUrl || Boolean(process.env.PROBE_BASE_URL);
+    const providerConfigured = hasCoreConfig && tokenStrongEnough && providerSupported && hasRequiredBaseUrl;
+    const invalidReason = !providerSupported
+      ? "PROBE_PROVIDER is unsupported."
+      : hasCoreConfig && !tokenStrongEnough
+        ? "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes."
+        : hasCoreConfig && !hasRequiredBaseUrl
+          ? "PROBE_BASE_URL is required for this provider."
+          : null;
     return result({
       status: providerConfigured ? "configured" : hasCoreConfig ? "invalid_configuration" : "not_configured",
-      required_configuration: ["PROBE_API_KEY", "PROBE_MODEL_ID", "PROBE_ACCESS_TOKEN"],
+      required_configuration: ["PROBE_API_KEY", "PROBE_MODEL_ID", "PROBE_ACCESS_TOKEN", ...(requiresBaseUrl ? ["PROBE_BASE_URL"] : [])],
       provider,
       supported_providers: supportedProviders,
       access_token_minimum_length: MIN_ACCESS_TOKEN_LENGTH,
-      optional_configuration: ["PROBE_BASE_URL"],
+      optional_configuration: ["PROBE_BASE_URL", "PROBE_API_VERSION", "PROBE_ANTHROPIC_VERSION", "AWS_REGION"],
       network_request_made: false,
       note: providerConfigured ? "Provider probe is configured and access-controlled." : invalidReason || "No provider request is possible until all required variables are set."
     });
