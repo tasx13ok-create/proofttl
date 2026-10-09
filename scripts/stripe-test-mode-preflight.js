@@ -58,5 +58,7 @@ async function main() {
   console.log(JSON.stringify({ ok: true, account_id: result.account_id, livemode: false, operation: "GET /v1/account", payment_created: false }));
 }
 
-const entryUrl = process.argv[1] ? new URL(`file://${process.argv[1].replaceAll("\\\\", "/")}`).href : "";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+const entryUrl = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
 if (import.meta.url === entryUrl) await main();
