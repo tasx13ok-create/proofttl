@@ -38,5 +38,8 @@ Each adapter makes one minimal test request. The provider-returned identifier is
 - Provider-returned IDs apply only to that specific API request and are not cryptographic proof.
 - This service does not claim universal visibility into consumer apps, hidden routing, model aliases, or undisclosed fallback behavior.
 
-## Hosting
-Current Render service: `https://model-identity-probe.onrender.com`, free plan. Free services may sleep when idle, so the first request after inactivity can take longer or briefly fail while the instance starts.
+## Hosting and keepalive
+Current Render service: `https://model-identity-probe.onrender.com`, free plan. A GitHub Actions workflow on the repository default branch requests `/health` every 10 minutes to reduce idle spin-down. It uses a plain cloud runner rather than an AI model because no inference is needed for a health ping. GitHub scheduled runs can be delayed, so this reduces—but cannot guarantee elimination of—cold starts.
+
+### Outstanding deployment audit item
+The existing Render service currently builds from the repository root with `npm install --omit=dev`, which installs ProofTTL's unrelated root dependencies and surfaces two moderate npm audit findings. The probe code itself uses Node built-ins and declares no runtime dependencies. To isolate the build, change the Render service build command to `cd model-identity-probe && npm install --omit=dev --ignore-scripts` and start command to `cd model-identity-probe && npm start`. The connected Render management interface available to this session does not expose a build-command update operation, so these settings have not been changed automatically. Do not mark the dependency audit resolved until the updated build command is applied and the resulting build logs are checked.
