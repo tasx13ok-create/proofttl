@@ -15,7 +15,7 @@ const envKeys = ["MODEL_ID","MODEL_NAME","OPENAI_MODEL","ANTHROPIC_MODEL","AZURE
 const tools = [
   { name: "probe_current_runtime", description: "Read exposed non-secret process metadata; cannot inspect the hidden model serving the MCP client.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "probe_provider_status", description: "Check provider probe configuration without making a network request.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
-  { name: "probe_provider", description: "Make one minimal request to a configured OpenAI-compatible API. Requires operator-configured API credentials, model ID, and probe access token.", inputSchema: { type: "object", properties: { access_token: { type: "string", minLength: 1, maxLength: 512 } }, required: ["access_token"], additionalProperties: false } },
+  { name: "probe_provider", description: "Make one minimal request using the configured OpenAI, OpenRouter, Anthropic, Google Gemini, Azure OpenAI, or compatible provider adapter. Requires operator-configured credentials, model ID, and probe access token.", inputSchema: { type: "object", properties: { access_token: { type: "string", minLength: 1, maxLength: 512 } }, required: ["access_token"], additionalProperties: false } },
   { name: "compare_identity_claims", description: "Compare claimed model name and provider-returned ID by exact string equality only.", inputSchema: { type: "object", properties: { claimed_name: { type: "string", minLength: 1, maxLength: 200 }, provider_returned_model_id: { type: "string", minLength: 1, maxLength: 200 } }, required: ["claimed_name", "provider_returned_model_id"], additionalProperties: false } }
 ];
 
@@ -50,6 +50,8 @@ async function runTool(name, args = {}) {
     return result({
       status: providerConfigured ? "configured" : hasCoreConfig ? "invalid_configuration" : "not_configured",
       required_configuration: ["PROBE_API_KEY", "PROBE_MODEL_ID", "PROBE_ACCESS_TOKEN"],
+      provider: (process.env.PROBE_PROVIDER || "openai-compatible").toLowerCase(),
+      supported_providers: ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai"],
       access_token_minimum_length: MIN_ACCESS_TOKEN_LENGTH,
       optional_configuration: ["PROBE_BASE_URL"],
       network_request_made: false,
@@ -75,6 +77,9 @@ async function runTool(name, args = {}) {
     const key = process.env.PROBE_API_KEY;
     const model = process.env.PROBE_MODEL_ID;
     const token = process.env.PROBE_ACCESS_TOKEN;
+    const provider = (process.env.PROBE_PROVIDER || "openai-compatible").toLowerCase();
+    const supported = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai"];
+    if (!supported.includes(provider)) return result({ status: "unsupported_provider", supported_providers: supported, network_request_made: false });
     if (!key || !model || !token) return result({ status: "not_configured", required_configuration: ["PROBE_API_KEY", "PROBE_MODEL_ID", "PROBE_ACCESS_TOKEN"], network_request_made: false });
     if (Buffer.byteLength(token, "utf8") < MIN_ACCESS_TOKEN_LENGTH) return result({ status: "invalid_configuration", message: "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes; no provider request made.", network_request_made: false });
     if (typeof args.access_token !== "string" || Buffer.byteLength(args.access_token, "utf8") > 512 || !matchesAccessToken(args.access_token, token)) {
@@ -86,45 +91,82 @@ async function runTool(name, args = {}) {
     if (providerProbeTimes.length >= MAX_PROVIDER_PROBES_PER_WINDOW) {
       return result({ status: "rate_limited", retry_after_seconds: Math.max(1, Math.ceil((RATE_WINDOW_MS - (now - providerProbeTimes[0])) / 1000)), network_request_made: false });
     }
-    providerProbeTimes.push(now);
 
-    const base = (process.env.PROBE_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
+    const defaults = {
+      openai: "https://api.openai.com/v1",
+      "openai-compatible": "https://api.openai.com/v1",
+      openrouter: "https://openrouter.ai/api/v1",
+      anthropic: "https://api.anthropic.com",
+      gemini: "https://generativelanguage.googleapis.com/v1beta",
+      "azure-openai": ""
+    };
+    const base = (process.env.PROBE_BASE_URL || defaults[provider] || "").replace(/\\/+$/, "");
+    if (!base) return result({ status: "configuration_error", message: "PROBE_BASE_URL is required for Azure OpenAI and must identify the resource/deployment base URL.", network_request_made: false });
     let endpoint;
-    try { endpoint = new URL(base); } catch { return result({ status: "configuration_error", message: "PROBE_BASE_URL is invalid; no request made." }); }
+    try { endpoint = new URL(base); } catch { return result({ status: "configuration_error", message: "PROBE_BASE_URL is invalid; no request made.", network_request_made: false }); }
     if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost" && endpoint.hostname !== "127.0.0.1") {
-      return result({ status: "configuration_error", message: "HTTPS is required for remote providers; no request made." });
+      return result({ status: "configuration_error", message: "HTTPS is required for remote providers; no request made.", network_request_made: false });
+    }
+
+    let url;
+    let headers = { "Content-Type": "application/json" };
+    let payload;
+    if (provider === "anthropic") {
+      url = base + "/v1/messages";
+      headers["x-api-key"] = key;
+      headers["anthropic-version"] = process.env.PROBE_ANTHROPIC_VERSION || "2023-06-01";
+      payload = { model, max_tokens: 4, messages: [{ role: "user", content: "Reply with the single word: OK" }] };
+    } else if (provider === "gemini") {
+      url = base + "/models/" + encodeURIComponent(model.replace(/^models\\//, "")) + ":generateContent?key=" + encodeURIComponent(key);
+      payload = { contents: [{ parts: [{ text: "Reply with the single word: OK" }] }], generationConfig: { maxOutputTokens: 4, temperature: 0 } };
+    } else if (provider === "azure-openai") {
+      const apiVersion = process.env.PROBE_API_VERSION || "2024-10-21";
+      url = base + "/chat/completions?api-version=" + encodeURIComponent(apiVersion);
+      headers["api-key"] = key;
+      payload = { messages: [{ role: "user", content: "Reply with the single word: OK" }], max_tokens: 4, temperature: 0 };
+    } else {
+      url = base + "/chat/completions";
+      headers.Authorization = "Bearer " + key;
+      payload = { model, messages: [{ role: "user", content: "Reply with the single word: OK" }], max_tokens: 4, temperature: 0 };
     }
 
     const started = Date.now();
     let response;
     try {
-      response = await fetch(base + "/chat/completions", {
+      response = await fetch(url, {
         method: "POST",
-        headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages: [{ role: "user", content: "Reply with the single word: OK" }], max_tokens: 3, temperature: 0 }),
+        headers,
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(20_000)
       });
     } catch (error) {
-      return result({ status: "request_failed", error: error?.name === "TimeoutError" ? "Provider request timed out." : "Provider request failed.", elapsed_ms: Date.now() - started, credentials_disclosed: false });
+      return result({ status: "request_failed", provider, error: error?.name === "TimeoutError" ? "Provider request timed out." : "Provider request failed.", elapsed_ms: Date.now() - started, credentials_disclosed: false, network_request_made: true });
     }
 
     let data;
     try { data = await response.json(); } catch { data = {}; }
     if (!response.ok) {
-      return result({ status: "provider_error", http_status: response.status, error: String(data?.error?.message || "Provider returned an error or non-JSON response.").slice(0, 300), elapsed_ms: Date.now() - started, credentials_disclosed: false });
+      const providerMessage = data?.error?.message || data?.error?.type || data?.message || "Provider returned an error or non-JSON response.";
+      return result({ status: "provider_error", provider, http_status: response.status, error: String(providerMessage).slice(0, 300), elapsed_ms: Date.now() - started, credentials_disclosed: false, network_request_made: true });
     }
-    const returnedModel = typeof data?.model === "string" ? data.model : null;
+    const returnedModel = provider === "gemini"
+      ? (typeof data?.modelVersion === "string" ? data.modelVersion : null)
+      : (typeof data?.model === "string" ? data.model : null);
+    const responseId = typeof data?.id === "string" ? data.id : (typeof data?.responseId === "string" ? data.responseId : null);
+    const systemFingerprint = typeof data?.system_fingerprint === "string" ? data.system_fingerprint : null;
     return result({
       status: returnedModel ? "provider_response_metadata_received" : "response_missing_model_id",
       verification: {
+        provider,
         requested_model_id: model,
         returned_model_id: returnedModel,
         provider_endpoint: endpoint.origin + endpoint.pathname,
         https_transport: endpoint.protocol === "https:",
-        response_id: typeof data?.id === "string" ? data.id : null,
-        system_fingerprint: typeof data?.system_fingerprint === "string" ? data.system_fingerprint : null,
+        response_id: responseId,
+        system_fingerprint: systemFingerprint,
         elapsed_ms: Date.now() - started,
-        confidence_scope: returnedModel ? "The endpoint returned this model string for this request; this is not cryptographic proof and does not identify the calling client's hidden model." : "No model ID was returned; identity remains unverified."
+        evidence_grade: returnedModel ? "provider_returned_request_metadata" : "no_returned_model_identifier",
+        confidence_scope: returnedModel ? "The provider endpoint returned this model identifier/version for this specific request. This is evidence from that endpoint, not cryptographic proof and not the hidden model used by another client." : "The response did not include a model identifier; identity remains unverified."
       },
       safety: { prompt_contains_sensitive_data: false, request_scope: "one minimal request", credentials_disclosed: false }
     });
