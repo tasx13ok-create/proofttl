@@ -38,6 +38,53 @@ async function freePort() {
   return port;
 }
 
+async function testRequiredBaseUrl() {
+  const port = await freePort();
+  const env = {
+    ...process.env,
+    PORT: String(port),
+    PROBE_PROVIDER: "vertex-ai",
+    PROBE_API_KEY: apiKey,
+    PROBE_MODEL_ID: "gemini-test-model",
+    PROBE_ACCESS_TOKEN: token,
+    PROBE_BASE_URL: ""
+  };
+  const child = spawn(process.execPath, ["server.mjs"], { cwd: new URL(".", import.meta.url), env, stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", chunk => { stderr += chunk; });
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    let ready = false;
+    for (let i = 0; i < 40; i++) {
+      try {
+        const response = await fetch(base + "/health", { signal: AbortSignal.timeout(500) });
+        if (response.ok) { ready = true; break; }
+      } catch {}
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.ok(ready, `vertex-ai missing-base test server starts${stderr ? " — " + stderr : ""}`);
+    async function call(name, args = {}) {
+      const response = await fetch(base + "/api/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } })
+      });
+      assert.equal(response.status, 200);
+      return JSON.parse((await response.json()).result.content[0].text);
+    }
+    const status = await call("probe_provider_status");
+    assert.equal(status.status, "invalid_configuration", "Vertex AI requires a base URL");
+    assert.ok(status.required_configuration.includes("PROBE_BASE_URL"), "required base URL disclosed");
+    const probe = await call("probe_provider", { access_token: token });
+    assert.equal(probe.status, "configuration_error", "missing Vertex AI base URL rejected");
+    assert.equal(probe.network_request_made, false, "missing base URL makes no provider request");
+  } finally {
+    child.kill("SIGTERM");
+    await Promise.race([once(child, "exit"), new Promise(resolve => setTimeout(resolve, 1500))]);
+  }
+}
+
 async function testAdapter(provider, basePath, requestedModel, expectedModel) {
   const port = await freePort();
   const env = {
@@ -86,6 +133,7 @@ async function testAdapter(provider, basePath, requestedModel, expectedModel) {
 }
 
 try {
+  await testRequiredBaseUrl();
   await testAdapter("openai", "/v1", "configured-model", genericModel);
   await testAdapter("openai-compatible", "/v1", "configured-model", genericModel);
   await testAdapter("openrouter", "/v1", "vendor/configured-model", genericModel);
