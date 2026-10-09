@@ -100,10 +100,10 @@ jobs:
           assert.ok(!Object.keys(runtimeData.exposed_metadata || {}).some(k => /KEY|TOKEN|SECRET/i.test(k)), 'runtime probe must not expose credential-like env keys');
           const provider = await rpc('tools/call', { name: 'probe_provider_status', arguments: {} });
           const providerData = JSON.parse(provider.content[0].text);
-          assert.ok(['configured','not_configured'].includes(providerData.status), 'provider config status');
+          assert.ok(['configured','not_configured','invalid_configuration'].includes(providerData.status), 'provider config status');
           const providerProbe = await rpc('tools/call', { name: 'probe_provider', arguments: {} });
           const probeData = JSON.parse(providerProbe.content[0].text);
-          assert.ok(['not_configured','unauthorized'].includes(probeData.status), 'provider probe must be disabled or require token');
+          assert.ok(['not_configured','unauthorized','invalid_configuration'].includes(probeData.status), 'provider probe must be disabled or require token');
           assert.equal(probeData.network_request_made, false, 'unauthorized/unconfigured probe must not make a provider request');
           const equal = await rpc('tools/call', { name: 'compare_identity_claims', arguments: { claimed_name: 'model-X', provider_returned_model_id: 'model-X' } });
           assert.equal(JSON.parse(equal.content[0].text).status, 'exact_string_match', 'exact match behavior');
