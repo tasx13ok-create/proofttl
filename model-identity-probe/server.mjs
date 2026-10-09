@@ -1,4 +1,5 @@
 import http from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,13 @@ const tools = [
 ];
 
 const result = value => ({ content: [{ type: "text", text: JSON.stringify(value, null, 2) }], structuredContent: value });
+const MIN_ACCESS_TOKEN_LENGTH = 32;
+function matchesAccessToken(provided, expected) {
+  if (typeof provided !== "string" || typeof expected !== "string") return false;
+  const candidate = Buffer.from(provided, "utf8");
+  const configured = Buffer.from(expected, "utf8");
+  return candidate.length === configured.length && timingSafeEqual(candidate, configured);
+}
 
 async function runTool(name, args = {}) {
   if (name === "probe_current_runtime") {
@@ -33,13 +41,19 @@ async function runTool(name, args = {}) {
   }
 
   if (name === "probe_provider_status") {
-    const providerConfigured = Boolean(process.env.PROBE_API_KEY && process.env.PROBE_MODEL_ID && process.env.PROBE_ACCESS_TOKEN);
+    const key = process.env.PROBE_API_KEY;
+    const model = process.env.PROBE_MODEL_ID;
+    const token = process.env.PROBE_ACCESS_TOKEN;
+    const hasCoreConfig = Boolean(key && model && token);
+    const tokenStrongEnough = Boolean(token && Buffer.byteLength(token, "utf8") >= MIN_ACCESS_TOKEN_LENGTH);
+    const providerConfigured = hasCoreConfig && tokenStrongEnough;
     return result({
-      status: providerConfigured ? "configured" : "not_configured",
+      status: providerConfigured ? "configured" : hasCoreConfig ? "invalid_configuration" : "not_configured",
       required_configuration: ["PROBE_API_KEY", "PROBE_MODEL_ID", "PROBE_ACCESS_TOKEN"],
+      access_token_minimum_length: MIN_ACCESS_TOKEN_LENGTH,
       optional_configuration: ["PROBE_BASE_URL"],
       network_request_made: false,
-      note: providerConfigured ? "Provider probe is configured and access-controlled." : "No provider request is possible until all required variables are set."
+      note: providerConfigured ? "Provider probe is configured and access-controlled." : hasCoreConfig ? "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes; no provider request is possible." : "No provider request is possible until all required variables are set."
     });
   }
 
@@ -62,7 +76,8 @@ async function runTool(name, args = {}) {
     const model = process.env.PROBE_MODEL_ID;
     const token = process.env.PROBE_ACCESS_TOKEN;
     if (!key || !model || !token) return result({ status: "not_configured", required_configuration: ["PROBE_API_KEY", "PROBE_MODEL_ID", "PROBE_ACCESS_TOKEN"], network_request_made: false });
-    if (typeof args.access_token !== "string" || args.access_token.length > 512 || args.access_token !== token) {
+    if (Buffer.byteLength(token, "utf8") < MIN_ACCESS_TOKEN_LENGTH) return result({ status: "invalid_configuration", message: "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes; no provider request made.", network_request_made: false });
+    if (typeof args.access_token !== "string" || Buffer.byteLength(args.access_token, "utf8") > 512 || !matchesAccessToken(args.access_token, token)) {
       return result({ status: "unauthorized", message: "Valid probe access token required.", network_request_made: false });
     }
 
