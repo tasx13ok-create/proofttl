@@ -1,0 +1,33 @@
+name: Model Identity Probe keepalive
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: model-identity-probe-keepalive
+  cancel-in-progress: false
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping health endpoint to reduce free-instance sleep
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://model-identity-probe.onrender.com/health"
+          for attempt in 1 2 3; do
+            code="$(curl --silent --show-error --output /tmp/probe-health.json --write-out '%{http_code}' --max-time 25 "$url" || true)"
+            if [ "$code" = "200" ] && grep -q '"status":"online"' /tmp/probe-health.json; then
+              echo "PASS: Model Identity Probe healthy (HTTP $code)"
+              cat /tmp/probe-health.json
+              exit 0
+            fi
+            echo "Health check attempt $attempt failed (HTTP ${code:-no-response})"
+            if [ "$attempt" -lt 3 ]; then sleep 10; fi
+          done
+          echo "FAIL: Model Identity Probe did not return healthy JSON after 3 attempts."
+          cat /tmp/probe-health.json || true
+          exit 1
