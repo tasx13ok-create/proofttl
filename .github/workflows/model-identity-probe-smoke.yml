@@ -26,22 +26,25 @@ jobs:
               const candidate = await fetch(base + '/', { cache: 'no-store' });
               if (candidate.ok) {
                 const markup = await candidate.text();
-                if (markup.includes('href="/styles.css"') && markup.includes('src="/app.js"') && markup.includes('href="/manifest.webmanifest"')) {
-                  const [manifestResponse, iconResponse, mcpGetResponse, providerStatusResponse, nullJsonResponse, invalidClaimResponse] = await Promise.all([
+                if (markup.includes('href="/styles.css"') && markup.includes('src="/app.js"') && markup.includes('href="/manifest.webmanifest"') && markup.includes('Inspect your own API response')) {
+                  const [manifestResponse, iconResponse, mcpGetResponse, providerStatusResponse, nullJsonResponse, invalidClaimResponse, toolListResponse] = await Promise.all([
                     fetch(base + '/manifest.webmanifest', { cache: 'no-store' }),
                     fetch(base + '/icon.svg', { cache: 'no-store' }),
                     fetch(base + '/api/mcp', { cache: 'no-store' }),
                     fetch(base + '/api/mcp', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'probe_provider_status', arguments: {} } }) }),
                     fetch(base + '/api/mcp', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: 'null' }),
-                    fetch(base + '/api/mcp', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'compare_identity_claims', arguments: { claimed_name: { unexpected: true }, provider_returned_model_id: 'model-Y' } } }) })
+                    fetch(base + '/api/mcp', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'compare_identity_claims', arguments: { claimed_name: { unexpected: true }, provider_returned_model_id: 'model-Y' } } }) }),
+                    fetch(base + '/api/mcp', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list' }) })
                   ]);
-                  if (manifestResponse.ok && iconResponse.ok && mcpGetResponse.status === 405 && providerStatusResponse.ok && nullJsonResponse.status === 400 && invalidClaimResponse.ok) {
+                  if (manifestResponse.ok && iconResponse.ok && mcpGetResponse.status === 405 && providerStatusResponse.ok && nullJsonResponse.status === 400 && invalidClaimResponse.ok && toolListResponse.ok) {
                     const manifest = await manifestResponse.json();
                     const providerRpc = await providerStatusResponse.json();
                     const providerStatus = JSON.parse(providerRpc.result.content[0].text);
                     const invalidClaimRpc = await invalidClaimResponse.json();
                     const invalidClaimStatus = JSON.parse(invalidClaimRpc.result.content[0].text);
-                    if (manifest.name === 'Model Identity Probe' && manifest.icons?.some(icon => icon.src === '/icon.svg') && providerStatus.supported_providers?.includes('anthropic') && providerStatus.supported_providers?.includes('gemini') && providerStatus.supported_providers?.includes('bedrock') && providerStatus.supported_providers?.includes('vertex-ai') && providerStatus.supported_providers?.includes('cohere') && invalidClaimStatus.status === 'invalid_input') {
+                    const toolListRpc = await toolListResponse.json();
+                    const hasMetadataTool = toolListRpc.result.tools.some(tool => tool.name === 'inspect_provider_metadata');
+                    if (manifest.name === 'Model Identity Probe' && manifest.icons?.some(icon => icon.src === '/icon.svg') && providerStatus.supported_providers?.includes('anthropic') && providerStatus.supported_providers?.includes('gemini') && providerStatus.supported_providers?.includes('bedrock') && providerStatus.supported_providers?.includes('vertex-ai') && providerStatus.supported_providers?.includes('cohere') && invalidClaimStatus.status === 'invalid_input' && hasMetadataTool) {
                       latestUiReady = true;
                       break;
                     }
