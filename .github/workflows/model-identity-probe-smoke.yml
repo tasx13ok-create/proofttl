@@ -1,0 +1,58 @@
+name: Model Identity Probe remote smoke test
+on:
+  push:
+    branches:
+      - feature/model-identity-probe-remote
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify public service and MCP JSON-RPC
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const base = 'https://model-identity-probe.onrender.com';
+          const health = await fetch(base + '/health');
+          assert.equal(health.status, 200, 'health status');
+          assert.equal((await health.json()).status, 'online', 'health payload');
+          const page = await fetch(base + '/');
+          assert.equal(page.status, 200, 'mobile UI status');
+          assert.match(await page.text(), /Model Identity Probe/, 'mobile UI title');
+          async function rpc(method, params = {}) {
+            const response = await fetch(base + '/api/mcp', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 42, method, params })
+            });
+            assert.equal(response.status, 200, method + ' HTTP status');
+            const data = await response.json();
+            assert.equal(data.jsonrpc, '2.0', method + ' JSON-RPC version');
+            assert.equal(data.id, 42, method + ' request ID');
+            assert.ok(!data.error, method + ' JSON-RPC error');
+            return data.result;
+          }
+          const init = await rpc('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke-test', version: '1' } });
+          assert.equal(init.serverInfo.name, 'model-identity-probe', 'initialize server name');
+          const list = await rpc('tools/list');
+          const names = list.tools.map(t => t.name);
+          for (const name of ['probe_current_runtime','probe_provider_status','probe_provider','compare_identity_claims']) assert.ok(names.includes(name), 'tool exposed: ' + name);
+          const runtime = await rpc('tools/call', { name: 'probe_current_runtime', arguments: {} });
+          const runtimeData = JSON.parse(runtime.content[0].text);
+          assert.ok(['identity_not_exposed','metadata_exposed_unverified'].includes(runtimeData.status), 'runtime status');
+          const provider = await rpc('tools/call', { name: 'probe_provider_status', arguments: {} });
+          const providerData = JSON.parse(provider.content[0].text);
+          assert.ok(['configured','not_configured'].includes(providerData.status), 'provider config status');
+          const equal = await rpc('tools/call', { name: 'compare_identity_claims', arguments: { claimed_name: 'model-X', provider_returned_model_id: 'model-X' } });
+          assert.equal(JSON.parse(equal.content[0].text).status, 'exact_string_match', 'exact match behavior');
+          const mismatch = await rpc('tools/call', { name: 'compare_identity_claims', arguments: { claimed_name: 'model-X', provider_returned_model_id: 'model-Y' } });
+          assert.equal(JSON.parse(mismatch.content[0].text).status, 'mismatch_or_alias', 'mismatch behavior');
+          const unknown = await fetch(base + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'not_a_tool', arguments: {} } }) });
+          assert.equal(unknown.status, 400, 'unknown tool should be rejected');
+          const unknownBody = await unknown.json();
+          assert.equal(unknownBody.error.code, -32602, 'unknown tool error code');
+          console.log('PASS: health, mobile UI, initialize, tools/list, runtime probe, provider status, exact match, mismatch, unknown-tool rejection');
+          NODE
