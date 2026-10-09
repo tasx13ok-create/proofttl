@@ -47,7 +47,7 @@ async function runTool(name, args = {}) {
     const hasCoreConfig = Boolean(key && model && token);
     const tokenStrongEnough = Boolean(token && Buffer.byteLength(token, "utf8") >= MIN_ACCESS_TOKEN_LENGTH);
     const provider = (process.env.PROBE_PROVIDER || "openai-compatible").toLowerCase();
-    const supportedProviders = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "perplexity"];
+    const supportedProviders = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "perplexity", "bedrock", "vertex-ai", "cohere"];
     const providerSupported = supportedProviders.includes(provider);
     const providerConfigured = hasCoreConfig && tokenStrongEnough && providerSupported;
     const invalidReason = !providerSupported ? "PROBE_PROVIDER is unsupported." : !tokenStrongEnough && hasCoreConfig ? "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes." : null;
@@ -82,7 +82,7 @@ async function runTool(name, args = {}) {
     const model = process.env.PROBE_MODEL_ID;
     const token = process.env.PROBE_ACCESS_TOKEN;
     const provider = (process.env.PROBE_PROVIDER || "openai-compatible").toLowerCase();
-    const supported = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "perplexity"];
+    const supported = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "perplexity", "bedrock", "vertex-ai", "cohere"];
     if (!supported.includes(provider)) return result({ status: "unsupported_provider", supported_providers: supported, network_request_made: false });
     if (!key || !model || !token) return result({ status: "not_configured", required_configuration: ["PROBE_API_KEY", "PROBE_MODEL_ID", "PROBE_ACCESS_TOKEN"], network_request_made: false });
     if (Buffer.byteLength(token, "utf8") < MIN_ACCESS_TOKEN_LENGTH) return result({ status: "invalid_configuration", message: "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes; no provider request made.", network_request_made: false });
@@ -107,12 +107,15 @@ async function runTool(name, args = {}) {
       together: "https://api.together.xyz/v1",
       fireworks: "https://api.fireworks.ai/inference/v1",
       perplexity: "https://api.perplexity.ai",
+      bedrock: "https://bedrock-runtime." + (process.env.AWS_REGION || "us-east-1") + ".amazonaws.com/openai/v1",
+      cohere: "https://api.cohere.com/v2",
+      vertex-ai: "",
       anthropic: "https://api.anthropic.com",
       gemini: "https://generativelanguage.googleapis.com/v1beta",
       "azure-openai": ""
     };
     const base = (process.env.PROBE_BASE_URL || defaults[provider] || "").replace(/\/+$/, "");
-    if (!base) return result({ status: "configuration_error", message: "PROBE_BASE_URL is required for Azure OpenAI and must identify the resource/deployment base URL.", network_request_made: false });
+    if (!base) return result({ status: "configuration_error", message: "PROBE_BASE_URL is required for Azure OpenAI or Vertex AI and must identify the resource/deployment/model base URL.", network_request_made: false });
     let endpoint;
     try { endpoint = new URL(base); } catch { return result({ status: "configuration_error", message: "PROBE_BASE_URL is invalid; no request made.", network_request_made: false }); }
     if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost" && endpoint.hostname !== "127.0.0.1") {
@@ -130,6 +133,14 @@ async function runTool(name, args = {}) {
     } else if (provider === "gemini") {
       url = base + "/models/" + encodeURIComponent(model.replace(/^models\//, "")) + ":generateContent?key=" + encodeURIComponent(key);
       payload = { contents: [{ parts: [{ text: "Reply with the single word: OK" }] }], generationConfig: { maxOutputTokens: 4, temperature: 0 } };
+    } else if (provider === "vertex-ai") {
+      url = base + "/" + encodeURIComponent(model.replace(/^models\\//, "")) + ":generateContent";
+      headers.Authorization = "Bearer " + key;
+      payload = { contents: [{ parts: [{ text: "Reply with the single word: OK" }] }], generationConfig: { maxOutputTokens: 4, temperature: 0 } };
+    } else if (provider === "cohere") {
+      url = base + "/chat";
+      headers.Authorization = "Bearer " + key;
+      payload = { model, messages: [{ role: "user", content: "Reply with the single word: OK" }], max_tokens: 4 };
     } else if (provider === "azure-openai") {
       const apiVersion = process.env.PROBE_API_VERSION || "2024-10-21";
       url = base + "/chat/completions?api-version=" + encodeURIComponent(apiVersion);
@@ -160,7 +171,7 @@ async function runTool(name, args = {}) {
       const providerMessage = data?.error?.message || data?.error?.type || data?.message || "Provider returned an error or non-JSON response.";
       return result({ status: "provider_error", provider, http_status: response.status, error: String(providerMessage).replaceAll(key, "[redacted]").replaceAll(token, "[redacted]").slice(0, 300), elapsed_ms: Date.now() - started, credentials_disclosed: false, network_request_made: true });
     }
-    const returnedModel = provider === "gemini"
+    const returnedModel = provider === "gemini" || provider === "vertex-ai"
       ? (typeof data?.modelVersion === "string" ? data.modelVersion : null)
       : (typeof data?.model === "string" ? data.model : null);
     const responseId = typeof data?.id === "string" ? data.id : (typeof data?.responseId === "string" ? data.responseId : null);
