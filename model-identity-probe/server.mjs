@@ -10,7 +10,7 @@ const MAX_BODY_BYTES = 64 * 1024;
 const RATE_WINDOW_MS = 60_000;
 const MAX_PROVIDER_PROBES_PER_WINDOW = 2;
 const providerProbeTimes = [];
-const envKeys = ["MODEL_ID","MODEL_NAME","OPENAI_MODEL","ANTHROPIC_MODEL","AZURE_OPENAI_DEPLOYMENT","GOOGLE_MODEL","GEMINI_MODEL","IDENTITY_PROBE_MODEL","DECLARED_MODEL_NAME","RUNTIME_DEPLOYMENT_LABEL","OPENAI_BASE_URL"];
+const envKeys = ["MODEL_ID","MODEL_NAME","OPENAI_MODEL","ANTHROPIC_MODEL","AZURE_OPENAI_DEPLOYMENT","GOOGLE_MODEL","GEMINI_MODEL","IDENTITY_PROBE_MODEL","DECLARED_MODEL_NAME","RUNTIME_DEPLOYMENT_LABEL"];
 
 const tools = [
   { name: "probe_current_runtime", description: "Read exposed non-secret process metadata; cannot inspect the hidden model serving the MCP client.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
@@ -72,9 +72,10 @@ async function runTool(name, args = {}) {
   }
 
   if (name === "compare_identity_claims") {
-    const claimed = String(args.claimed_name || "").trim();
-    const returned = String(args.provider_returned_model_id || "").trim();
-    if (!claimed || !returned) return result({ status: "invalid_input", required: ["claimed_name", "provider_returned_model_id"] });
+    const claimed = typeof args.claimed_name === "string" ? args.claimed_name.trim() : "";
+    const returned = typeof args.provider_returned_model_id === "string" ? args.provider_returned_model_id.trim() : "";
+    if (!claimed || !returned) return result({ status: "invalid_input", required: ["claimed_name", "provider_returned_model_id"], note: "Both values must be non-empty strings." });
+    if (claimed.length > 200 || returned.length > 200) return result({ status: "invalid_input", maximum_length: 200, network_request_made: false });
     return result({
       status: claimed === returned ? "exact_string_match" : "mismatch_or_alias",
       claimed_name: claimed,
@@ -129,6 +130,9 @@ async function runTool(name, args = {}) {
     if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost" && endpoint.hostname !== "127.0.0.1") {
       return result({ status: "configuration_error", message: "HTTPS is required for remote providers; no request made.", network_request_made: false });
     }
+    if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+      return result({ status: "configuration_error", message: "PROBE_BASE_URL must not contain credentials, query parameters, or a fragment; no request made.", network_request_made: false });
+    }
 
     let url;
     let headers = { "Content-Type": "application/json" };
@@ -167,6 +171,7 @@ async function runTool(name, args = {}) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
+        redirect: "error",
         signal: AbortSignal.timeout(20_000)
       });
     } catch (error) {
