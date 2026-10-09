@@ -134,7 +134,7 @@ async function runTool(name, args = {}) {
       url = base + "/models/" + encodeURIComponent(model.replace(/^models\//, "")) + ":generateContent?key=" + encodeURIComponent(key);
       payload = { contents: [{ parts: [{ text: "Reply with the single word: OK" }] }], generationConfig: { maxOutputTokens: 4, temperature: 0 } };
     } else if (provider === "vertex-ai") {
-      url = base + "/" + encodeURIComponent(model.replace(/^models\\//, "")) + ":generateContent";
+      url = base + "/" + encodeURIComponent(model.replace(/^models\//, "")) + ":generateContent";
       headers.Authorization = "Bearer " + key;
       payload = { contents: [{ parts: [{ text: "Reply with the single word: OK" }] }], generationConfig: { maxOutputTokens: 4, temperature: 0 } };
     } else if (provider === "cohere") {
