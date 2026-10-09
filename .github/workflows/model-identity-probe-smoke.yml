@@ -27,14 +27,17 @@ jobs:
               if (candidate.ok) {
                 const markup = await candidate.text();
                 if (markup.includes('href="/styles.css"') && markup.includes('src="/app.js"') && markup.includes('href="/manifest.webmanifest"')) {
-                  const [manifestResponse, iconResponse, mcpGetResponse] = await Promise.all([
+                  const [manifestResponse, iconResponse, mcpGetResponse, providerStatusResponse] = await Promise.all([
                     fetch(base + '/manifest.webmanifest', { cache: 'no-store' }),
                     fetch(base + '/icon.svg', { cache: 'no-store' }),
-                    fetch(base + '/api/mcp', { cache: 'no-store' })
+                    fetch(base + '/api/mcp', { cache: 'no-store' }),
+                    fetch(base + '/api/mcp', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'probe_provider_status', arguments: {} } }) })
                   ]);
-                  if (manifestResponse.ok && iconResponse.ok && mcpGetResponse.status === 405) {
+                  if (manifestResponse.ok && iconResponse.ok && mcpGetResponse.status === 405 && providerStatusResponse.ok) {
                     const manifest = await manifestResponse.json();
-                    if (manifest.name === 'Model Identity Probe' && manifest.icons?.some(icon => icon.src === '/icon.svg')) {
+                    const providerRpc = await providerStatusResponse.json();
+                    const providerStatus = JSON.parse(providerRpc.result.content[0].text);
+                    if (manifest.name === 'Model Identity Probe' && manifest.icons?.some(icon => icon.src === '/icon.svg') && providerStatus.supported_providers?.includes('anthropic') && providerStatus.supported_providers?.includes('gemini')) {
                       latestUiReady = true;
                       break;
                     }
