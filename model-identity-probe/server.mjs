@@ -109,7 +109,7 @@ async function runTool(name, args = {}) {
       perplexity: "https://api.perplexity.ai",
       bedrock: "https://bedrock-runtime." + (process.env.AWS_REGION || "us-east-1") + ".amazonaws.com/openai/v1",
       cohere: "https://api.cohere.com/v2",
-      vertex-ai: "",
+      "vertex-ai": "",
       anthropic: "https://api.anthropic.com",
       gemini: "https://generativelanguage.googleapis.com/v1beta",
       "azure-openai": ""
