@@ -65,7 +65,7 @@ async function runTool(name, args = {}) {
       provider,
       supported_providers: supportedProviders,
       access_token_minimum_length: MIN_ACCESS_TOKEN_LENGTH,
-      optional_configuration: ["PROBE_BASE_URL", "PROBE_API_VERSION", "PROBE_ANTHROPIC_VERSION", "AWS_REGION"],
+      optional_configuration: [...(requiresBaseUrl ? [] : ["PROBE_BASE_URL"]), "PROBE_API_VERSION", "PROBE_ANTHROPIC_VERSION", "AWS_REGION"],
       network_request_made: false,
       note: providerConfigured ? "Provider probe is configured and access-controlled." : invalidReason || "No provider request is possible until all required variables are set."
     });
