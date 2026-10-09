@@ -117,7 +117,7 @@ async function runTool(name, args = {}) {
       headers["anthropic-version"] = process.env.PROBE_ANTHROPIC_VERSION || "2023-06-01";
       payload = { model, max_tokens: 4, messages: [{ role: "user", content: "Reply with the single word: OK" }] };
     } else if (provider === "gemini") {
-      url = base + "/models/" + encodeURIComponent(model.replace(/^models\\//, "")) + ":generateContent?key=" + encodeURIComponent(key);
+      url = base + "/models/" + encodeURIComponent(model.replace(/^models\//, "")) + ":generateContent?key=" + encodeURIComponent(key);
       payload = { contents: [{ parts: [{ text: "Reply with the single word: OK" }] }], generationConfig: { maxOutputTokens: 4, temperature: 0 } };
     } else if (provider === "azure-openai") {
       const apiVersion = process.env.PROBE_API_VERSION || "2024-10-21";
