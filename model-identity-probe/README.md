@@ -1,13 +1,26 @@
-Model Identity Probe — remote MCP
+# Model Identity Probe — remote MCP
 
-Mobile Safari interface plus stateless JSON-RPC HTTP endpoint.
+Mobile Safari interface plus a stateless JSON-RPC HTTP endpoint.
 
-Routes: / (mobile UI), /health, /api/mcp (MCP endpoint).
+## Endpoints
+- `/` mobile interface
+- `/health` health metadata
+- `/api/mcp` MCP JSON-RPC endpoint
 
-Node.js 20+. Start: node model-identity-probe/server.mjs
+## Run
+Node.js 20+. Start with `node model-identity-probe/server.mjs`.
 
-Optional provider configuration: PROBE_API_KEY and PROBE_MODEL_ID. Optional PROBE_BASE_URL defaults to https://api.openai.com/v1. Never expose provider keys to browsers. Provider requests may incur charges. Probe results apply only to that provider request.
+## Optional provider probe
+Configure `PROBE_API_KEY`, `PROBE_MODEL_ID`, and a separate strong `PROBE_ACCESS_TOKEN`. Optionally set `PROBE_BASE_URL`; default is `https://api.openai.com/v1`. Do not reuse the provider API key as the probe access token. The provider probe remains disabled unless all three required variables exist. The endpoint requires the access token and allows at most two provider attempts per minute per running instance. Provider requests may incur charges.
 
-The service does not inspect the hidden model used by ChatGPT, Claude, or the MCP client. Runtime labels are not independently verified. Secret environment variables are never returned.
+## Security and evidence limits
+- Never returns provider credentials or arbitrary environment variables.
+- Rejects remote provider URLs without HTTPS.
+- Enforces a 64 KiB request-body limit and sets baseline browser security headers.
+- Applies an in-memory cap of two provider requests per minute per running instance.
+- Exposed environment labels are operator-controlled, not independently verified.
+- Cannot inspect the hidden model used by ChatGPT, Claude, or the MCP client.
+- Provider-returned IDs apply only to that specific API request and are not cryptographic proof.
 
-Render service configuration: repository tasx13ok-create/proofttl; branch feature/model-identity-probe-remote; build command npm install --omit=dev; start command node model-identity-probe/server.mjs; plan free.
+## Hosting
+Current Render service: `https://model-identity-probe.onrender.com`, free plan. Free services may sleep when idle, so the first request after inactivity can take longer or briefly fail while the instance starts.
