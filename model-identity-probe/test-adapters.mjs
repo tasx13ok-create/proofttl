@@ -88,10 +88,17 @@ try {
   await testAdapter("openai", "/v1", "configured-model", genericModel);
   await testAdapter("openai-compatible", "/v1", "configured-model", genericModel);
   await testAdapter("openrouter", "/v1", "vendor/configured-model", genericModel);
+  await testAdapter("xai", "/v1", "configured-model", genericModel);
+  await testAdapter("deepseek", "/v1", "configured-model", genericModel);
+  await testAdapter("mistral", "/v1", "configured-model", genericModel);
+  await testAdapter("groq", "/v1", "configured-model", genericModel);
+  await testAdapter("together", "/v1", "configured-model", genericModel);
+  await testAdapter("fireworks", "/v1", "configured-model", genericModel);
+  await testAdapter("perplexity", "/v1", "configured-model", genericModel);
   await testAdapter("anthropic", "", "claude-configured-model", anthropicModel);
   await testAdapter("gemini", "/v1beta", "gemini-configured-model", geminiModel);
   await testAdapter("azure-openai", "/openai/deployments/mock-deployment", "mock-deployment", genericModel);
-  console.log("PASS: local mock integration tests for OpenAI, OpenAI-compatible, OpenRouter, Anthropic, Gemini, Azure OpenAI; model IDs returned, credentials redacted, no live provider keys or paid API requests used.");
+  console.log("PASS: local mock integration tests for OpenAI, OpenAI-compatible, OpenRouter, xAI, DeepSeek, Mistral, Groq, Together, Fireworks, Perplexity, Anthropic, Gemini, Azure OpenAI; model IDs returned, credentials redacted, no live provider keys or paid API requests used.");
 } finally {
   mock.close();
 }
