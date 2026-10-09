@@ -23,8 +23,17 @@ jobs:
               if (candidate.ok) {
                 const markup = await candidate.text();
                 if (markup.includes('href="/styles.css"') && markup.includes('src="/app.js"') && markup.includes('href="/manifest.webmanifest"')) {
-                  latestUiReady = true;
-                  break;
+                  const [manifestResponse, iconResponse] = await Promise.all([
+                    fetch(base + '/manifest.webmanifest', { cache: 'no-store' }),
+                    fetch(base + '/icon.svg', { cache: 'no-store' })
+                  ]);
+                  if (manifestResponse.ok && iconResponse.ok) {
+                    const manifest = await manifestResponse.json();
+                    if (manifest.name === 'Model Identity Probe' && manifest.icons?.some(icon => icon.src === '/icon.svg')) {
+                      latestUiReady = true;
+                      break;
+                    }
+                  }
                 }
               }
             } catch {}
