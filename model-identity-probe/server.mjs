@@ -279,6 +279,9 @@ http.createServer(async (req, res) => {
   }
   let body;
   try { body = JSON.parse(raw); } catch { return sendJson(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return sendJson(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid JSON-RPC request" } });
+  }
 
   const id = body.id ?? null;
   const send = (payload, status = 200) => sendJson(res, status, { jsonrpc: "2.0", id, ...payload });
