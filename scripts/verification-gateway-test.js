@@ -108,6 +108,18 @@ async function run() {
   });
   assert(tooMany.decision === "BLOCKED" && tooMany.reason === "claim_limit_exceeded", "claim cap prevents unbounded verification work");
 
+  const hostFloor = await evaluateVerificationGate({
+    draft, claims: [{ ...claim, risk: "low" }], inventoryComplete: true,
+    verifyClaim: verifySupported, now, policy: { minimumRisk: "high" }
+  });
+  assert(hostFloor.decision === "BLOCKED" && hostFloor.reason === "claim_below_host_minimum_risk", "model-supplied risk cannot fall below the host minimum");
+
+  const invalidHostFloor = await evaluateVerificationGate({
+    draft, claims: [claim], inventoryComplete: true,
+    verifyClaim: verifySupported, now, policy: { minimumRisk: "untrusted" }
+  });
+  assert(invalidHostFloor.decision === "BLOCKED" && invalidHostFloor.reason === "host_minimum_risk_invalid", "invalid host risk policy fails closed");
+
   const noEvidence = await evaluateVerificationGate({
     draft, claims: [claim], inventoryComplete: true,
     verifyClaim: async () => ({ ...supported, evidence: "" }), now
