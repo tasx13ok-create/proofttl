@@ -46,16 +46,20 @@ async function runTool(name, args = {}) {
     const token = process.env.PROBE_ACCESS_TOKEN;
     const hasCoreConfig = Boolean(key && model && token);
     const tokenStrongEnough = Boolean(token && Buffer.byteLength(token, "utf8") >= MIN_ACCESS_TOKEN_LENGTH);
-    const providerConfigured = hasCoreConfig && tokenStrongEnough;
+    const provider = (process.env.PROBE_PROVIDER || "openai-compatible").toLowerCase();
+    const supportedProviders = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai"];
+    const providerSupported = supportedProviders.includes(provider);
+    const providerConfigured = hasCoreConfig && tokenStrongEnough && providerSupported;
+    const invalidReason = !providerSupported ? "PROBE_PROVIDER is unsupported." : !tokenStrongEnough && hasCoreConfig ? "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes." : null;
     return result({
       status: providerConfigured ? "configured" : hasCoreConfig ? "invalid_configuration" : "not_configured",
       required_configuration: ["PROBE_API_KEY", "PROBE_MODEL_ID", "PROBE_ACCESS_TOKEN"],
-      provider: (process.env.PROBE_PROVIDER || "openai-compatible").toLowerCase(),
-      supported_providers: ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai"],
+      provider,
+      supported_providers: supportedProviders,
       access_token_minimum_length: MIN_ACCESS_TOKEN_LENGTH,
       optional_configuration: ["PROBE_BASE_URL"],
       network_request_made: false,
-      note: providerConfigured ? "Provider probe is configured and access-controlled." : hasCoreConfig ? "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes; no provider request is possible." : "No provider request is possible until all required variables are set."
+      note: providerConfigured ? "Provider probe is configured and access-controlled." : invalidReason || "No provider request is possible until all required variables are set."
     });
   }
 
@@ -147,7 +151,7 @@ async function runTool(name, args = {}) {
     try { data = await response.json(); } catch { data = {}; }
     if (!response.ok) {
       const providerMessage = data?.error?.message || data?.error?.type || data?.message || "Provider returned an error or non-JSON response.";
-      return result({ status: "provider_error", provider, http_status: response.status, error: String(providerMessage).slice(0, 300), elapsed_ms: Date.now() - started, credentials_disclosed: false, network_request_made: true });
+      return result({ status: "provider_error", provider, http_status: response.status, error: String(providerMessage).replaceAll(key, "[redacted]").replaceAll(token, "[redacted]").slice(0, 300), elapsed_ms: Date.now() - started, credentials_disclosed: false, network_request_made: true });
     }
     const returnedModel = provider === "gemini"
       ? (typeof data?.modelVersion === "string" ? data.modelVersion : null)
