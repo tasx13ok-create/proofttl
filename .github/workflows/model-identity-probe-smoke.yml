@@ -120,6 +120,10 @@ jobs:
           assert.equal(JSON.parse(equal.content[0].text).status, 'exact_string_match', 'exact match behavior');
           const mismatch = await rpc('tools/call', { name: 'compare_identity_claims', arguments: { claimed_name: 'model-X', provider_returned_model_id: 'model-Y' } });
           assert.equal(JSON.parse(mismatch.content[0].text).status, 'mismatch_or_alias', 'mismatch behavior');
+          const invalidClaim = await rpc('tools/call', { name: 'compare_identity_claims', arguments: { claimed_name: { unexpected: true }, provider_returned_model_id: 'model-Y' } });
+          assert.equal(JSON.parse(invalidClaim.content[0].text).status, 'invalid_input', 'non-string identity claim rejected');
+          const oversizedClaim = await rpc('tools/call', { name: 'compare_identity_claims', arguments: { claimed_name: 'x'.repeat(201), provider_returned_model_id: 'model-Y' } });
+          assert.equal(JSON.parse(oversizedClaim.content[0].text).status, 'invalid_input', 'oversized identity claim rejected');
           const unsupportedGet = await fetch(base + '/api/mcp');
           assert.equal(unsupportedGet.status, 405, 'MCP GET without SSE must return method not allowed');
           assert.match(unsupportedGet.headers.get('allow') || '', /POST/, 'MCP endpoint allowed methods');
