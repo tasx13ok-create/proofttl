@@ -14,4 +14,8 @@ PROOFTTL_AUTH_CROSS_ORIGIN=false
 # STRIPE_WEBHOOK_SECRET=whsec_replace_me
 # PROOFTTL_ADMIN_TOKEN=local_only_replace_me
 # PROOFTTL_SIGNING_PRIVATE_JWK={local_test_key_only}
+# Optional Resend TEST-mode smoke. It can only target Resend's reserved delivered@resend.dev sink.
+# RESEND_API_KEY=re_replace_me
+# RESEND_TESTMODE_ONLY=true
+# Run manually with: npm run resend:email:testmode
 # OAuth providers require separately registered local callbacks.
