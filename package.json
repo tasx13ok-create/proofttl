@@ -68,7 +68,10 @@
     "test:payment:semantic": "node --env-file=.env.test-payer scripts/test-payment-semantic.js",
     "test:owner": "node scripts/owner-desk-test.js",
     "test:monitor-attempt-cap": "node scripts/monitor-attempt-cap-test.js",
-    "test:zero-spend": "npm run test:audit-intake && npm run test:audit-sales && npm run test:stripe-payments && npm run test:payment-gate && npm run test:monitor-attempt-cap"
+    "test:zero-spend": "npm run test:zero-spend-preflight && npm run test:audit-intake && npm run test:audit-sales && npm run test:stripe-payments && npm run test:payment-gate && npm run test:monitor-attempt-cap",
+    "test:zero-spend-preflight": "node scripts/zero-spend-preflight.js",
+    "test:stripe-testmode-smoke": "node scripts/stripe-testmode-smoke.js",
+    "test:resend-sink": "node scripts/resend-sink-test.js"
   },
   "dependencies": {
     "@better-auth/core": "1.6.25",
