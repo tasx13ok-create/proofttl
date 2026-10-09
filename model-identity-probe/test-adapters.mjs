@@ -126,6 +126,18 @@ async function testAdapter(provider, basePath, requestedModel, expectedModel) {
     assert.equal(data.safety.credentials_disclosed, false, `${provider}: credentials not disclosed`);
     assert.ok(!JSON.stringify(data).includes(apiKey), `${provider}: API key not in result`);
     assert.ok(!JSON.stringify(data).includes(token), `${provider}: access token not in result`);
+    const metadataResponse = await fetch(base + "/api/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "inspect_provider_metadata", arguments: { provider, requested_model_id: requestedModel, returned_model_id: expectedModel, response_id: "mock-response-id" } } })
+    });
+    assert.equal(metadataResponse.status, 200, `${provider}: metadata inspection HTTP status`);
+    const metadataRpc = await metadataResponse.json();
+    const metadata = JSON.parse(metadataRpc.result.content[0].text);
+    assert.equal(metadata.status, "provider_metadata_recorded", `${provider}: metadata inspection status`);
+    assert.equal(metadata.evidence_grade, "user_supplied_metadata_unverified", `${provider}: unverified provenance grade`);
+    assert.equal(metadata.network_request_made, false, `${provider}: metadata inspection makes no network request`);
+    assert.ok(!JSON.stringify(metadata).includes(apiKey), `${provider}: metadata inspection excludes API key`);
   } finally {
     child.kill("SIGTERM");
     await Promise.race([once(child, "exit"), new Promise(resolve => setTimeout(resolve, 1500))]);
