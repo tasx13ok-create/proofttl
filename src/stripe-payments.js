@@ -1,4 +1,5 @@
 import { readTextLimited } from './bounded-body.js';
+import { sendProofTTLEmail, escapeEmailHtml } from './transactional-email.js';
 const STRIPE_API = 'https://api.stripe.com/v1';
 const WEBHOOK_TOLERANCE_SECONDS = 300;
 const FACT_AUDIT_PRICE_USD = 1500;
@@ -227,12 +228,26 @@ function validateSessionAmount(session, intakeId, expectedAmountUsd) {
 }
 
 async function markAuditPaid(env, intakeId, session, eventId) {
+  const intake = await env.MONITOR_DB.prepare(
+    'SELECT email FROM audit_intakes WHERE id = ? LIMIT 1'
+  ).bind(intakeId).first();
   await env.MONITOR_DB.prepare(
     `UPDATE audit_intakes SET status = 'paid', payment_state = 'paid', paid_at_ms = ?,
        payment_provider = 'stripe', payment_url = NULL, stripe_checkout_session_id = ?,
        stripe_payment_intent_id = ?, stripe_last_event_id = ?
        WHERE id = ? AND status NOT IN ('paid','fulfilled')`
   ).bind(Date.now(), clean(session?.id, 200) || null, clean(session?.payment_intent, 200) || null, eventId, intakeId).run();
+
+  if (intake?.email) {
+    await sendProofTTLEmail(env, {
+      to: intake.email,
+      subject: 'ProofTTL Fact Audit payment confirmed',
+      text: `Payment for ProofTTL Fact Audit request ${intakeId} has been confirmed. ProofTTL will proceed according to the scope and turnaround agreed for your request. Keep this reference for support: ${intakeId}.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#20242a"><h1>ProofTTL</h1><h2>Payment confirmed</h2><p>Payment for Fact Audit request <strong>${escapeEmailHtml(intakeId)}</strong> has been confirmed.</p><p>ProofTTL will proceed according to the scope and turnaround agreed for your request. Keep this reference for support.</p><p>ProofTTL checks evidence, not confidence.</p></div>`,
+      idempotencyKey: `proofttl-fact-audit-payment-confirmed-${intakeId}-${clean(session?.id, 200) || eventId}`,
+      event: 'fact_audit_payment_confirmed'
+    });
+  }
 }
 
 async function clearCheckoutIfCurrent(env, intakeId, sessionId) {
