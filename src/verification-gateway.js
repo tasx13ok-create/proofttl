@@ -7,6 +7,7 @@ const DEFAULTS = Object.freeze({
 
 const ALLOWED_VERDICTS = new Set(["SUPPORTED", "CONTRADICTED", "UNKNOWN"]);
 const ALLOWED_RISK_LEVELS = new Set(["low", "medium", "high", "critical"]);
+const RISK_RANK = Object.freeze({ low: 0, medium: 1, high: 2, critical: 3 });
 
 function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -100,6 +101,10 @@ export async function evaluateVerificationGate({
     : DEFAULTS.ttlSeconds;
   const requireSignedLease = policy.requireSignedLease !== false;
   const requireEvidence = policy.requireEvidence !== false;
+  const minimumRisk = normalizeText(policy.minimumRisk || "low").toLowerCase();
+  if (!Object.hasOwn(RISK_RANK, minimumRisk)) return {
+    decision: "BLOCKED", response: null, reason: "host_minimum_risk_invalid", claims_checked: 0, claims: []
+  };
 
   const block = (reason, items = []) => ({
     decision: "BLOCKED",
@@ -127,6 +132,7 @@ export async function evaluateVerificationGate({
     ids.add(id);
     if (!text || !draft.includes(text)) return block("claim_not_bound_to_draft", prepared);
     if (!ALLOWED_RISK_LEVELS.has(risk)) return block("claim_risk_missing_or_invalid", prepared);
+    if (RISK_RANK[risk] < RISK_RANK[minimumRisk]) return block("claim_below_host_minimum_risk", prepared);
     if (!validHttpUrl(sourceUrl)) return block("claim_source_url_invalid", prepared);
 
     prepared.push({ id, text, source_url: sourceUrl, risk });
