@@ -1,0 +1,83 @@
+name: ProofTTL Zero-Spend Provider Validation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/zero-spend-provider-validation.yml"
+      - "scripts/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "docs/zero-spend-release-validation.md"
+  workflow_dispatch:
+    inputs:
+      run_stripe_testmode_smoke:
+        description: "Run a read-only Stripe test-key check (no charges or payment objects)"
+        required: true
+        type: boolean
+        default: false
+      run_resend_sink_test:
+        description: "Send one synthetic email to Resend's delivery-simulation sink only"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-zero-spend:
+    name: Deterministic zero-spend regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Reject live payment keys
+        run: npm run test:zero-spend-preflight
+      - name: Run deterministic audit and payment tests
+        run: npm run test:zero-spend
+
+  stripe-testmode-smoke:
+    name: Optional read-only Stripe test-mode check
+    if: github.event_name == 'workflow_dispatch' && inputs.run_stripe_testmode_smoke == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+      REQUIRE_STRIPE_TEST_MODE: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate test key and query account read-only
+        run: node scripts/stripe-testmode-smoke.js
+
+  resend-sink-smoke:
+    name: Optional Resend sink-only email check
+    if: github.event_name == 'workflow_dispatch' && inputs.run_resend_sink_test == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RESEND_TEST_API_KEY: ${{ secrets.RESEND_TEST_API_KEY }}
+      REQUIRE_RESEND_SINK: "1"
+      PROOFTTL_EMAIL_MODE: "test"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Send one idempotent message to the Resend simulation sink
+        run: node scripts/resend-sink-test.js
