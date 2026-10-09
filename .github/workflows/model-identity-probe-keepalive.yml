@@ -17,7 +17,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url="https://model-identity-probe.onrender.com/health"
+          url="https://model-identity-probe-clean.onrender.com/health"
           for attempt in 1 2 3; do
             code="$(curl --silent --show-error --output /tmp/probe-health.json --write-out '%{http_code}' --max-time 25 "$url" || true)"
             if [ "$code" = "200" ] && grep -q '"status":"online"' /tmp/probe-health.json; then
