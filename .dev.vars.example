@@ -6,6 +6,9 @@ PROOFTTL_AUTH_PUBLIC_URL=http://localhost:8787
 PROOFTTL_WEB_URL=http://localhost:3000
 PROOFTTL_AUTH_TRUSTED_ORIGINS=http://localhost:3000,http://localhost:8787
 PROOFTTL_AUTH_CROSS_ORIGIN=false
+# Optional local-only Stripe test-mode probe. Never use an sk_live_ key here.
+# After setting STRIPE_SECRET_KEY to a real sk_test_ key, run: npm run stripe:testmode:preflight
+# The command only performs GET /v1/account; it never creates a payment.
 # Optional test-only payment setup. Leave unset unless intentionally testing.
 # STRIPE_SECRET_KEY=sk_test_replace_me
 # STRIPE_WEBHOOK_SECRET=whsec_replace_me
