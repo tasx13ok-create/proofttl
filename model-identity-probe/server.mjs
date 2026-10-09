@@ -47,7 +47,7 @@ async function runTool(name, args = {}) {
     const hasCoreConfig = Boolean(key && model && token);
     const tokenStrongEnough = Boolean(token && Buffer.byteLength(token, "utf8") >= MIN_ACCESS_TOKEN_LENGTH);
     const provider = (process.env.PROBE_PROVIDER || "openai-compatible").toLowerCase();
-    const supportedProviders = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai"];
+    const supportedProviders = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "perplexity"];
     const providerSupported = supportedProviders.includes(provider);
     const providerConfigured = hasCoreConfig && tokenStrongEnough && providerSupported;
     const invalidReason = !providerSupported ? "PROBE_PROVIDER is unsupported." : !tokenStrongEnough && hasCoreConfig ? "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes." : null;
@@ -82,7 +82,7 @@ async function runTool(name, args = {}) {
     const model = process.env.PROBE_MODEL_ID;
     const token = process.env.PROBE_ACCESS_TOKEN;
     const provider = (process.env.PROBE_PROVIDER || "openai-compatible").toLowerCase();
-    const supported = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai"];
+    const supported = ["openai", "openai-compatible", "openrouter", "anthropic", "gemini", "azure-openai", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "perplexity"];
     if (!supported.includes(provider)) return result({ status: "unsupported_provider", supported_providers: supported, network_request_made: false });
     if (!key || !model || !token) return result({ status: "not_configured", required_configuration: ["PROBE_API_KEY", "PROBE_MODEL_ID", "PROBE_ACCESS_TOKEN"], network_request_made: false });
     if (Buffer.byteLength(token, "utf8") < MIN_ACCESS_TOKEN_LENGTH) return result({ status: "invalid_configuration", message: "PROBE_ACCESS_TOKEN must be at least 32 UTF-8 bytes; no provider request made.", network_request_made: false });
@@ -100,6 +100,13 @@ async function runTool(name, args = {}) {
       openai: "https://api.openai.com/v1",
       "openai-compatible": "https://api.openai.com/v1",
       openrouter: "https://openrouter.ai/api/v1",
+      xai: "https://api.x.ai/v1",
+      deepseek: "https://api.deepseek.com",
+      mistral: "https://api.mistral.ai/v1",
+      groq: "https://api.groq.com/openai/v1",
+      together: "https://api.together.xyz/v1",
+      fireworks: "https://api.fireworks.ai/inference/v1",
+      perplexity: "https://api.perplexity.ai",
       anthropic: "https://api.anthropic.com",
       gemini: "https://generativelanguage.googleapis.com/v1beta",
       "azure-openai": ""
