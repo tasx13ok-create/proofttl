@@ -24,8 +24,18 @@ jobs:
           const pageText = await page.text();
           assert.match(pageText, /Model Identity Probe/, 'mobile UI title');
           assert.match(pageText, /Probe access token/, 'provider probe access-token control');
+          assert.match(pageText, /href="\/styles.css"/, 'external stylesheet link');
+          assert.match(pageText, /src="\/app.js"/, 'external script link');
           assert.equal(page.headers.get('x-content-type-options'), 'nosniff', 'content-type hardening header');
-          assert.match(page.headers.get('content-security-policy') || '', /frame-ancestors 'none'/, 'frame restriction CSP');
+          const pageCsp = page.headers.get('content-security-policy') || '';
+          assert.match(pageCsp, /frame-ancestors 'none'/, 'frame restriction CSP');
+          assert.ok(!pageCsp.includes('unsafe-inline'), 'CSP must not allow inline scripts or styles');
+          const css = await fetch(base + '/styles.css');
+          assert.equal(css.status, 200, 'stylesheet asset status');
+          assert.match(css.headers.get('content-type') || '', /text\/css/, 'stylesheet content type');
+          const js = await fetch(base + '/app.js');
+          assert.equal(js.status, 200, 'script asset status');
+          assert.match(js.headers.get('content-type') || '', /javascript/, 'script content type');
           async function rpc(method, params = {}) {
             const response = await fetch(base + '/api/mcp', {
               method: 'POST',
