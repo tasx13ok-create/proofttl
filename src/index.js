@@ -200,7 +200,7 @@ async function handleVerify(request, env) {
       await attachLeaseIssuanceSignature(
         lease,
         signingKey,
-        env.PROOFTTL_LEASE_SIGNING_KEY_ID || undefined,
+        (env.PROOFTTL_SIGNING_KEY_ID || env.PROOFTTL_LEASE_SIGNING_KEY_ID) || undefined,
         observedAt.toISOString()
       );
     } catch (error) {
@@ -226,7 +226,7 @@ async function canSignLease(value) {
 
 async function handleSigningKeys(env) {
   const privateJwk = (env.PROOFTTL_SIGNING_PRIVATE_JWK || env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK);
-  const keyId = env.PROOFTTL_LEASE_SIGNING_KEY_ID || undefined;
+  const keyId = (env.PROOFTTL_SIGNING_KEY_ID || env.PROOFTTL_LEASE_SIGNING_KEY_ID) || undefined;
   if (!signingIsConfigured(privateJwk)) {
     return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
   }
