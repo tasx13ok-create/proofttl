@@ -126,8 +126,8 @@ app.use("/verify", async (c, next) => {
   return paymentMiddleware(c, next);
 });
 
-app.get("/.well-known/proofttl.json", (c) => machineJson(c, discoveryForEnv(c.env)));
-app.get("/.well-known/proofttl-keys.json", (c) => machineJson(c, signingKeysForEnv(c.env)));
+app.get("/.well-known/proofttl.json", async (c) => machineJson(c, await discoveryForEnv(c.env)));
+app.get("/.well-known/proofttl-keys.json", async (c) => machineJson(c, await signingKeysForEnv(c.env)));
 app.get("/openapi.json", (c) => machineJson(c, OPENAPI));
 app.get("/pricing", (c) => machineJson(c, PRICING));
 
@@ -229,23 +229,8 @@ async function validatePaidVerifyRequest(c, paymentResult) {
     c.env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK
   );
   if (signingRequired || signingConfiguredSomewhere) {
-    try {
-      const signing = signingConfigFromEnv(c.env);
-      if (!signing.active_private_jwk || !signing.active_kid) {
-        return c.json({
-          error: "lease_signing_unavailable",
-          message: "Required signing is unavailable; no paid verification was settled."
-        }, 503);
-      }
-      await crypto.subtle.importKey(
-        "jwk",
-        typeof signing.active_private_jwk === "string" ? JSON.parse(signing.active_private_jwk) : signing.active_private_jwk,
-        { name: "Ed25519" },
-        false,
-        ["sign"]
-      );
-    } catch (error) {
-      console.warn(JSON.stringify({ event: "pre_settlement_signing_config_invalid", error: error?.name || "Error" }));
+    if (!(await isSigningKeyPairUsable(c.env))) {
+      console.warn(JSON.stringify({ event: "pre_settlement_signing_key_unusable" }));
       return c.json({
         error: "lease_signing_unavailable",
         message: "ProofTTL signing configuration is invalid; no paid verification was settled."
@@ -367,31 +352,58 @@ function machineJson(c, value) {
   return c.json(value);
 }
 
-function signingKeysForEnv(env) {
+async function isSigningKeyPairUsable(env) {
   try {
-    const keySet = publicSigningKeySet(env);
-    return {
-      service: "ProofTTL",
-      signing_enabled: Boolean(keySet.active_kid && keySet.keys.length),
-      active_kid: keySet.active_kid,
-      revoked_kids: keySet.revoked_kids,
-      signature_version: "proofttl-ed25519-v1",
-      attestation_version: "proofttl-issuance-v1",
-      keys: keySet.keys
-    };
+    const signing = signingConfigFromEnv(env);
+    if (!signing.active_kid || !signing.active_private_jwk) return false;
+    const published = signing.public_keys.filter((key) => key.kid === signing.active_kid);
+    if (published.length !== 1 || !published[0]?.x) return false;
+    const privateJwk = typeof signing.active_private_jwk === "string"
+      ? JSON.parse(signing.active_private_jwk)
+      : signing.active_private_jwk;
+    if (!privateJwk || privateJwk.kty !== "OKP" || privateJwk.crv !== "Ed25519" || typeof privateJwk.d !== "string") return false;
+    const privateKey = await crypto.subtle.importKey("jwk", privateJwk, { name: "Ed25519" }, false, ["sign"]);
+    const publicKey = await crypto.subtle.importKey("jwk", {
+      kty: "OKP",
+      crv: "Ed25519",
+      x: published[0].x,
+      ext: true
+    }, { name: "Ed25519" }, false, ["verify"]);
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const signature = await crypto.subtle.sign({ name: "Ed25519" }, privateKey, challenge);
+    return await crypto.subtle.verify({ name: "Ed25519" }, publicKey, signature, challenge);
   } catch (error) {
-    console.error(JSON.stringify({ event: "lease_signing_key_discovery_failed", error: error?.name || "Error" }));
-    return { service: "ProofTTL", signing_enabled: false, signature_version: "proofttl-ed25519-v1", attestation_version: "proofttl-issuance-v1", keys: [] };
+    console.warn(JSON.stringify({ event: "signing_key_pair_self_test_failed", error: error?.name || "Error" }));
+    return false;
   }
 }
 
-function discoveryForEnv(env) {
-  const signing = signingKeysForEnv(env);
+async function signingKeysForEnv(env) {
+  try {
+    const keySet = publicSigningKeySet(env);
+    const signingEnabled = Boolean(keySet.active_kid && keySet.keys.length && await isSigningKeyPairUsable(env));
+    return {
+      service: "ProofTTL",
+      signing_enabled: signingEnabled,
+      active_kid: signingEnabled ? keySet.active_kid : null,
+      revoked_kids: keySet.revoked_kids,
+      signature_version: "proofttl-ed25519-v1",
+      attestation_version: "proofttl-issuance-v1",
+      keys: signingEnabled ? keySet.keys : []
+    };
+  } catch (error) {
+    console.error(JSON.stringify({ event: "lease_signing_key_discovery_failed", error: error?.name || "Error" }));
+    return { service: "ProofTTL", signing_enabled: false, active_kid: null, revoked_kids: [], signature_version: "proofttl-ed25519-v1", attestation_version: "proofttl-issuance-v1", keys: [] };
+  }
+}
+
+async function discoveryForEnv(env) {
+  const signing = await signingKeysForEnv(env);
+  const capabilities = [...new Set(DISCOVERY.capabilities.filter((capability) => capability !== "ed25519_issuance_signatures"))];
+  if (signing.signing_enabled) capabilities.push("ed25519_issuance_signatures");
   return {
     ...DISCOVERY,
-    capabilities: signing.signing_enabled
-      ? [...DISCOVERY.capabilities, "ed25519_issuance_signatures"]
-      : DISCOVERY.capabilities,
+    capabilities,
     signing: {
       enabled: signing.signing_enabled,
       algorithm: signing.signing_enabled ? "Ed25519" : null,
