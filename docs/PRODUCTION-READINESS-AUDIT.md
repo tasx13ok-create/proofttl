@@ -11,15 +11,16 @@ This is an engineering readiness assessment, not a deployment certification.
 - `src/verification-gateway.js` fails closed when draft/claim inventory is absent or incomplete, a claim is not bound to the draft, risk/source fields are invalid, verification throws, evidence is absent, a lease is expired/inactive, or the adapter does not report a verified signature.
 - The gateway enforces the host's `minimumRisk` floor; invalid host policy blocks. Regression assertions cover both cases.
 - `src/assistant.js` generates a voice-assistant response through `runAssistantResponse` and returns the text. The response path does not call `evaluateVerificationGate`.
-- The ProofTTL API `src/index.js` issues and stores leases through `handleVerify`. The current implementation does not import or call the existing `src/lease-signing.js` helpers in that issuance path.
-- `src/lease-signing.js` provides Ed25519 issuance-signature helpers, but their existence alone does not mean issued leases are signed, public keys are published, or consumers verify them.
+- The ProofTTL API `src/index.js` now supports signing newly issued leases with `src/lease-signing.js` when `PROOFTTL_LEASE_SIGNING_PRIVATE_JWK` is configured, and exposes `/.well-known/proofttl-jwks.json` for public-key discovery.
+- `PROOFTTL_REQUIRE_SIGNED_LEASES=true` rejects issuance before source fetching if a valid private key is absent. If that flag is not enabled and no key is configured, legacy unsigned issuance remains possible for compatibility; deployment configuration must be verified before asserting signing is active.
+- A new deterministic integration test exercises signed issuance, public-key publication, and the missing-key fail-closed path. Consumer trust configuration and multi-key rotation/revocation remain operational requirements.
 - The gateway's `verifyClaim` callback is a trusted adapter boundary. The `signature_verified: true` value is not cryptographic proof by itself; only an adapter that actually validates the signature against a trusted ProofTTL public key may set it.
 
 ## Release blockers (must close before claiming enforcement)
 
 ### P0 — Do not ship as mandatory enforcement yet
 
-1. **Lease signing and trust chain:** connect Ed25519 signing to lease issuance; keep `issued_status` immutable; publish a key set with stable key IDs; validate signatures against the published/trusted key set; test tampering, wrong key IDs, malformed signatures, key rotation, and unsigned legacy leases. Never derive trust solely from a caller-provided boolean.
+1. **Lease signing and trust chain:** API issuance signing and single-key JWKS publication are now implemented on this branch with deterministic integration coverage. Before production, configure the private key as a secret, enable `PROOFTTL_REQUIRE_SIGNED_LEASES=true`, validate consumer signatures against the trusted key set, and complete tampering, wrong key ID, malformed signature, key rotation, and unsigned legacy-lease tests. Never derive trust solely from a caller-provided boolean.
 2. **Response-release integration:** place the gate after draft generation and before any response leaves a ProofTTL-controlled boundary. All fallback/error branches must pass through the same gate or return a blocked/error result. Do not speak, stream, publish, or execute an action before the decision is ALLOW.
 3. **Claim-inventory assurance:** require a structured claim inventory bound to the exact draft and produced by a controlled extractor. A model's own `inventoryComplete: true` assertion is not sufficient evidence of completeness. Add adversarial omission, paraphrase, negation, numbers/dates, attribution, and multi-claim sentence tests.
 4. **Source/evidence trust:** verify fetched final URLs, redirect handling, source safety, and evidence provenance; ensure the claim checked by the lease is exactly the claim submitted to the gate. Unknown or contradicted claims block.
@@ -52,4 +53,4 @@ A third-party AI provider cannot be forced by an external MCP server, prompt, we
 
 ## Current conclusion
 
-The gateway and its CI tests are useful foundations. Do not describe ProofTTL as a universal or production-enforced AI truth layer until the P0 blockers above are closed, reviewed, tested end-to-end, and deployed to a controlled boundary.
+The gateway, API issuance-signing path, JWKS discovery, and deterministic tests are useful foundations. The response-release integration, independently defensible claim-inventory completeness, production signing configuration, consumer key trust, and operational controls remain open. Do not describe ProofTTL as a universal or production-enforced AI truth layer until the remaining P0 blockers are closed, reviewed, tested end-to-end, and deployed to a controlled boundary.
