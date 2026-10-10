@@ -4,7 +4,6 @@ import {
   reconcileMonitorScheduleBatch,
   upsertMonitorSchedule
 } from "./monitor-schedule.js";
-import { attachLeaseIssuanceSignature } from "./lease-signing.js";
 import { attachLeaseEventSignatures } from "./event-signing.js";
 
 const LEASE_PREFIX = "lease:";
@@ -56,9 +55,8 @@ export function createLeaseStoreBinding(kv, db, options = {}) {
 
       if (lease && typeof lease === "object" && signingPrivateJwk) {
         try {
-          if (!lease.signature) {
-            await attachLeaseIssuanceSignature(lease, signingPrivateJwk, signingKeyId);
-          }
+          // Never back-sign an unsigned legacy lease: that would manufacture an issuance
+          // attestation after the fact. New leases are signed at the issuance boundary.
           await attachLeaseEventSignatures(lease, signingPrivateJwk, signingKeyId);
           storedValue = JSON.stringify(lease);
         } catch (error) {
