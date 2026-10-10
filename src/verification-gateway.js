@@ -67,6 +67,12 @@ async function normalizeResult(result, claim, nowMs, requireSignedLease, require
   if (requireSignedLease && !signatureVerified) {
     return { ok: false, verdict, reason: "signed_lease_not_verified" };
   }
+  if (normalizeText(signedLease?.claim) !== normalizeText(claim.text)) {
+    return { ok: false, verdict, reason: "signed_lease_claim_mismatch" };
+  }
+  if (normalizeText(signedLease?.source_url) !== normalizeText(claim.source_url)) {
+    return { ok: false, verdict, reason: "signed_lease_source_mismatch" };
+  }
 
   return {
     ok: true,
@@ -120,7 +126,10 @@ export async function evaluateVerificationGate({
   });
 
   if (typeof draft !== "string" || !draft.trim()) return block("draft_missing");
-  if (typeof verifyClaim !== "function") return block("verifier_not_configured");\n  if (requireSignedLease && (!policy.trustedJwks || !Array.isArray(policy.trustedJwks.keys || policy.trustedJwks))) return block("trusted_signing_keys_not_configured");
+  if (typeof verifyClaim !== "function") return block("verifier_not_configured");
+  if (requireSignedLease && (!policy.trustedJwks || !Array.isArray(policy.trustedJwks.keys || policy.trustedJwks))) {
+    return block("trusted_signing_keys_not_configured");
+  }
   if (inventoryComplete !== true) return block("claim_inventory_not_confirmed_complete");
   if (!Array.isArray(claims) || claims.length === 0) return block("claim_inventory_empty");
   if (claims.length > maxClaims) return block("claim_limit_exceeded");
@@ -152,12 +161,14 @@ export async function evaluateVerificationGate({
         ttl_seconds: ttlSeconds,
         claim_id: claim.id
       });
-      const normalized = normalizeResult(
+      const normalized = await normalizeResult(
         raw,
         claim,
         Number.isFinite(now) ? now : Date.now(),
         requireSignedLease,
-        requireEvidence
+        requireEvidence,
+        policy.trustedJwks,
+        policy.revokedKeyIds
       );
       results.push({
         id: claim.id,
