@@ -137,6 +137,20 @@ export function publicSigningJwk(privateJwkInput, keyId = DEFAULT_SIGNING_KEY_ID
   };
 }
 
+export async function verifyLeaseAgainstTrustedJwks(lease, jwks, revokedKeyIds = []) {
+  const keyId = typeof lease?.signature?.key_id === "string" ? lease.signature.key_id : "";
+  if (!keyId || !Array.isArray(revokedKeyIds) || revokedKeyIds.includes(keyId)) return false;
+  const keys = Array.isArray(jwks) ? jwks : jwks?.keys;
+  if (!Array.isArray(keys)) return false;
+  const matches = keys.filter((key) => key?.kid === keyId);
+  if (matches.length !== 1) return false;
+  try {
+    return await verifyLeaseIssuanceSignature(lease, matches[0]);
+  } catch {
+    return false;
+  }
+}
+
 export function signingIsConfigured(privateJwkInput) {
   try {
     return Boolean(parsePrivateJwk(privateJwkInput));
