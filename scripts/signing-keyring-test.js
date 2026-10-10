@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { publicSigningKeySet, signingConfigFromEnv, parseSigningKeyring } from "../src/signing-keyring.js";
+import core from "../src/index.js";
 import { attachLeaseIssuanceSignature, verifyLeaseAgainstTrustedJwks } from "../src/lease-signing.js";
 
 async function pair() {
@@ -30,6 +31,12 @@ const publicSet = publicSigningKeySet(env);
 assert.equal(publicSet.active_kid, "key-2026-b");
 assert.equal(publicSet.keys.some((key) => key.kid === "key-compromised"), false, "revoked key is removed from JWKS");
 assert.equal(publicSet.keys.some((key) => key.kid === "key-2026-a"), true, "previous key remains trusted until intentionally retired");
+const jwksResponse = await core.fetch(new Request("https://proofttl.test/.well-known/proofttl-keys.json"), env);
+const jwksBody = await jwksResponse.json();
+assert.equal(jwksResponse.status, 200, "public discovery endpoint serves a configured keyring");
+assert.equal(jwksBody.active_kid, "key-2026-b");
+assert.equal(jwksBody.keys.length, 2, "endpoint publishes current and previous non-revoked keys");
+assert.deepEqual(jwksBody.revoked_kids, ["key-compromised"], "endpoint communicates revoked IDs");
 
 const lease = {
   lease_id: "ftl_0123456789abcdef",
