@@ -5,6 +5,7 @@ import {
   buildVerificationCostSample,
   normalizeAiUsage
 } from "./costs.js";
+import { attachLeaseIssuanceSignature, publicSigningJwk, signingIsConfigured } from "./lease-signing.js";
 
 const MODEL = SEMANTIC_MODEL;
 const SERVICE_VERSION = "0.3.1";
@@ -37,6 +38,10 @@ export default {
           monitor: "GET /monitor/status"
         }
       });
+    }
+
+    if (request.method === "GET" && url.pathname === "/.well-known/proofttl-jwks.json") {
+      return handleSigningKeys(env);
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
@@ -182,8 +187,44 @@ async function handleVerify(request, env) {
     next_check_at: nextCheckTime(observedAt.getTime(), monitorIntervalSeconds, expiresAt.getTime())
   };
 
+  const signingKey = env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK;
+  const signingRequired = String(env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true";
+  if (signingRequired && !signingIsConfigured(signingKey)) {
+    return json({ error: "lease_signing_unavailable", message: "Signed lease issuance is required but signing is not configured." }, 503);
+  }
+  if (signingKey) {
+    try {
+      await attachLeaseIssuanceSignature(
+        lease,
+        signingKey,
+        env.PROOFTTL_LEASE_SIGNING_KEY_ID || undefined,
+        observedAt.toISOString()
+      );
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "lease_signing_failed", error: error?.name || "Error" }));
+      return json({ error: "lease_signing_failed", message: "ProofTTL could not safely sign this lease." }, 503);
+    }
+  }
+
   await saveLease(env, lease);
   return json(lease);
+}
+
+async function handleSigningKeys(env) {
+  const privateJwk = env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK;
+  const keyId = env.PROOFTTL_LEASE_SIGNING_KEY_ID || undefined;
+  if (!signingIsConfigured(privateJwk)) {
+    return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
+  }
+
+  try {
+    const key = publicSigningJwk(privateJwk, keyId);
+    if (!key) return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
+    return json({ keys: [key] }, 200, { "cache-control": "public, max-age=300, stale-while-revalidate=60" });
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "signing_key_publication_failed", error: error?.name || "Error" }));
+    return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
+  }
 }
 
 async function handleLeaseGet(id, env) {
