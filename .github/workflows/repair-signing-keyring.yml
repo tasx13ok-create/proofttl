@@ -30,6 +30,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install project dependencies
+        run: npm ci --no-audit --no-fund
+
       - name: Require Cloudflare deployment credentials
         shell: bash
         run: |
