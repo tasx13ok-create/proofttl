@@ -54,7 +54,7 @@ assert.equal((await gateAssistantDraft({ draft: tampered.claim, lease: tampered,
 const expired = { ...lease, expires_at: "2026-10-09T11:59:59.000Z" };
 assert.equal((await gateAssistantDraft({ draft: lease.claim, lease: expired, env, now })).reason, "lease_signature_not_trusted", "tampering with attested expiry invalidates signature");
 const inactive = { ...lease, lease_state: "REVOKED" };
-assert.equal((await gateAssistantDraft({ draft: lease.claim, lease: inactive, env, now })).reason, "lease_signature_not_trusted", "attested field tampering is rejected");
+assert.equal((await gateAssistantDraft({ draft: lease.claim, lease: inactive, env, now })).reason, "lease_not_active", "inactive leases are rejected");
 const noKeys = await gateAssistantDraft({ draft: lease.claim, lease, env: {}, now });
 assert.equal(noKeys.decision, "BLOCKED");
 assert.equal(noKeys.reason, "trusted_signing_keys_unavailable");
