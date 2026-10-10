@@ -1,4 +1,5 @@
 import core from "../src/index.js";
+import entry from "../src/entry.js";
 import { verifyLeaseIssuanceSignature } from "../src/lease-signing.js";
 
 let passed = 0;
@@ -75,6 +76,15 @@ async function run() {
     });
     assert(malformedKey.status === 503, "malformed cryptographic key is rejected before source fetch");
     assert(sourceFetches === 1, "malformed signing key does not trigger a source fetch");
+
+    const legacy = { ...lease, lease_id: "ftl_legacy0123456789abcdef" };
+    delete legacy.signature;
+    delete legacy.issued_attestation;
+    await kv.put("lease:" + legacy.lease_id, JSON.stringify(legacy));
+    const legacyRead = await entry.fetch(new Request("https://proofttl.test/lease/" + legacy.lease_id), env);
+    const legacyReadBody = await legacyRead.json();
+    assert(legacyRead.status === 200, "legacy lease remains readable for compatibility");
+    assert(!legacyReadBody.signature && !legacyReadBody.issued_attestation, "reading an unsigned legacy lease never manufactures an issuance signature");
   } finally {
     globalThis.fetch = originalFetch;
   }
