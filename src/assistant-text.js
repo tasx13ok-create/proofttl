@@ -112,6 +112,14 @@ export async function handleTextAssistant(request, env, ctx = null) {
     const releasedResponse = releaseGate.decision === "ALLOW"
       ? releaseGate.response
       : RELEASE_GATE_BLOCKED_RESPONSE;
+    if (releaseGate.decision !== "ALLOW") {
+      console.warn(JSON.stringify({
+        event: "assistant_release_gate_blocked",
+        surface: "text",
+        reason: releaseGate.reason,
+        lease_id: releaseGate.lease_id || null
+      }));
+    }
 
     queueMiraObservation(ctx, env, {
       task_class: MIRA_TASK_CLASS, strategy_id: MIRA_STRATEGY_ID, model_id: modelRuntime.response_model,
