@@ -6,6 +6,7 @@ import {
 } from "./assistant-model-router.js";
 import { consumeAssistantQuota, getAssistantQuota } from "./assistant-quota.js";
 import { recordMiraObservation } from "./mira.js";
+import { gateAssistantDraft, RELEASE_GATE_BLOCKED_RESPONSE } from "./assistant-release-gate.js";
 
 const MAX_TEXT_CHARS = 1200;
 const MAX_HISTORY_MESSAGES = 6;
@@ -103,16 +104,26 @@ export async function handleTextAssistant(request, env, ctx = null) {
       return jsonResponse({ error: "assistant_empty_response", message: "ProofTTL did not produce a usable reply. Try that message again.", quota }, 503);
     }
 
+    const releaseGate = await gateAssistantDraft({
+      draft: response,
+      lease: leaseGrounding?.signed_lease || null,
+      env
+    });
+    const releasedResponse = releaseGate.decision === "ALLOW"
+      ? releaseGate.response
+      : RELEASE_GATE_BLOCKED_RESPONSE;
+
     queueMiraObservation(ctx, env, {
       task_class: MIRA_TASK_CLASS, strategy_id: MIRA_STRATEGY_ID, model_id: modelRuntime.response_model,
-      success: true, latency_ms: Date.now() - startedAt, prompt_tokens: usage?.prompt_tokens,
-      completion_tokens: usage?.completion_tokens, retries: 0, reliability_score: 1,
-      metadata: { provider: modelRuntime.provider, history_messages: history.length, response_chars: response.length, scope: "proofttl_only", lease_grounded: Boolean(leaseGrounding?.found), lease_id: leaseGrounding?.lease_id || null }
+      success: releaseGate.decision === "ALLOW", latency_ms: Date.now() - startedAt, prompt_tokens: usage?.prompt_tokens,
+      completion_tokens: usage?.completion_tokens, retries: 0, reliability_score: releaseGate.decision === "ALLOW" ? 1 : 0,
+      metadata: { provider: modelRuntime.provider, history_messages: history.length, response_chars: releasedResponse.length, scope: "proofttl_only", lease_grounded: Boolean(leaseGrounding?.found), lease_id: leaseGrounding?.lease_id || null, release_gate: releaseGate.decision, release_gate_reason: releaseGate.reason }
     });
 
     return jsonResponse({
       message,
-      response,
+      response: releasedResponse,
+      release_gate: { decision: releaseGate.decision, reason: releaseGate.reason, claims_checked: releaseGate.claims_checked, lease_id: releaseGate.lease_id },
       action: null,
       quota,
       context: {
@@ -151,7 +162,7 @@ async function loadLeaseGrounding(message, env) {
     const raw = await env.LEASES.get(`lease:${leaseId}`);
     if (!raw) return { lease_id: leaseId, found: false, lease: null };
     const lease = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return { lease_id: leaseId, found: true, lease: leaseGroundingView(lease) };
+    return { lease_id: leaseId, found: true, lease: leaseGroundingView(lease), signed_lease: lease };
   } catch (error) {
     console.warn(JSON.stringify({ event: "assistant_lease_grounding_failed", lease_id: leaseId, error: error?.name || error?.constructor?.name || "Error" }));
     return { lease_id: leaseId, found: false, lease: null };
