@@ -29,7 +29,7 @@ try {
   const invalidLease = await rpc("tools/call", { name: "proofttl_get_lease", arguments: { lease_id: "../../etc/passwd" } });
   assert.equal(invalidLease.result.isError, true);
   const assistant = await rpc("tools/call", { name: "proofttl_ask_assistant", arguments: { message: "What is ProofTTL?" } });
-  assert.match(assistant.result.content[0].text, /not a formal claim verification/);
+  assert.match(assistant.result.content[0].text, /not a formal verification verdict/);
   const verify = await rpc("tools/call", { name: "proofttl_verify_claim", arguments: { claim: "A claim", source_url: "https://example.com" } });
   const verifyText = verify.result.content[0].text;
   assert.match(verifyText, /payment_required/);
