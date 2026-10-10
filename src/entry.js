@@ -21,10 +21,6 @@ import {
   createLeaseStoreBinding,
   reconcileMonitorScheduleFromKv
 } from "./lease-store.js";
-import {
-  attachLeaseIssuanceSignature,
-  publicSigningJwk
-} from "./lease-signing.js";
 import { signingConfigFromEnv, publicSigningKeySet } from "./signing-keyring.js";
 
 const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
@@ -155,7 +151,7 @@ app.all("*", async (c) => {
   const isLeaseRead = c.req.method === "GET" && /^\/lease\/[^/]+$/.test(pathname);
 
   if (!isVerifyResponse && !isLeaseRead) return response;
-  return enrichLeaseVerdictSemantics(response, isVerifyResponse ? c.env : null);
+  return enrichLeaseVerdictSemantics(response);
 });
 
 export default {
@@ -195,7 +191,7 @@ export async function issuePublicMcpTestLease(env) {
   });
 
   const response = await core.fetch(request, envForCore(env));
-  return enrichLeaseVerdictSemantics(response, env);
+  return enrichLeaseVerdictSemantics(response);
 }
 
 function getX402Middleware(env) {
@@ -399,7 +395,7 @@ function discoveryForEnv(env) {
   };
 }
 
-async function enrichLeaseVerdictSemantics(response, signingEnv = null) {
+async function enrichLeaseVerdictSemantics(response) {
   if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
     return response;
   }
@@ -425,22 +421,6 @@ async function enrichLeaseVerdictSemantics(response, signingEnv = null) {
     issued_status: issuedStatus,
     current_status: currentStatus
   };
-
-  if (signingEnv?.PROOFTTL_SIGNING_PRIVATE_JWK && !enriched.signature) {
-    try {
-      await attachLeaseIssuanceSignature(
-        enriched,
-        signingEnv.PROOFTTL_SIGNING_PRIVATE_JWK,
-        signingEnv.PROOFTTL_SIGNING_KEY_ID
-      );
-    } catch (error) {
-      console.error(JSON.stringify({
-        event: "lease_response_signing_failed",
-        lease_id: enriched.lease_id,
-        error: error?.message || String(error)
-      }));
-    }
-  }
 
   return new Response(JSON.stringify(enriched, null, 2), {
     status: response.status,
