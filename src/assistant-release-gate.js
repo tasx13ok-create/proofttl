@@ -18,7 +18,7 @@ function splitSentences(draft) {
   if (!text) return [];
   // Keep this deliberately conservative. Multi-sentence and clause-heavy
   // drafts are blocked until the host can prove each sentence independently.
-  if (/\n|[;:]/.test(text)) return null;
+  if (/\n|[;:,]/.test(text)) return null;
   const sentences = text.match(/[^.!?]+[.!?]*/g) || [];
   const normalized = sentences.map((sentence) => sentence.trim()).filter(Boolean);
   if (normalized.length !== 1) return null;
