@@ -16,6 +16,8 @@ It returns a JSON Web Key Set containing public Ed25519 keys. Consumers must pin
 - `PROOFTTL_LEASE_SIGNING_KEY_ID`: accepted compatibility alias if the canonical variable is not set.
 - `PROOFTTL_REQUIRE_SIGNED_LEASES=true`: fail closed on `POST /verify` when a valid signing key is not configured.
 
+Set `PROOFTTL_REQUIRE_SIGNED_LEASES` to the string `"true"` in the Worker environment (for this repository, the `vars` section of `wrangler.jsonc`) **only after** the private signing secret has been provisioned and the public-key endpoint has been checked. This flag is intentionally not enabled by this PR because deployment secret presence has not been verified; enabling it prematurely makes `/verify` return 503, which is safer than issuing unsigned leases but may interrupt current issuance.
+
 Generate a key pair with the repository's `npm run signing:key:generate` workflow in a trusted environment. Store the private JWK only as a deployment secret. Never commit it, print it in logs, place it in client-side code, or include it in issue/PR comments. Publish only the public JWK from the discovery endpoint.
 
 The API prefers `PROOFTTL_SIGNING_PRIVATE_JWK` and accepts `PROOFTTL_LEASE_SIGNING_PRIVATE_JWK` as a compatibility alias. When a signing key is configured, newly issued leases are signed before persistence and response. If signing fails, issuance returns a 503 and does not save or return the unsigned lease. If signing is required but no valid private key is configured, the endpoint rejects the request before fetching a source. When the requirement flag is not enabled and no key is configured, legacy unsigned issuance remains possible for compatibility; consumers that require signed leases must reject those leases.
