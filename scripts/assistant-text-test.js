@@ -74,7 +74,9 @@ assert.equal(env.calls.length, 0, "legacy general-purpose coding is quarantined 
 const about = await handleTextAssistant(req({ message: "what is proofttl" }), env);
 assert.equal(about.status, 200);
 const aboutBody = await about.json();
-assert.match(aboutBody.response, /ProofTTL/i);
+assert.match(aboutBody.response, /active, signed Fact Lease/i);
+assert.equal(aboutBody.release_gate?.decision, "BLOCKED", "ungrounded assistant output is never released");
+assert.equal(aboutBody.release_gate?.reason, "grounded_lease_required");
 assert.equal(aboutBody.inference?.deterministic_route, false);
 assert.equal(aboutBody.inference?.scope, "proofttl_only");
 assert.equal(env.calls.length, 1, "in-scope ProofTTL conversation invokes the model");
