@@ -1,10 +1,10 @@
 name: Repair ProofTTL Signing Keyring
 
 on:
-  push:
+  workflow_run:
+    workflows: ["ProofTTL v1 Deploy"]
+    types: [completed]
     branches: [main]
-    paths:
-      - ".ops/repair-signing-keyring.trigger"
   workflow_dispatch:
 
 permissions:
@@ -16,30 +16,50 @@ concurrency:
 
 jobs:
   rotate-signing-keyring:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - name: Checkout
+      - name: Checkout the completed deployment commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Determine whether this deployment requested a one-time rotation
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run_repair=true" >> "$GITHUB_OUTPUT"
+          elif git diff-tree --no-commit-id --name-only -r "${{ github.event.workflow_run.head_sha }}" | grep -Fxq ".ops/repair-signing-keyring.trigger"; then
+            echo "run_repair=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_repair=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup Node
+        if: steps.request.outputs.run_repair == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Install project dependencies
+        if: steps.request.outputs.run_repair == 'true'
         run: npm ci --no-audit --no-fund
 
       - name: Require Cloudflare deployment credentials
+        if: steps.request.outputs.run_repair == 'true'
         shell: bash
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN repository secret"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID repository secret"; exit 1; }
 
       - name: Generate, self-test, and install signing keyring
+        if: steps.request.outputs.run_repair == 'true'
         id: rotate
         shell: bash
         run: |
@@ -47,6 +67,7 @@ jobs:
           node scripts/rotate-signing-keyring.js | npx wrangler secret put PROOFTTL_SIGNING_KEYRING_JSON --name proofttl
 
       - name: Verify deployed public key and health
+        if: steps.request.outputs.run_repair == 'true'
         env:
           EXPECTED_KID: ${{ steps.rotate.outputs.kid }}
           EXPECTED_PUBLIC_X: ${{ steps.rotate.outputs.public_x }}
