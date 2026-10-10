@@ -56,8 +56,16 @@ export async function gateAssistantDraft({ draft, lease, env, now = Date.now() }
   const expiry = Date.parse(lease.expires_at || "");
   if (String(lease.lease_state || "").toUpperCase() !== "ACTIVE") return block("lease_not_active");
   if (!Number.isFinite(expiry) || expiry <= now) return block("lease_expired");
-  const verdict = String(lease.current_status || lease.status || lease.issued_status || "").toUpperCase();
+  if (String(lease.issued_status || "").toUpperCase() !== "SUPPORTED") return block("lease_issued_verdict_not_supported");
+  const verdict = String(lease.current_status || lease.revocation?.current_status || lease.last_check?.status || lease.status || "").toUpperCase();
   if (verdict !== "SUPPORTED" && verdict !== "VERIFIED") return block("lease_verdict_not_supported");
+  if (typeof lease.evidence !== "string" || !lease.evidence.trim()) return block("lease_evidence_missing");
+  try {
+    const source = new URL(lease.source_url);
+    if (!["http:", "https:"].includes(source.protocol) || source.username || source.password) return block("lease_source_invalid");
+  } catch {
+    return block("lease_source_invalid");
+  }
 
   const sentences = splitSentences(draft);
   if (!sentences) return block("draft_inventory_not_provably_complete");
