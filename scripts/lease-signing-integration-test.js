@@ -26,7 +26,7 @@ async function run() {
   const env = {
     LEASES: kv,
     PROOFTTL_REQUIRE_SIGNED_LEASES: "true",
-    PROOFTTL_LEASE_SIGNING_PRIVATE_JWK: JSON.stringify(privateJwk),
+    PROOFTTL_SIGNING_PRIVATE_JWK: JSON.stringify(privateJwk),
     PROOFTTL_LEASE_SIGNING_KEY_ID: "integration-test-key"
   };
   const originalFetch = globalThis.fetch;
@@ -50,7 +50,7 @@ async function run() {
     assert(lease.signature?.algorithm === "Ed25519", "issuance path attaches Ed25519 signature");
     assert(lease.signature?.key_id === "integration-test-key", "issuance uses configured stable key ID");
     assert(await verifyLeaseIssuanceSignature(lease, publicJwk), "issued lease signature verifies against trusted public key");
-    const keysResponse = await core.fetch(new Request("https://proofttl.test/.well-known/proofttl-jwks.json"), env);
+    const keysResponse = await core.fetch(new Request("https://proofttl.test/.well-known/proofttl-keys.json"), env);
     const keySet = await keysResponse.json();
     assert(keysResponse.status === 200 && keySet.keys?.length === 1, "public JWKS endpoint publishes one key");
     assert(keySet.keys[0].kid === "integration-test-key" && keySet.keys[0].x === publicJwk.x, "published key ID and public material match issuer");
@@ -71,7 +71,7 @@ async function run() {
     }), {
       LEASES: new MemoryKV(),
       PROOFTTL_REQUIRE_SIGNED_LEASES: "true",
-      PROOFTTL_LEASE_SIGNING_PRIVATE_JWK: JSON.stringify({ kty: "OKP", crv: "Ed25519", x: "bad", d: "bad" })
+      PROOFTTL_SIGNING_PRIVATE_JWK: JSON.stringify({ kty: "OKP", crv: "Ed25519", x: "bad", d: "bad" })
     });
     assert(malformedKey.status === 503, "malformed cryptographic key is rejected before source fetch");
     assert(sourceFetches === 1, "malformed signing key does not trigger a source fetch");
