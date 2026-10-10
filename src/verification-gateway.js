@@ -1,3 +1,5 @@
+import { verifyLeaseAgainstTrustedJwks } from "./lease-signing.js";
+
 const DEFAULTS = Object.freeze({
   maxClaims: 20,
   ttlSeconds: 3600,
@@ -33,13 +35,16 @@ function safeErrorCode(error) {
   return /^[a-z0-9_]{1,64}$/i.test(code) ? code : "verification_unavailable";
 }
 
-function normalizeResult(result, claim, nowMs, requireSignedLease, requireEvidence) {
+async function normalizeResult(result, claim, nowMs, requireSignedLease, requireEvidence, trustedJwks, revokedKeyIds) {
   const verdict = normalizeText(result?.current_status || result?.issued_status || result?.status).toUpperCase();
   const leaseState = normalizeText(result?.lease_state).toUpperCase();
   const expiresAt = Date.parse(result?.expires_at || "");
   const evidence = normalizeText(result?.evidence);
   const sourceUrl = normalizeText(result?.final_url || result?.source_url);
-  const signatureVerified = result?.signature_verified === true;
+  const signedLease = result?.lease && typeof result.lease === "object" ? result.lease : result;
+  const signatureVerified = requireSignedLease
+    ? Boolean(trustedJwks && await verifyLeaseAgainstTrustedJwks(signedLease, trustedJwks, revokedKeyIds || []))
+    : false;
 
   if (!ALLOWED_VERDICTS.has(verdict)) {
     return { ok: false, verdict: "UNKNOWN", reason: "invalid_or_missing_verdict" };
@@ -115,7 +120,7 @@ export async function evaluateVerificationGate({
   });
 
   if (typeof draft !== "string" || !draft.trim()) return block("draft_missing");
-  if (typeof verifyClaim !== "function") return block("verifier_not_configured");
+  if (typeof verifyClaim !== "function") return block("verifier_not_configured");\n  if (requireSignedLease && (!policy.trustedJwks || !Array.isArray(policy.trustedJwks.keys || policy.trustedJwks))) return block("trusted_signing_keys_not_configured");
   if (inventoryComplete !== true) return block("claim_inventory_not_confirmed_complete");
   if (!Array.isArray(claims) || claims.length === 0) return block("claim_inventory_empty");
   if (claims.length > maxClaims) return block("claim_limit_exceeded");
