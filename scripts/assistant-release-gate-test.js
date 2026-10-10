@@ -41,6 +41,7 @@ assert.equal(allowed.response, lease.claim);
 for (const [draft, reason] of [
   ["The service launched in 2024. It was the first in the country.", "draft_inventory_not_provably_complete"],
   ["The service launched in 2024 and quickly expanded.", "draft_inventory_not_provably_complete"],
+  ["The service launched in 2024, then revenue doubled.", "draft_inventory_not_provably_complete"],
   ["The service launched in 2025.", "draft_contains_unverified_or_unbound_claims"]
 ]) {
   const blocked = await gateAssistantDraft({ draft, lease, env, now });
