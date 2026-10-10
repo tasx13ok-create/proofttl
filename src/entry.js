@@ -237,6 +237,13 @@ async function validatePaidVerifyRequest(c, paymentResult) {
           message: "Required signing is unavailable; no paid verification was settled."
         }, 503);
       }
+      await crypto.subtle.importKey(
+        "jwk",
+        typeof signing.active_private_jwk === "string" ? JSON.parse(signing.active_private_jwk) : signing.active_private_jwk,
+        { name: "Ed25519" },
+        false,
+        ["sign"]
+      );
     } catch (error) {
       console.warn(JSON.stringify({ event: "pre_settlement_signing_config_invalid", error: error?.name || "Error" }));
       return c.json({
