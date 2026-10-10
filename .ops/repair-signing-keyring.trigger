@@ -3,3 +3,5 @@ One-time trigger: rotate ProofTTL production signing keyring using the validated
 Retry trigger after workflow dependency hardening.
 
 Retry trigger after deployment-serialized workflow update.
+
+Retry trigger after full-history checkout fix.
