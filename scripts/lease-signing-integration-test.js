@@ -30,10 +30,11 @@ async function run() {
     PROOFTTL_LEASE_SIGNING_KEY_ID: "integration-test-key"
   };
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response("The test release version is 4.2.0 and is publicly documented.", {
+  let sourceFetches = 0;
+  globalThis.fetch = async () => { sourceFetches += 1; return new Response("The test release version is 4.2.0 and is publicly documented.", {
     status: 200,
     headers: { "content-type": "text/plain; charset=utf-8" }
-  });
+  }); };
   try {
     const response = await core.fetch(new Request("https://proofttl.test/verify", {
       method: "POST",
@@ -60,6 +61,20 @@ async function run() {
       body: JSON.stringify({ claim: "A claim", source_url: "https://8.8.8.8/source" })
     }), { LEASES: new MemoryKV(), PROOFTTL_REQUIRE_SIGNED_LEASES: "true" });
     assert(noKey.status === 503, "required signing fails closed before source fetch when key is absent");
+    assert(sourceFetches === 1, "missing signing key does not trigger another source fetch");
+    const noPublishedKey = await core.fetch(new Request("https://proofttl.test/.well-known/proofttl-jwks.json"), {});
+    assert(noPublishedKey.status === 503, "JWKS discovery fails closed when no signing key is configured");
+    const malformedKey = await core.fetch(new Request("https://proofttl.test/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ claim: "A claim", source_url: "https://8.8.8.8/source" })
+    }), {
+      LEASES: new MemoryKV(),
+      PROOFTTL_REQUIRE_SIGNED_LEASES: "true",
+      PROOFTTL_LEASE_SIGNING_PRIVATE_JWK: JSON.stringify({ kty: "OKP", crv: "Ed25519", x: "bad", d: "bad" })
+    });
+    assert(malformedKey.status === 503, "malformed cryptographic key is rejected before source fetch");
+    assert(sourceFetches === 1, "malformed signing key does not trigger a source fetch");
   } finally {
     globalThis.fetch = originalFetch;
   }
