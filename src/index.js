@@ -5,7 +5,8 @@ import {
   buildVerificationCostSample,
   normalizeAiUsage
 } from "./costs.js";
-import { attachLeaseIssuanceSignature, publicSigningJwk, signingIsConfigured } from "./lease-signing.js";
+import { attachLeaseIssuanceSignature, signingIsConfigured } from "./lease-signing.js";
+import { signingConfigFromEnv, publicSigningKeySet } from "./signing-keyring.js";
 
 const MODEL = SEMANTIC_MODEL;
 const SERVICE_VERSION = "0.3.1";
@@ -86,7 +87,15 @@ export default {
 };
 
 async function handleVerify(request, env) {
-  const signingKey = (env.PROOFTTL_SIGNING_PRIVATE_JWK || env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK);
+  let signingConfig;
+  try {
+    signingConfig = signingConfigFromEnv(env);
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "signing_keyring_invalid", error: error?.name || "Error" }));
+    return json({ error: "lease_signing_unavailable", message: "ProofTTL signing configuration is invalid." }, 503);
+  }
+  const signingKey = signingConfig.active_private_jwk || (env.PROOFTTL_SIGNING_PRIVATE_JWK || env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK);
+  const signingKeyId = signingConfig.active_kid || (env.PROOFTTL_SIGNING_KEY_ID || env.PROOFTTL_LEASE_SIGNING_KEY_ID);
   const signingRequired = String(env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true";
   const signingConfigured = await canSignLease(signingKey);
   if ((signingRequired && !signingConfigured) || (signingKey && !signingConfigured)) {
@@ -200,7 +209,7 @@ async function handleVerify(request, env) {
       await attachLeaseIssuanceSignature(
         lease,
         signingKey,
-        (env.PROOFTTL_SIGNING_KEY_ID || env.PROOFTTL_LEASE_SIGNING_KEY_ID) || undefined,
+        signingKeyId || undefined,
         observedAt.toISOString()
       );
     } catch (error) {
@@ -225,17 +234,21 @@ async function canSignLease(value) {
 }
 
 async function handleSigningKeys(env) {
-  const privateJwk = (env.PROOFTTL_SIGNING_PRIVATE_JWK || env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK);
-  const keyId = (env.PROOFTTL_SIGNING_KEY_ID || env.PROOFTTL_LEASE_SIGNING_KEY_ID) || undefined;
-  if (!signingIsConfigured(privateJwk)) {
-    return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
-  }
-
   try {
-    const key = publicSigningJwk(privateJwk, keyId);
-    if (!key) return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
-    await crypto.subtle.importKey("jwk", key, { name: "Ed25519" }, false, ["verify"]);
-    return json({ keys: [key] }, 200, { "cache-control": "public, max-age=300, stale-while-revalidate=60" });
+    const keySet = publicSigningKeySet(env);
+    if (!keySet.keys.length || !keySet.active_kid) {
+      return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
+    }
+    for (const key of keySet.keys) {
+      await crypto.subtle.importKey("jwk", key, { name: "Ed25519" }, false, ["verify"]);
+    }
+    return json({
+      keys: keySet.keys,
+      active_kid: keySet.active_kid,
+      revoked_kids: keySet.revoked_kids,
+      signature_version: "proofttl-ed25519-v1",
+      attestation_version: "proofttl-issuance-v1"
+    }, 200, { "cache-control": "public, max-age=60, stale-while-revalidate=30" });
   } catch (error) {
     console.warn(JSON.stringify({ event: "signing_key_publication_failed", error: error?.name || "Error" }));
     return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
