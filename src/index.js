@@ -88,8 +88,9 @@ export default {
 async function handleVerify(request, env) {
   const signingKey = env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK;
   const signingRequired = String(env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true";
-  if (signingRequired && !signingIsConfigured(signingKey)) {
-    return json({ error: "lease_signing_unavailable", message: "Signed lease issuance is required but signing is not configured." }, 503);
+  const signingConfigured = await canSignLease(signingKey);
+  if ((signingRequired && !signingConfigured) || (signingKey && !signingConfigured)) {
+    return json({ error: "lease_signing_unavailable", message: "Signed lease issuance is required or configured, but the signing key is unusable." }, 503);
   }
   let body;
   try {
@@ -212,6 +213,17 @@ async function handleVerify(request, env) {
   return json(lease);
 }
 
+async function canSignLease(value) {
+  if (!signingIsConfigured(value)) return false;
+  try {
+    const jwk = typeof value === "string" ? JSON.parse(value) : value;
+    await crypto.subtle.importKey("jwk", jwk, { name: "Ed25519" }, false, ["sign"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function handleSigningKeys(env) {
   const privateJwk = env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK;
   const keyId = env.PROOFTTL_LEASE_SIGNING_KEY_ID || undefined;
@@ -222,6 +234,7 @@ async function handleSigningKeys(env) {
   try {
     const key = publicSigningJwk(privateJwk, keyId);
     if (!key) return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
+    await crypto.subtle.importKey("jwk", key, { name: "Ed25519" }, false, ["verify"]);
     return json({ keys: [key] }, 200, { "cache-control": "public, max-age=300, stale-while-revalidate=60" });
   } catch (error) {
     console.warn(JSON.stringify({ event: "signing_key_publication_failed", error: error?.name || "Error" }));
