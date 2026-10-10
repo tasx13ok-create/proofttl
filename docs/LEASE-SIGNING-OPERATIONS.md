@@ -37,4 +37,24 @@ Before rotating keys, publish the new public key and update trusted consumers to
 
 ## Current limitation
 
-The API issuance path now supports optional signing and JWKS discovery. This does **not** by itself make ProofTTL's assistant response path enforce verification, and does not make external AI providers use ProofTTL. The release gateway still needs integration at a host-controlled response/action boundary and an end-to-end test against the deployed API. Do not claim universal enforcement based on lease signing alone.
+The API issuance path now requires signing in the checked-in Worker configuration, publishes a rotating keyring, and the text/voice assistant response paths fail closed unless the draft is exactly one claim supported by an active trusted signed lease. This is deliberately conservative: multi-sentence answers and ungrounded answers are blocked rather than released. It does not make external AI providers use ProofTTL or gate unrelated third-party release paths.
+
+
+## Key rotation and revocation with a keyring
+
+For overlap rotation, set the secret `PROOFTTL_SIGNING_KEYRING_JSON` to a JSON object with an `active_kid` and a `keys` array. Each key entry has a unique `kid`, and either `private_jwk` (for the active signer) or `public_jwk` (for a previous verification-only key). A `revoked: true` entry is excluded from the published public-key set and its ID is returned in `revoked_kids`.
+
+Example shape (use real key material only in the deployment secret; do not commit it):
+
+```json
+{
+  "active_kid": "proofttl-2026-10-b",
+  "keys": [
+    { "kid": "proofttl-2026-10-a", "public_jwk": { "kty": "OKP", "crv": "Ed25519", "x": "PUBLIC_KEY_A", "kid": "proofttl-2026-10-a" } },
+    { "kid": "proofttl-2026-10-b", "private_jwk": { "kty": "OKP", "crv": "Ed25519", "x": "PUBLIC_KEY_B", "d": "PRIVATE_KEY_B" } },
+    { "kid": "compromised-key", "public_jwk": { "kty": "OKP", "crv": "Ed25519", "x": "COMPROMISED_PUBLIC_KEY", "kid": "compromised-key" }, "revoked": true }
+  ]
+}
+```
+
+Keep the previous public key published during the overlap period so existing leases remain verifiable. Consumers must enforce the revoked list and reject leases signed by a revoked key even if a stale cache still contains that key. For emergency revocation, mark the key revoked and deploy the updated keyring immediately; the endpoint uses a short cache lifetime. A compromised active key must be replaced, not merely relabeled.
