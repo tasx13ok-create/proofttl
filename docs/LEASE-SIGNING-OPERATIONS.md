@@ -12,7 +12,8 @@ It returns a JSON Web Key Set containing public Ed25519 keys. Consumers must pin
 
 - `PROOFTTL_SIGNING_PRIVATE_JWK`: canonical secret name used by the repository key-generation script; secret JSON string containing an Ed25519 private JWK with `kty=OKP`, `crv=Ed25519`, `x`, and `d`.
 - `PROOFTTL_LEASE_SIGNING_PRIVATE_JWK`: accepted compatibility alias for the private key secret.
-- `PROOFTTL_LEASE_SIGNING_KEY_ID`: stable public key identifier; set this explicitly for production.
+- `PROOFTTL_SIGNING_KEY_ID`: canonical key ID variable already used in `wrangler.jsonc`; set it to the public key ID.
+- `PROOFTTL_LEASE_SIGNING_KEY_ID`: accepted compatibility alias if the canonical variable is not set.
 - `PROOFTTL_REQUIRE_SIGNED_LEASES=true`: fail closed on `POST /verify` when a valid signing key is not configured.
 
 Generate a key pair with the repository's `npm run signing:key:generate` workflow in a trusted environment. Store the private JWK only as a deployment secret. Never commit it, print it in logs, place it in client-side code, or include it in issue/PR comments. Publish only the public JWK from the discovery endpoint.
