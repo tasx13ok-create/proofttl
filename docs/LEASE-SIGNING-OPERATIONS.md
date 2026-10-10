@@ -4,19 +4,20 @@
 
 ProofTTL can sign lease-issuance attestations with Ed25519. The public discovery endpoint is:
 
-`GET /.well-known/proofttl-jwks.json`
+`GET /.well-known/proofttl-keys.json` (the `/.well-known/proofttl-jwks.json` alias is also supported)
 
 It returns a JSON Web Key Set containing public Ed25519 keys. Consumers must pin or fetch this endpoint over authenticated HTTPS according to their trust policy, select the key by `kid`, and verify the signature over the canonical `issued_attestation`. A consumer must not trust a `signature_verified` boolean supplied by an untrusted caller.
 
 ## Configuration
 
-- `PROOFTTL_LEASE_SIGNING_PRIVATE_JWK`: secret JSON string containing an Ed25519 private JWK with `kty=OKP`, `crv=Ed25519`, `x`, and `d`.
+- `PROOFTTL_SIGNING_PRIVATE_JWK`: canonical secret name used by the repository key-generation script; secret JSON string containing an Ed25519 private JWK with `kty=OKP`, `crv=Ed25519`, `x`, and `d`.
+- `PROOFTTL_LEASE_SIGNING_PRIVATE_JWK`: accepted compatibility alias for the private key secret.
 - `PROOFTTL_LEASE_SIGNING_KEY_ID`: stable public key identifier; set this explicitly for production.
 - `PROOFTTL_REQUIRE_SIGNED_LEASES=true`: fail closed on `POST /verify` when a valid signing key is not configured.
 
 Generate a key pair with the repository's `npm run signing:key:generate` workflow in a trusted environment. Store the private JWK only as a deployment secret. Never commit it, print it in logs, place it in client-side code, or include it in issue/PR comments. Publish only the public JWK from the discovery endpoint.
 
-When a signing key is configured, newly issued leases are signed before persistence and response. If signing fails, issuance returns a 503 and does not save or return the unsigned lease. If signing is required but no valid private key is configured, the endpoint rejects the request before fetching a source. When the requirement flag is not enabled and no key is configured, legacy unsigned issuance remains possible for compatibility; consumers that require signed leases must reject those leases.
+The API prefers `PROOFTTL_SIGNING_PRIVATE_JWK` and accepts `PROOFTTL_LEASE_SIGNING_PRIVATE_JWK` as a compatibility alias. When a signing key is configured, newly issued leases are signed before persistence and response. If signing fails, issuance returns a 503 and does not save or return the unsigned lease. If signing is required but no valid private key is configured, the endpoint rejects the request before fetching a source. When the requirement flag is not enabled and no key is configured, legacy unsigned issuance remains possible for compatibility; consumers that require signed leases must reject those leases.
 
 ## Consumer verification requirements
 
