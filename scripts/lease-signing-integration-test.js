@@ -27,7 +27,7 @@ async function run() {
     LEASES: kv,
     PROOFTTL_REQUIRE_SIGNED_LEASES: "true",
     PROOFTTL_SIGNING_PRIVATE_JWK: JSON.stringify(privateJwk),
-    PROOFTTL_LEASE_SIGNING_KEY_ID: "integration-test-key"
+    PROOFTTL_SIGNING_KEY_ID: "integration-test-key"
   };
   const originalFetch = globalThis.fetch;
   let sourceFetches = 0;
