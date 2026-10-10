@@ -192,6 +192,14 @@ export async function handleVoiceAssistant(request, env) {
   const finalText = releaseGate.decision === "ALLOW"
     ? releaseGate.response
     : RELEASE_GATE_BLOCKED_RESPONSE;
+  if (releaseGate.decision !== "ALLOW") {
+    console.warn(JSON.stringify({
+      event: "assistant_release_gate_blocked",
+      surface: "voice",
+      reason: releaseGate.reason,
+      lease_id: releaseGate.lease_id || null
+    }));
+  }
 
   return jsonResponse({
     transcript,
