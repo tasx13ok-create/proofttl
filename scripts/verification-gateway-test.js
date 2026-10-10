@@ -1,4 +1,5 @@
-import { evaluateVerificationGate } from "../src/verification-gateway.js";
+import { evaluateVerificationGate as evaluateVerificationGateRaw } from "../src/verification-gateway.js";
+import { attachLeaseIssuanceSignature } from "../src/lease-signing.js";
 
 let passed = 0;
 function assert(condition, message) {
@@ -8,6 +9,11 @@ function assert(condition, message) {
 }
 
 const now = Date.parse("2026-10-09T12:00:00.000Z");
+const signingPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+const privateJwk = await crypto.subtle.exportKey("jwk", signingPair.privateKey);
+const publicJwk = { ...(await crypto.subtle.exportKey("jwk", signingPair.publicKey)), kid: "gateway-test-key" };
+const trustedJwks = { keys: [publicJwk] };
+const evaluateVerificationGate = (args) => evaluateVerificationGateRaw({ ...args, policy: { trustedJwks, ...(args.policy || {}) } });
 const draft = "The service launched in 2024.";
 const claim = {
   id: "claim-1",
@@ -17,6 +23,15 @@ const claim = {
 };
 const supported = {
   lease_id: "ftl_test_123",
+  protocol: "ProofTTL/0.3.1",
+  claim: "The service launched in 2024.",
+  source_url: "https://example.com/launch",
+  issued_at: "2026-10-09T11:00:00.000Z",
+  ttl_seconds: 86400,
+  source_fingerprint: "sha256:0123456789abcdef",
+  confidence: 0.99,
+  verifier: "deterministic-exact-match",
+  proof_basis: "EXACT_TEXT",
   status: "SUPPORTED",
   issued_status: "SUPPORTED",
   current_status: "SUPPORTED",
@@ -26,6 +41,7 @@ const supported = {
   evidence: "The service launched in 2024.",
   signature_verified: true
 };
+await attachLeaseIssuanceSignature(supported, privateJwk, "gateway-test-key", supported.issued_at);
 const verifySupported = async () => ({ ...supported });
 
 async function run() {
@@ -39,14 +55,14 @@ async function run() {
 
   const unknown = await evaluateVerificationGate({
     draft, claims: [claim], inventoryComplete: true,
-    verifyClaim: async () => ({ ...supported, status: "UNKNOWN", current_status: "UNKNOWN" }), now
+    verifyClaim: async () => ({ ...supported, current_status: "UNKNOWN" }), now
   });
   assert(unknown.decision === "BLOCKED" && unknown.response === null, "UNKNOWN blocks release");
   assert(unknown.claims[0].verdict === "UNKNOWN", "UNKNOWN is preserved");
 
   const contradicted = await evaluateVerificationGate({
     draft, claims: [claim], inventoryComplete: true,
-    verifyClaim: async () => ({ ...supported, status: "CONTRADICTED", current_status: "CONTRADICTED" }), now
+    verifyClaim: async () => ({ ...supported, current_status: "CONTRADICTED" }), now
   });
   assert(contradicted.decision === "BLOCKED", "CONTRADICTED blocks release");
 
@@ -58,7 +74,7 @@ async function run() {
 
   const unsigned = await evaluateVerificationGate({
     draft, claims: [claim], inventoryComplete: true,
-    verifyClaim: async () => ({ ...supported, signature_verified: false }), now
+    verifyClaim: async () => ({ ...supported, signature: undefined, issued_attestation: undefined }), now
   });
   assert(unsigned.decision === "BLOCKED" && unsigned.claims[0].reason === "signed_lease_not_verified", "unsigned or unvalidated leases block by default");
 
