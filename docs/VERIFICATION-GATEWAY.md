@@ -100,3 +100,8 @@ The adapter and claim extractor names above are host-application interfaces, not
 - Treating model-generated claim extraction as guaranteed complete.
 - Making every creative, subjective, or conversational sentence require a paid source verification.
 - Treating a supported source as universal or permanent truth.
+
+
+## Cryptographic trust requirement
+
+`evaluateVerificationGate` requires `policy.trustedJwks` by default. `verifyClaim` must return the actual signed lease object (not a reduced object with a trust boolean). The gateway verifies its signature, requires exactly one trusted matching `kid`, rejects revoked IDs, and compares the signed claim and original source URL to the inventory item. Missing trusted keys, malformed signatures, unknown keys, revoked keys, and mismatched claims/sources block release.
