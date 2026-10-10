@@ -226,6 +226,30 @@ function getX402Middleware(env) {
 }
 
 async function validatePaidVerifyRequest(c, paymentResult) {
+  const signingRequired = String(c.env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true";
+  const signingConfiguredSomewhere = Boolean(
+    c.env.PROOFTTL_SIGNING_KEYRING_JSON ||
+    c.env.PROOFTTL_SIGNING_PRIVATE_JWK ||
+    c.env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK
+  );
+  if (signingRequired || signingConfiguredSomewhere) {
+    try {
+      const signing = signingConfigFromEnv(c.env);
+      if (!signing.active_private_jwk || !signing.active_kid) {
+        return c.json({
+          error: "lease_signing_unavailable",
+          message: "Required signing is unavailable; no paid verification was settled."
+        }, 503);
+      }
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "pre_settlement_signing_config_invalid", error: error?.name || "Error" }));
+      return c.json({
+        error: "lease_signing_unavailable",
+        message: "ProofTTL signing configuration is invalid; no paid verification was settled."
+      }, 503);
+    }
+  }
+
   let body;
   try {
     body = await c.req.raw.clone().json();
