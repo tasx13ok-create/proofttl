@@ -33,7 +33,7 @@ export default {
         endpoints: {
           health: "GET /health",
           verify: "POST /verify",
-          signing_keys: "GET /.well-known/proofttl-jwks.json",
+          signing_keys: "GET /.well-known/proofttl-keys.json",
           lease: "GET /lease/:id",
           reverify: "POST /lease/:id/reverify",
           monitor: "GET /monitor/status"
@@ -41,7 +41,7 @@ export default {
       });
     }
 
-    if (request.method === "GET" && url.pathname === "/.well-known/proofttl-jwks.json") {
+    if (request.method === "GET" && ["/.well-known/proofttl-jwks.json", "/.well-known/proofttl-keys.json"].includes(url.pathname)) {
       return handleSigningKeys(env);
     }
 
@@ -86,7 +86,7 @@ export default {
 };
 
 async function handleVerify(request, env) {
-  const signingKey = env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK;
+  const signingKey = (env.PROOFTTL_SIGNING_PRIVATE_JWK || env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK);
   const signingRequired = String(env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true";
   const signingConfigured = await canSignLease(signingKey);
   if ((signingRequired && !signingConfigured) || (signingKey && !signingConfigured)) {
@@ -225,7 +225,7 @@ async function canSignLease(value) {
 }
 
 async function handleSigningKeys(env) {
-  const privateJwk = env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK;
+  const privateJwk = (env.PROOFTTL_SIGNING_PRIVATE_JWK || env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK);
   const keyId = env.PROOFTTL_LEASE_SIGNING_KEY_ID || undefined;
   if (!signingIsConfigured(privateJwk)) {
     return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
