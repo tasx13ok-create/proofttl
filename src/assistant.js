@@ -1,4 +1,5 @@
 import { consumeAssistantQuota } from "./assistant-quota.js";
+import { gateAssistantDraft, RELEASE_GATE_BLOCKED_RESPONSE } from "./assistant-release-gate.js";
 import {
   DEFAULT_ASSISTANT_RESPONSE_MODEL,
   assistantModelRuntime,
@@ -182,11 +183,20 @@ export async function handleVoiceAssistant(request, env) {
     return aiCapacityResponse(transcript, quota);
   }
 
-  const finalText = responseText || proofTtlFallback();
+  const draftText = responseText || proofTtlFallback();
+  const releaseGate = await gateAssistantDraft({
+    draft: draftText,
+    lease: leaseGrounding?.signed_lease || null,
+    env
+  });
+  const finalText = releaseGate.decision === "ALLOW"
+    ? releaseGate.response
+    : RELEASE_GATE_BLOCKED_RESPONSE;
 
   return jsonResponse({
     transcript,
     response: finalText,
+    release_gate: { decision: releaseGate.decision, reason: releaseGate.reason, claims_checked: releaseGate.claims_checked, lease_id: releaseGate.lease_id },
     action: null,
     quota,
     love: loveCapability(quota, env),
@@ -264,7 +274,8 @@ async function resolveLeaseGrounding(message, env) {
       requested: true,
       found: true,
       lease_id: leaseId,
-      lease: compactLeaseContext(lease)
+      lease: compactLeaseContext(lease),
+      signed_lease: lease
     };
   } catch (error) {
     console.warn(JSON.stringify({ event: "assistant_voice_lease_grounding_failed", lease_id: leaseId, error: safeErrorName(error) }));
