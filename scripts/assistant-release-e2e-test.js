@@ -13,6 +13,8 @@ class MemoryKV {
 const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
 const privateJwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
 const claim = "The service launched in 2024.";
+const issuedAt = new Date(Date.now() - 60_000).toISOString();
+const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
 const lease = {
   lease_id: "ftl_0123456789abcdef",
   protocol: "ProofTTL/0.3.1",
@@ -23,9 +25,9 @@ const lease = {
   final_url: "https://example.com/launch",
   evidence: claim,
   reason: "Direct evidence match",
-  issued_at: "2026-10-09T11:00:00.000Z",
-  expires_at: "2026-10-09T13:00:00.000Z",
-  ttl_seconds: 7200,
+  issued_at: issuedAt,
+  expires_at: expiresAt,
+  ttl_seconds: 3600,
   source_fingerprint: "sha256:0123456789abcdef",
   confidence: 0.99,
   verifier: "deterministic-exact-match",
