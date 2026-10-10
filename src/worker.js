@@ -1,3 +1,4 @@
+import { handleProofTTLMcp } from "./mcp.js";
 import entry, { issuePublicMcpTestLease } from "./entry.js";
 import { handleVoiceAssistant, loveCapability } from "./assistant.js";
 import { handleTextAssistant } from "./assistant-text.js";
@@ -127,6 +128,7 @@ function isCredentialedProductPath(pathname) { return pathname.startsWith("/owne
 export default {
   async fetch(request, env, ctx) {
     const pathname = new URL(request.url).pathname;
+    if (pathname === "/mcp" || pathname === "/mcp/") return handleProofTTLMcp(request);
     if (pathname === DISCORD_INTERACTIONS_PATH) return handleDiscordInteractions(request, env, ctx);
     if (request.method === "GET" && pathname === "/") return renderLandingPage();
     if (request.method === "GET" && pathname === "/health") {
