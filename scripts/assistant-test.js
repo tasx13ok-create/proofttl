@@ -141,7 +141,8 @@ check("voice test tracks current Whisper transcription contract", () => {
   check("product question returns text with no navigation action", () => {
     assert.equal(response.status, 200);
     assert.equal(body.action, null);
-    assert.match(body.response, /REVOKED/);
+    assert.match(body.response, /active, signed Fact Lease/i);
+  assert.equal(body.release_gate?.decision, "BLOCKED");
   });
 }
 
@@ -158,8 +159,8 @@ check("voice test tracks current Whisper transcription contract", () => {
   const body = await response.json();
   check("ambiguous voice fragments fail into the ProofTTL-only capability boundary", () => {
     assert.equal(response.status, 200);
-    assert.match(body.response, /ProofTTL Fact Audits/i);
-    assert.match(body.response, /claims, evidence/i);
+    assert.match(body.response, /active, signed Fact Lease/i);
+    assert.equal(body.release_gate?.decision, "BLOCKED");
     assert.doesNotMatch(body.response, /general-purpose|Studio|Files|Automations|Money/i);
   });
 }
