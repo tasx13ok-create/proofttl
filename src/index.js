@@ -5,6 +5,8 @@ import {
   buildVerificationCostSample,
   normalizeAiUsage
 } from "./costs.js";
+import { attachLeaseIssuanceSignature, signingIsConfigured } from "./lease-signing.js";
+import { signingConfigFromEnv, publicSigningKeySet } from "./signing-keyring.js";
 
 const MODEL = SEMANTIC_MODEL;
 const SERVICE_VERSION = "0.3.1";
@@ -32,11 +34,16 @@ export default {
         endpoints: {
           health: "GET /health",
           verify: "POST /verify",
+          signing_keys: "GET /.well-known/proofttl-keys.json",
           lease: "GET /lease/:id",
           reverify: "POST /lease/:id/reverify",
           monitor: "GET /monitor/status"
         }
       });
+    }
+
+    if (request.method === "GET" && ["/.well-known/proofttl-jwks.json", "/.well-known/proofttl-keys.json"].includes(url.pathname)) {
+      return handleSigningKeys(env);
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
@@ -80,6 +87,20 @@ export default {
 };
 
 async function handleVerify(request, env) {
+  let signingConfig;
+  try {
+    signingConfig = signingConfigFromEnv(env);
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "signing_keyring_invalid", error: error?.name || "Error" }));
+    return json({ error: "lease_signing_unavailable", message: "ProofTTL signing configuration is invalid." }, 503);
+  }
+  const signingKey = signingConfig.active_private_jwk || (env.PROOFTTL_SIGNING_PRIVATE_JWK || env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK);
+  const signingKeyId = signingConfig.active_kid || (env.PROOFTTL_SIGNING_KEY_ID || env.PROOFTTL_LEASE_SIGNING_KEY_ID);
+  const signingRequired = String(env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true";
+  const signingConfigured = await canSignLease(signingKey);
+  if ((signingRequired && !signingConfigured) || (signingKey && !signingConfigured)) {
+    return json({ error: "lease_signing_unavailable", message: "Signed lease issuance is required or configured, but the signing key is unusable." }, 503);
+  }
   let body;
   try {
     body = await request.json();
@@ -160,6 +181,7 @@ async function handleVerify(request, env) {
     protocol: PROTOCOL,
     claim,
     status: verdict.status,
+    issued_status: verdict.status,
     source_url: parsed.toString(),
     final_url: fetched.finalUrl,
     evidence: verdict.evidence,
@@ -182,8 +204,55 @@ async function handleVerify(request, env) {
     next_check_at: nextCheckTime(observedAt.getTime(), monitorIntervalSeconds, expiresAt.getTime())
   };
 
+  if (signingKey) {
+    try {
+      await attachLeaseIssuanceSignature(
+        lease,
+        signingKey,
+        signingKeyId || undefined,
+        observedAt.toISOString()
+      );
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "lease_signing_failed", error: error?.name || "Error" }));
+      return json({ error: "lease_signing_failed", message: "ProofTTL could not safely sign this lease." }, 503);
+    }
+  }
+
   await saveLease(env, lease);
   return json(lease);
+}
+
+async function canSignLease(value) {
+  if (!signingIsConfigured(value)) return false;
+  try {
+    const jwk = typeof value === "string" ? JSON.parse(value) : value;
+    await crypto.subtle.importKey("jwk", jwk, { name: "Ed25519" }, false, ["sign"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function handleSigningKeys(env) {
+  try {
+    const keySet = publicSigningKeySet(env);
+    if (!keySet.keys.length || !keySet.active_kid) {
+      return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
+    }
+    for (const key of keySet.keys) {
+      await crypto.subtle.importKey("jwk", key, { name: "Ed25519" }, false, ["verify"]);
+    }
+    return json({
+      keys: keySet.keys,
+      active_kid: keySet.active_kid,
+      revoked_kids: keySet.revoked_kids,
+      signature_version: "proofttl-ed25519-v1",
+      attestation_version: "proofttl-issuance-v1"
+    }, 200, { "cache-control": "public, max-age=60, stale-while-revalidate=30" });
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "signing_key_publication_failed", error: error?.name || "Error" }));
+    return json({ error: "signing_keys_unavailable", keys: [] }, 503, { "cache-control": "no-store" });
+  }
 }
 
 async function handleLeaseGet(id, env) {

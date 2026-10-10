@@ -42,7 +42,8 @@ async function run() {
 
   const leaseStore = await text("src/lease-store.js");
   assert(leaseStore.includes("attachLeaseEventSignatures"), "Lease persistence signs monitoring history");
-  assert(leaseStore.includes("attachLeaseIssuanceSignature"), "Lease persistence signs issuance attestation");
+  assert(!leaseStore.includes("attachLeaseIssuanceSignature"), "Lease persistence never back-signs legacy issuance records");
+  assert(leaseStore.includes("Never back-sign an unsigned legacy lease"), "legacy issuance provenance is preserved");
 
   const textAssistant = await text("src/assistant-text.js");
   assert(textAssistant.includes("lease_grounding"), "text L.O.V.E. returns Lease-grounding metadata");

@@ -96,6 +96,8 @@ export async function verifyLeaseIssuanceSignature(lease, publicJwkInput = null)
   if (!lease?.issued_attestation || !lease?.signature?.value) return false;
   if (lease.signature.algorithm !== "Ed25519") return false;
   if (lease.signature.version !== LEASE_SIGNATURE_VERSION) return false;
+  if (lease.signature.signed_payload !== "issued_attestation") return false;
+  if (typeof lease.signature.key_id !== "string" || !lease.signature.key_id.trim()) return false;
 
   const publicJwk = publicJwkInput
     ? parsePublicJwk(publicJwkInput)
@@ -135,6 +137,20 @@ export function publicSigningJwk(privateJwkInput, keyId = DEFAULT_SIGNING_KEY_ID
     use: "sig",
     kid: normalizeKeyId(keyId)
   };
+}
+
+export async function verifyLeaseAgainstTrustedJwks(lease, jwks, revokedKeyIds = []) {
+  const keyId = typeof lease?.signature?.key_id === "string" ? lease.signature.key_id : "";
+  if (!keyId || !Array.isArray(revokedKeyIds) || revokedKeyIds.includes(keyId)) return false;
+  const keys = Array.isArray(jwks) ? jwks : jwks?.keys;
+  if (!Array.isArray(keys)) return false;
+  const matches = keys.filter((key) => key?.kid === keyId);
+  if (matches.length !== 1) return false;
+  try {
+    return await verifyLeaseIssuanceSignature(lease, matches[0]);
+  } catch {
+    return false;
+  }
 }
 
 export function signingIsConfigured(privateJwkInput) {

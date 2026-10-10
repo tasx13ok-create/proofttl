@@ -21,10 +21,7 @@ import {
   createLeaseStoreBinding,
   reconcileMonitorScheduleFromKv
 } from "./lease-store.js";
-import {
-  attachLeaseIssuanceSignature,
-  publicSigningJwk
-} from "./lease-signing.js";
+import { signingConfigFromEnv, publicSigningKeySet } from "./signing-keyring.js";
 
 const PAY_TO = "0x29949a066902bd329F74479c9AEBC448100955d8";
 const X402_NETWORK = "eip155:84532";
@@ -154,7 +151,7 @@ app.all("*", async (c) => {
   const isLeaseRead = c.req.method === "GET" && /^\/lease\/[^/]+$/.test(pathname);
 
   if (!isVerifyResponse && !isLeaseRead) return response;
-  return enrichLeaseVerdictSemantics(response, isVerifyResponse ? c.env : null);
+  return enrichLeaseVerdictSemantics(response);
 });
 
 export default {
@@ -194,7 +191,7 @@ export async function issuePublicMcpTestLease(env) {
   });
 
   const response = await core.fetch(request, envForCore(env));
-  return enrichLeaseVerdictSemantics(response, env);
+  return enrichLeaseVerdictSemantics(response);
 }
 
 function getX402Middleware(env) {
@@ -225,6 +222,37 @@ function getX402Middleware(env) {
 }
 
 async function validatePaidVerifyRequest(c, paymentResult) {
+  const signingRequired = String(c.env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true";
+  const signingConfiguredSomewhere = Boolean(
+    c.env.PROOFTTL_SIGNING_KEYRING_JSON ||
+    c.env.PROOFTTL_SIGNING_PRIVATE_JWK ||
+    c.env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK
+  );
+  if (signingRequired || signingConfiguredSomewhere) {
+    try {
+      const signing = signingConfigFromEnv(c.env);
+      if (!signing.active_private_jwk || !signing.active_kid) {
+        return c.json({
+          error: "lease_signing_unavailable",
+          message: "Required signing is unavailable; no paid verification was settled."
+        }, 503);
+      }
+      await crypto.subtle.importKey(
+        "jwk",
+        typeof signing.active_private_jwk === "string" ? JSON.parse(signing.active_private_jwk) : signing.active_private_jwk,
+        { name: "Ed25519" },
+        false,
+        ["sign"]
+      );
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "pre_settlement_signing_config_invalid", error: error?.name || "Error" }));
+      return c.json({
+        error: "lease_signing_unavailable",
+        message: "ProofTTL signing configuration is invalid; no paid verification was settled."
+      }, 503);
+    }
+  }
+
   let body;
   try {
     body = await c.req.raw.clone().json();
@@ -309,11 +337,20 @@ function envForCore(env, monitorNow = null) {
   }
 
   if (env.LEASES) {
+    let signingConfig = { active_private_jwk: env.PROOFTTL_SIGNING_PRIVATE_JWK || null, active_kid: env.PROOFTTL_SIGNING_KEY_ID || undefined };
+    try {
+      signingConfig = signingConfigFromEnv(env);
+    } catch (error) {
+      console.error(JSON.stringify({ event: "signing_keyring_invalid", error: error?.name || "Error" }));
+      if (String(env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true") {
+        throw new Error("required_signing_keyring_invalid");
+      }
+    }
     Object.defineProperty(routed, "LEASES", {
       value: createLeaseStoreBinding(env.LEASES, env.MONITOR_DB, {
         monitorNow,
-        signingPrivateJwk: env.PROOFTTL_SIGNING_PRIVATE_JWK,
-        signingKeyId: env.PROOFTTL_SIGNING_KEY_ID
+        signingPrivateJwk: signingConfig.active_private_jwk,
+        signingKeyId: signingConfig.active_kid
       }),
       enumerable: true,
       configurable: false,
@@ -332,29 +369,19 @@ function machineJson(c, value) {
 
 function signingKeysForEnv(env) {
   try {
-    const key = publicSigningJwk(
-      env?.PROOFTTL_SIGNING_PRIVATE_JWK,
-      env?.PROOFTTL_SIGNING_KEY_ID
-    );
+    const keySet = publicSigningKeySet(env);
     return {
       service: "ProofTTL",
-      signing_enabled: Boolean(key),
+      signing_enabled: Boolean(keySet.active_kid && keySet.keys.length),
+      active_kid: keySet.active_kid,
+      revoked_kids: keySet.revoked_kids,
       signature_version: "proofttl-ed25519-v1",
       attestation_version: "proofttl-issuance-v1",
-      keys: key ? [key] : []
+      keys: keySet.keys
     };
   } catch (error) {
-    console.error(JSON.stringify({
-      event: "lease_signing_key_discovery_failed",
-      error: error?.message || String(error)
-    }));
-    return {
-      service: "ProofTTL",
-      signing_enabled: false,
-      signature_version: "proofttl-ed25519-v1",
-      attestation_version: "proofttl-issuance-v1",
-      keys: []
-    };
+    console.error(JSON.stringify({ event: "lease_signing_key_discovery_failed", error: error?.name || "Error" }));
+    return { service: "ProofTTL", signing_enabled: false, signature_version: "proofttl-ed25519-v1", attestation_version: "proofttl-issuance-v1", keys: [] };
   }
 }
 
@@ -375,7 +402,7 @@ function discoveryForEnv(env) {
   };
 }
 
-async function enrichLeaseVerdictSemantics(response, signingEnv = null) {
+async function enrichLeaseVerdictSemantics(response) {
   if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
     return response;
   }
@@ -401,22 +428,6 @@ async function enrichLeaseVerdictSemantics(response, signingEnv = null) {
     issued_status: issuedStatus,
     current_status: currentStatus
   };
-
-  if (signingEnv?.PROOFTTL_SIGNING_PRIVATE_JWK && !enriched.signature) {
-    try {
-      await attachLeaseIssuanceSignature(
-        enriched,
-        signingEnv.PROOFTTL_SIGNING_PRIVATE_JWK,
-        signingEnv.PROOFTTL_SIGNING_KEY_ID
-      );
-    } catch (error) {
-      console.error(JSON.stringify({
-        event: "lease_response_signing_failed",
-        lease_id: enriched.lease_id,
-        error: error?.message || String(error)
-      }));
-    }
-  }
 
   return new Response(JSON.stringify(enriched, null, 2), {
     status: response.status,

@@ -82,6 +82,7 @@
     "PROOFTTL_PASSKEY_RP_ID": "proofttl-web.vercel.app",
     "PROOFTTL_PASSKEY_ORIGIN": "https://proofttl-web.vercel.app",
     "PROOFTTL_SIGNING_KEY_ID": "proofttl-testnet-2026-01",
+    "PROOFTTL_REQUIRE_SIGNED_LEASES": "true",
     "PROOFTTL_WEB_URL": "https://proofttl-web.vercel.app"
   }
 }

@@ -1,0 +1,36 @@
+name: Verification gateway
+
+on:
+  pull_request:
+    paths:
+      - "src/verification-gateway.js"
+      - "scripts/verification-gateway-test.js"
+      - "docs/VERIFICATION-GATEWAY.md"
+      - "package.json"
+      - ".github/workflows/verification-gateway.yml"
+  push:
+    branches:
+      - main
+      - feat/mandatory-verification-gateway
+    paths:
+      - "src/verification-gateway.js"
+      - "scripts/verification-gateway-test.js"
+      - "docs/VERIFICATION-GATEWAY.md"
+      - "package.json"
+      - ".github/workflows/verification-gateway.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verification-gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run verification gateway regression tests
+        run: node scripts/verification-gateway-test.js

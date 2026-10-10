@@ -2,7 +2,7 @@ import {
   createLeaseStoreBinding,
   reconcileMonitorScheduleFromKv
 } from "../src/lease-store.js";
-import { verifyLeaseIssuanceSignature } from "../src/lease-signing.js";
+import { attachLeaseIssuanceSignature, verifyLeaseIssuanceSignature } from "../src/lease-signing.js";
 
 let passed = 0;
 
@@ -174,6 +174,7 @@ async function run() {
     signingKeyId: "proofttl-test-key"
   });
   const signableLease = makeLease("ftl_signed", base);
+  await attachLeaseIssuanceSignature(signableLease, signingPrivateJwk, "proofttl-test-key", signableLease.issued_at);
   await signedStore.put(`lease:${signableLease.lease_id}`, JSON.stringify(signableLease));
   const storedSignedLease = JSON.parse(kvSigned.entries.get("lease:ftl_signed"));
   assert(storedSignedLease.signature?.algorithm === "Ed25519", "KV adapter persists Ed25519 signature envelope");
@@ -182,6 +183,11 @@ async function run() {
     await verifyLeaseIssuanceSignature(storedSignedLease, signingPublicJwk),
     "stored Fact Lease signature verifies with public key"
   );
+
+  const legacyLease = makeLease("ftl_legacy_unsigned", base);
+  await signedStore.put(`lease:${legacyLease.lease_id}`, JSON.stringify(legacyLease));
+  const storedLegacyLease = JSON.parse(kvSigned.entries.get(`lease:${legacyLease.lease_id}`));
+  assert(!storedLegacyLease.signature, "legacy unsigned lease is never back-signed during a later store update");
 
   const shardChars = "0123456789abcdef";
   const expectedShard = shardChars[
