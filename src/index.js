@@ -33,6 +33,7 @@ export default {
         endpoints: {
           health: "GET /health",
           verify: "POST /verify",
+          signing_keys: "GET /.well-known/proofttl-jwks.json",
           lease: "GET /lease/:id",
           reverify: "POST /lease/:id/reverify",
           monitor: "GET /monitor/status"
@@ -85,6 +86,11 @@ export default {
 };
 
 async function handleVerify(request, env) {
+  const signingKey = env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK;
+  const signingRequired = String(env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true";
+  if (signingRequired && !signingIsConfigured(signingKey)) {
+    return json({ error: "lease_signing_unavailable", message: "Signed lease issuance is required but signing is not configured." }, 503);
+  }
   let body;
   try {
     body = await request.json();
@@ -165,6 +171,7 @@ async function handleVerify(request, env) {
     protocol: PROTOCOL,
     claim,
     status: verdict.status,
+    issued_status: verdict.status,
     source_url: parsed.toString(),
     final_url: fetched.finalUrl,
     evidence: verdict.evidence,
@@ -187,11 +194,6 @@ async function handleVerify(request, env) {
     next_check_at: nextCheckTime(observedAt.getTime(), monitorIntervalSeconds, expiresAt.getTime())
   };
 
-  const signingKey = env.PROOFTTL_LEASE_SIGNING_PRIVATE_JWK;
-  const signingRequired = String(env.PROOFTTL_REQUIRE_SIGNED_LEASES || "").toLowerCase() === "true";
-  if (signingRequired && !signingIsConfigured(signingKey)) {
-    return json({ error: "lease_signing_unavailable", message: "Signed lease issuance is required but signing is not configured." }, 503);
-  }
   if (signingKey) {
     try {
       await attachLeaseIssuanceSignature(
