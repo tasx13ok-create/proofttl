@@ -51,4 +51,4 @@ assert.equal(mismatchedDiscovery.body.capabilities.includes("ed25519_issuance_si
 
 const absent = await getJson("/.well-known/proofttl-keys.json", { PROOFTTL_REQUIRE_SIGNED_LEASES: "true" });
 assert.equal(absent.body.signing_enabled, false, "missing signing key fails closed");
-console.log("signing readiness: 12 checks passed");
+console.log("signing readiness: 14 checks passed");
