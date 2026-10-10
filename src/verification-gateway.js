@@ -52,6 +52,9 @@ async function normalizeResult(result, claim, nowMs, requireSignedLease, require
   if (verdict !== "SUPPORTED") {
     return { ok: false, verdict, reason: "claim_not_supported" };
   }
+  if (requireSignedLease && normalizeText(signedLease?.issued_status).toUpperCase() !== "SUPPORTED") {
+    return { ok: false, verdict, reason: "signed_lease_issued_verdict_not_supported" };
+  }
   if (leaseState !== "ACTIVE") {
     return { ok: false, verdict, reason: "lease_not_active" };
   }
